@@ -2,7 +2,7 @@
 
 from sqlalchemy import (
     create_engine, MetaData, Table, Column,
-    Integer, String, Date, Boolean, PrimaryKeyConstraint
+    Integer, String, Date, Boolean, PrimaryKeyConstraint, Float
 )
 from config.config import DB_URI
 
@@ -58,6 +58,16 @@ def initialize_database():
         Column('T2',           String),
         Column('RunTime',      String),
         #PrimaryKeyConstraint('athlete_id', 'EventID', 'TotalTime', name='pk_race_results')
+    )
+
+    Table(
+        'athlete_rankings', metadata,
+        Column('athlete_id',      Integer, nullable=False),
+        Column('ranking_cat_id',  Integer, nullable=False),
+        Column('rank_position',   Integer, nullable=False),
+        Column('total_points',    Float,   nullable=False),
+        Column('retrieved_at',    Date,    nullable=False),
+        PrimaryKeyConstraint('athlete_id','ranking_cat_id','retrieved_at', name='pk_athlete_rankings')
     )
 
     metadata.create_all(engine)
