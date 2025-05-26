@@ -40,26 +40,26 @@ Predict a given athlete's result in their next event.
 - Age at race date
 
 **Event Features:**
-- Distance category (Sprint, Standard, Super-Sprint, Relay)
-- Time of year (month, ISO week)
-- Location metadata (continent, climate zone)
+- Distance category (Sprint, Standard, Super-Sprint, Relay): have
+- Time of year (month, ISO week): have
+- Location metadata (continent, climate zone): have some
 - Venue Characteristics (if available):
-  - Elevation gain/loss
-  - Swim type (open-water vs. pool)
+  - Elevation gain/loss: don't currently have
+  - Swim type (open-water vs. pool): don't currently have
 
 **Temporal/Contextual:**
-- Days since last race (fatigue metric)
-- Days until a marquee competition (peaking indicator)
+- Days since last race (fatigue metric): have
+- Days until a marquee competition (peaking indicator): don't have
 - Interactions:
   - Age × average_speed
   - Variability in finish times
 
-## 6. Label Creation
+## 6. Label Creation - Completed 
 
 - Group by `athlete_id`, use `.shift(-1)` to attach next-race labels
 - Drop final record per athlete to create `df_model`
 
-## 7. Modeling Roadmap
+## 7. Modeling Roadmap - In process
 
 - Train/test split with GroupKFold (temporal per athlete)
 - Baseline models: LinearRegression, RandomForest, GradientBoosting
