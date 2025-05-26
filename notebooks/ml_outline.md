@@ -1,134 +1,126 @@
-Machine Learning Prediction Outline for Triathlon
+# Machine Learning Prediction Outline for Triathlon
 
-1. Define the Prediction Task
+## 1. Define the Prediction Task
 
-Target variable(s):
-Finish time (continuous regression)
+**Target variable(s):**
+- Finish time (continuous regression)
+- Finish position (ordinal classification)
 
-Finish position (ordinal classification)
-
-Scope:
-
+**Scope:**  
 Predict a given athlete's result in their next event.
 
-2. Assemble & Label Training Data
+## 2. Assemble & Label Training Data
 
-Historic Results
+- **Historic Results:**  
+  Join `race_results` fact table with `events` (event_date, distance category) and `athlete` (age at race, gender, country).  
+  Optionally filter to a specific subset (e.g. Elite standard-distance races).
 
-Join race_results fact table with events (event_date, distance category) and athlete (age at race, gender, country).
+- **Next-Race Labeling:**  
+  For each athlete, sort races by date and shift finish time/position forward by one.  
+  Drop the final race for each athlete (no "next" label).
 
-Optionally filter to a specific subset (e.g. Elite standard-distance races).
+## 3. Database & ETL Pipeline
 
-Next-Race Labeling
+- PostgreSQL schema: athlete (dimension), events (dimension), race_results (fact)
+- `master_data_import.py` for full loads
+- `update_race_results.py` for incremental upserts
+- SQLAlchemy for schema management, concurrency for API calls, batched inserts via `to_sql(method='multi')`
 
-For each athlete, sort races by date and shift finish time/position forward by one.
+## 4. Data Cleaning & Transformation
 
-Drop the final race for each athlete (no "next" label).
+- Separated DNF/DNS into valid vs. all datasets
+- Parsed race_type, distance, event_mode from event specifications
+- Converted times to seconds, computed days_since_last, calculated athlete age
 
-3. Feature Engineering
+## 5. Feature Engineering
 
-Athlete Features:
+**Athlete Features:**
+- Rolling averages (last 3–5 finishes times (distance specific and global), positions)
+- Total races in past 6–12 months
+- Age at race date
 
-Rolling averages (last 3–5 finishes times, positions)
+**Event Features:**
+- Distance category (Sprint, Standard, Super-Sprint, Relay)
+- Time of year (month, ISO week)
+- Location metadata (continent, climate zone)
+- Venue Characteristics (if available):
+  - Elevation gain/loss
+  - Swim type (open-water vs. pool)
 
-Total races in past 6–12 months
+**Temporal/Contextual:**
+- Days since last race (fatigue metric)
+- Days until a marquee competition (peaking indicator)
+- Interactions:
+  - Age × average_speed
+  - Variability in finish times
 
-Age at race date
+## 6. Label Creation
 
-Event Features:
+- Group by `athlete_id`, use `.shift(-1)` to attach next-race labels
+- Drop final record per athlete to create `df_model`
 
-Distance category (Sprint, Standard, Super-Sprint, Relay)
+## 7. Modeling Roadmap
 
-Time of year (month, ISO week)
+- Train/test split with GroupKFold (temporal per athlete)
+- Baseline models: LinearRegression, RandomForest, GradientBoosting
+- Evaluation metrics: MAE/RMSE for time, accuracy/top-N accuracy for position
 
-Location metadata (continent, climate zone)
+## 8. Modular Preprocessing Pipeline
 
-Venue Characteristics (if available):
+- Use `ColumnTransformer` for numeric imputation & scaling
+- One-hot or target encoding for categoricals
+- Wrap all steps in an `sklearn.Pipeline` for reproducibility and hyperparameter search
 
-Elevation gain/loss
+## 9. ETL Robustness & Metadata Tracking
 
-Swim type (open-water vs. pool)
+- Add metadata table to track last processed event_date or event_id per category
+- Centralize DB connection and introduce structured logging
+- Ensure idempotent, auditable incremental updates
 
-Temporal/Contextual:
+## 10. Outlier & Missing-Value Handling
 
-Days since last race (fatigue metric)
+- Impute missing split times (median or KNN) and flag imputed rows
+- Clip or remove extreme finish times beyond 3σ to stabilize training
 
-Days until a marquee competition (peaking indicator)
+## 11. Cross-Validation & Grouping Strategy
 
-Interactions:
+- Implement GroupKFold by athlete_id with temporal splits
+- Nest hyperparameter tuning inside the group-aware CV loop to avoid leakage
 
-Age × average_speed, variability in finish times
+## 12. Additional Data Sources
 
-4. Model Selection & Baseline
+- Weather: temperature, humidity, wind speed
+- Course profile: elevation gain/loss
+- Athlete training load (e.g., Strava API)
+- Injury history or recent DNFs
+- Equipment details (bike, wetsuit)
+- Field strength (average competitor ranking)
 
-Exploratory Data Analysis (EDA)
+## 13. Two-Phase Workflow (Notebook → Production)
 
-Distributions of finish times
+- Exploratory prototyping in Jupyter (EDA, quick feature tests)
+- Refactor code into modules (`features.py`, `models.py`)
+- Parameterize via config files or CLI arguments
+- Automate end-to-end via scripts scheduled with cron/CI/CD
 
-Correlations between features and targets
+## 14. Learning Resources
 
-Baseline Models
+- DataCamp modules on ML fundamentals and scikit-learn pipelines
+- [scikit-learn official tutorials](https://scikit-learn.org/stable/tutorial)
+- Coursera: Andrew Ng’s Machine Learning; University of Michigan’s Applied ML in Python
+- Kaggle Learn micro-courses on Pandas, ML, and pipelines
+- Book: Géron’s *Hands-On Machine Learning with Scikit-Learn, Keras, and TensorFlow*
 
-Linear Regression / Ridge / Lasso for time
+## 15. Next Immediate Steps
 
-Ordinal Logistic or Random Forest for position
+1. Enroll in a foundational ML course and complete scikit-learn pipeline tutorials
+2. Prototype a baseline regression pipeline in Jupyter using ColumnTransformer
+3. Implement GroupKFold temporal splits and evaluate baseline performance
+4. Extract code into modular scripts and create a standalone CLI entry-point
+5. Set up a scheduled job (cron or CI) for ETL + model inference writing to PostgreSQL
+6. Integrate the predictions table into Power BI for live dashboards
 
-Advanced Models
+---
 
-Gradient Boosted Trees (XGBoost, LightGBM)
+This outline will guide iterative development and production deployment of next-race performance prediction models.
 
-Neural Networks (if ample data)
-
-5. Training Pipeline
-
-Split Strategy:
-
-Chronological or grouped by athlete (no leakage)
-
-Cross-Validation:
-
-Group K-fold by athlete_id
-
-Preprocessing:
-
-Scaling numeric features
-
-Encoding categorical variables
-
-Hyperparameter Tuning via grid/random search
-
-6. Evaluation & Metrics
-
-Regression: MAE (minutes), RMSE
-
-Classification: Top-N accuracy, confusion matrix
-
-Calibration: Predicted vs. actual scatter plots
-
-7. Deployment & Iteration
-
-Pipeline Script/Notebook:
-
-Query fresh data via SQLAlchemy
-
-Train or load persisted model (joblib)
-
-Output predictions into a new database table
-
-Visualization: Integrate predictions table into Power BI
-
-8. Additional Data Sources
-
-Weather (temperature, humidity, wind)
-
-Course profile (elevation)
-
-Athlete training data (e.g. Strava API)
-
-Injury history or recent DNFs
-
-Equipment details (wetsuit use, bike type)
-
-Field strength (average ranking of competitors)
-
-This outline will guide the implementation of a next-race performance prediction model based on athlete and event data.
