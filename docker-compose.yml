@@ -1,4 +1,3 @@
-version: "3.9"
 services:
   db:
     image: postgres:15
@@ -20,8 +19,9 @@ services:
     volumes:
       - .:/app
     environment:
-      # point to the db service
       DB_URI: postgresql+psycopg2://postgres:postgres@db:5432/triathlon_results
       TRI_API_KEY: ${TRI_API_KEY}
-    # run your full import on startup; override for manual/incremental
     command: ["python", "main.py", "1"]
+
+volumes:
+  db_data:

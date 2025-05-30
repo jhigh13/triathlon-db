@@ -20,5 +20,8 @@ EVENT_DETAILS_URL    = f"{BASE_URL}/events/{{event_id}}"
 PROGRAM_RESULTS_URL  = f"{BASE_URL}/programs/{{program_id}}/results"
 
 # Database
-DB_URI               = "postgresql+psycopg2://postgres:Bc020406!@localhost:5432/triathlon_results"
+DB_URI = os.environ.get(
+    "DB_URI",
+    "postgresql+psycopg2://postgres:Bc020406!@localhost:5432/triathlon_results"
+)
 DATABASE_TABLE       = "race_results"
