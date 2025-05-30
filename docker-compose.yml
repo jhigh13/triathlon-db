@@ -1,0 +1,27 @@
+version: "3.9"
+services:
+  db:
+    image: postgres:15
+    container_name: triathlon-db-postgres
+    environment:
+      POSTGRES_DB: triathlon_results
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  etl:
+    build: .
+    container_name: triathlon-db-etl
+    depends_on:
+      - db
+    volumes:
+      - .:/app
+    environment:
+      # point to the db service
+      DB_URI: postgresql+psycopg2://postgres:postgres@db:5432/triathlon_results
+      TRI_API_KEY: ${TRI_API_KEY}
+    # run your full import on startup; override for manual/incremental
+    command: ["python", "main.py", "1"]
