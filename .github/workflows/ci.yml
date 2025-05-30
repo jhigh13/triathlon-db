@@ -34,6 +34,7 @@ jobs:
     - name: Run tests & collect coverage (PowerShell)
       shell: pwsh
       run: |
+        $env:PYTHONPATH="${{ github.workspace }}"
         pytest --maxfail=1 --disable-warnings -q --cov=. --cov-report=xml
 
     - name: Upload coverage to Coveralls
