@@ -32,7 +32,7 @@ def initialize_database():
         Column('athlete_id',         Integer, primary_key=True),
         Column('full_name',          String),
         Column('gender',             String),
-        Column('country_name',       String),
+        Column('country',            String),
         Column('age',                Integer),
         Column('category_to',        Boolean),
         Column('category_coach',     Boolean),
