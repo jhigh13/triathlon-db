@@ -1,48 +1,43 @@
-name: Weekly ETL Refresh
+# .github/workflows/refresh.yml
+name: Weekly Refresh Test
 
-# ────────────────
-# 1. Triggers
-# ────────────────
 on:
+  workflow_dispatch:
   schedule:
-    # 03:00 UTC every Sunday (cron format: min hr day-of-month month day-of-week)
-    - cron: "0 3 * * 0"
-  workflow_dispatch: {}     # manual “Run workflow” button
+    - cron: '0 8 * * 1'   # every Monday @ 08:00 UTC
 
-# ────────────────
-# 2. Job matrix
-# ────────────────
 jobs:
-  refresh:
+  etl-refresh:
     runs-on: ubuntu-latest
+
     env:
-      # Pull TRI_API_KEY from repo → Settings → Secrets → Actions
+      DB_PASS: ${{ secrets.DB_PASS }}
       TRI_API_KEY: ${{ secrets.TRI_API_KEY }}
 
     steps:
-    # 2.1 Check out current code
-    - uses: actions/checkout@v3
+      - name: Check out repository
+        uses: actions/checkout@v3
 
-    # 2.2 Enable Docker Buildx (lets GH cache layers & build multi-arch)
-    - uses: docker/setup-buildx-action@v3
+      - name: Set up Docker Compose
+        uses: docker/setup-compose-action@v2
 
-    # 2.3 Pull latest Postgres image (tiny net hit, ensures security patches)
-    - name: Pull db image
-      run: docker pull postgres:15
+      - name: Build & Start Postgres (db)
+        run: |
+          docker compose up -d db
 
-    # 2.4 Build ETL image (cache will skip unchanged layers)
-    - name: Build ETL image
-      run: docker compose build etl
+      - name: Wait for Postgres to be ready
+        run: |
+          for i in {1..15}; do
+            docker compose exec db pg_isready -U postgres -d triathlon_results && break
+            echo "Waiting for Postgres… ($i/15)"
+            sleep 2
+          done
 
-    # 2.5 One-off incremental import (option 2)    
-    - name: Run incremental ETL
-      run: |
-        docker compose run --rm etl python main.py 2
+      - name: Run ETL job
+        run: |
+          docker compose run --rm etl python main.py 2
 
-    # 2.6 (Optional) Push logs as a workflow artifact
-    - name: Upload ETL log
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: etl-log
-        path: /home/runner/.docker/containers
+      - name: Tear down containers
+        if: ${{ always() }}
+        run: |
+          docker compose down

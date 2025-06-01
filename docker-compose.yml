@@ -1,3 +1,5 @@
+version: '3.9'
+
 services:
   db:
     image: postgres:15
@@ -5,7 +7,7 @@ services:
     environment:
       POSTGRES_DB: triathlon_results
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD: ${DB_PASS}     # <- Must match your actual DB password
     volumes:
       - db_data:/var/lib/postgresql/data
     ports:
@@ -19,8 +21,8 @@ services:
     volumes:
       - .:/app
     environment:
-      DB_URI: postgresql+psycopg2://postgres:postgres@db:5432/triathlon_results
-      TRI_API_KEY: ${TRI_API_KEY}
+      DB_URI: postgresql+psycopg2://postgres:${DB_PASS}@db:5432/triathlon_results
+      TRI_API_KEY: ${TRI_API_KEY}        # <- Must match your real TRI API key
     command: ["python", "main.py", "1"]
 
 volumes:
