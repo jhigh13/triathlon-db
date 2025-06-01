@@ -1,0 +1,48 @@
+name: Weekly ETL Refresh
+
+# ────────────────
+# 1. Triggers
+# ────────────────
+on:
+  schedule:
+    # 03:00 UTC every Sunday (cron format: min hr day-of-month month day-of-week)
+    - cron: "0 3 * * 0"
+  workflow_dispatch: {}     # manual “Run workflow” button
+
+# ────────────────
+# 2. Job matrix
+# ────────────────
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    env:
+      # Pull TRI_API_KEY from repo → Settings → Secrets → Actions
+      TRI_API_KEY: ${{ secrets.TRI_API_KEY }}
+
+    steps:
+    # 2.1 Check out current code
+    - uses: actions/checkout@v3
+
+    # 2.2 Enable Docker Buildx (lets GH cache layers & build multi-arch)
+    - uses: docker/setup-buildx-action@v3
+
+    # 2.3 Pull latest Postgres image (tiny net hit, ensures security patches)
+    - name: Pull db image
+      run: docker pull postgres:15
+
+    # 2.4 Build ETL image (cache will skip unchanged layers)
+    - name: Build ETL image
+      run: docker compose build etl
+
+    # 2.5 One-off incremental import (option 2)    
+    - name: Run incremental ETL
+      run: |
+        docker compose run --rm etl python main.py 2
+
+    # 2.6 (Optional) Push logs as a workflow artifact
+    - name: Upload ETL log
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: etl-log
+        path: /home/runner/.docker/containers
