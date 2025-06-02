@@ -113,7 +113,15 @@ LIMIT 10;
 
 > *Expected result*: 10 rows, columns: `athlete_name | event_name | swim_time`.
 
-A Power BI report with interactive tabs (World Triathlon Series, Athlete Overview, etc.) will be publicly embedded **(local only for now – open `reports/triathlon_dashboard.pbix` in Power BI Desktop)**
+## Power BI Report: WTO_Report
+
+I have included both the raw `.pbix` and a static PDF export below.
+
+- **Download the PBIX file** (requires Power BI Desktop):  
+  [WTO_Report.pbix](docs/WTO_Report.pbix)
+
+- **View the PDF in‐browser** (no download needed):  
+  [▶ View Static Report (PDF)](https://jhigh13.github.io/triathlon-db/WTO_Report.pdf)
 
 ---
 
