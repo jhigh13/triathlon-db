@@ -65,11 +65,16 @@ def import_master_data():
     print("Building event and fact tables...")
     events_df, fact_df = build_event_and_fact_tables(race_results_df)
 
+    # Remove duplicates from fact_df based on unique constraint
+    before = len(fact_df)
+    fact_df = fact_df.drop_duplicates(subset=["athlete_id", "EventID", "TotalTime"])
+    after = len(fact_df)
+    print(f"Removed {before - after} duplicate rows from race_results (kept {after}).")
+
     print("Saving tables to database...")
 
     with engine.begin() as conn:
         conn.exec_driver_sql("TRUNCATE TABLE athlete, events, race_results")
-
 
     athletes_df.to_sql("athlete", engine, if_exists="append", index=False)
     events_df.to_sql("events", engine, if_exists="append", index=False)
