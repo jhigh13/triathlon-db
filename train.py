@@ -78,14 +78,13 @@ class TriathlonMLTrainer:
         self.model_dir = Path("models")
         self.model_dir.mkdir(exist_ok=True)
 
-        # Setup MLflow experiment tracking
-        self.setup_mlflow()
-
         # Initialize pipeline components
-        self.data_extractor = None
         self.feature_engineer = FeatureEngineer()
         self.label_generator = LabelGenerator()
-        self.preprocessor = TriathlonPreprocessor(apply_pca, pca_components)
+        self.preprocessor = TriathlonPreprocessor(self.apply_pca, self.pca_components)
+
+        # Setup MLflow experiment tracking
+        self.setup_mlflow()
 
     def setup_mlflow(self):
         """Initialize MLflow experiment tracking."""
@@ -104,13 +103,6 @@ class TriathlonMLTrainer:
         except Exception as e:
             logger.warning(f"MLflow setup failed: {e}")
             logger.warning("Continuing without MLflow tracking")
-        self.model_dir.mkdir(exist_ok=True)
-
-        # Initialize pipeline components
-        self.data_extractor = None
-        self.feature_engineer = FeatureEngineer()
-        self.label_generator = LabelGenerator()
-        self.preprocessor = TriathlonPreprocessor(apply_pca, pca_components)
 
     def load_and_prepare_data(self) -> pd.DataFrame:
         """
@@ -199,12 +191,14 @@ class TriathlonMLTrainer:
         models = self.create_models()
         results = {}
 
+
+        from ml.config import get_target_mae_for_distance
+
         for model_name, model in models.items():
             logger.info(f"Evaluating {model_name} for {distance}...")
 
             # Start MLflow run for this model/distance combination
             run_name = f"{distance}_{model_name}_{'pca' if self.apply_pca else 'nopca'}"
-            
             try:
                 with mlflow.start_run(run_name=run_name, nested=True):
                     # Log parameters
@@ -215,7 +209,7 @@ class TriathlonMLTrainer:
                     mlflow.log_param("cv_folds", cv_folds)
                     mlflow.log_param("n_features", X_processed.shape[1])
                     mlflow.log_param("n_samples", len(df_dist))
-                    
+
                     # Log model hyperparameters
                     for param_name, param_value in model.get_params().items():
                         mlflow.log_param(f"model_{param_name}", param_value)
@@ -238,7 +232,7 @@ class TriathlonMLTrainer:
                     mlflow.log_metric("mae_std", mae_scores.std())
                     mlflow.log_metric("mae_min", mae_scores.min())
                     mlflow.log_metric("mae_max", mae_scores.max())
-                    
+
                     # Log individual fold scores
                     for i, score in enumerate(mae_scores):
                         mlflow.log_metric(f"mae_fold_{i}", score)
@@ -253,6 +247,11 @@ class TriathlonMLTrainer:
                     logger.info(
                         f"{model_name} - MAE: {mae_scores.mean():.2f} ± {mae_scores.std():.2f} seconds"
                     )
+
+                    # Warn if MAE is above target, but do NOT stop training
+                    target_mae = get_target_mae_for_distance(distance)
+                    if mae_scores.mean() > target_mae:
+                        logger.warning(f"{model_name} MAE ({mae_scores.mean():.2f}) exceeds target ({target_mae:.2f}) for {distance}. Training and logging will continue.")
 
                     # Train final model on all data for persistence
                     model.fit(X_processed, y)

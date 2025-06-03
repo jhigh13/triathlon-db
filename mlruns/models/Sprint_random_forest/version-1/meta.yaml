@@ -1,0 +1,14 @@
+aliases: []
+creation_timestamp: 1748974003375
+current_stage: None
+description: null
+last_updated_timestamp: 1748974003375
+name: Sprint_random_forest
+run_id: d08a1eb79add48399ab0c87cd01c3363
+run_link: null
+source: file:///C:\Users\jhigh\Projects\Triathlon_Database\mlruns/156331270997136913/d08a1eb79add48399ab0c87cd01c3363/artifacts/model
+status: READY
+status_message: null
+storage_location: file:///C:\Users\jhigh\Projects\Triathlon_Database\mlruns/156331270997136913/d08a1eb79add48399ab0c87cd01c3363/artifacts/model
+user_id: null
+version: 1

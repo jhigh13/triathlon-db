@@ -9,7 +9,9 @@
     </memory>
 
     <commit>
-    WHEN file changes are COMPLETE:
+    Only implement commits when you have made completed all the steps in an implementation step and have made changes to files.
+    
+    WHEN implementation section changes are COMPLETE:
     - Stage your changes with git add .
     - Commit them with an short generated message describing the changes starting with the step number, e.g. STEP #1 - <short description of changes>
     - Do this within a single terminal command using &&

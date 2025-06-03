@@ -1,0 +1,14 @@
+aliases: []
+creation_timestamp: 1748973982333
+current_stage: None
+description: null
+last_updated_timestamp: 1748973982333
+name: Sprint_linear_regression
+run_id: 0294b90b01eb4d52942c07592cd9e90e
+run_link: null
+source: file:///C:\Users\jhigh\Projects\Triathlon_Database\mlruns/156331270997136913/0294b90b01eb4d52942c07592cd9e90e/artifacts/model
+status: READY
+status_message: null
+storage_location: file:///C:\Users\jhigh\Projects\Triathlon_Database\mlruns/156331270997136913/0294b90b01eb4d52942c07592cd9e90e/artifacts/model
+user_id: null
+version: 1

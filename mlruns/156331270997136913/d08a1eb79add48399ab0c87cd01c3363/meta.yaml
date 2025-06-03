@@ -1,0 +1,15 @@
+artifact_uri: file:///C:\Users\jhigh\Projects\Triathlon_Database\mlruns/156331270997136913/d08a1eb79add48399ab0c87cd01c3363/artifacts
+end_time: 1748974003486
+entry_point_name: ''
+experiment_id: '156331270997136913'
+lifecycle_stage: active
+run_id: d08a1eb79add48399ab0c87cd01c3363
+run_name: Sprint_random_forest_nopca
+run_uuid: d08a1eb79add48399ab0c87cd01c3363
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1748973982351
+status: 3
+tags: []
+user_id: jhigh

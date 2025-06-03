@@ -1,0 +1,15 @@
+artifact_uri: file:///C:\Users\jhigh\Projects\Triathlon_Database\mlruns/156331270997136913/05abf11408f4423eaad627c6c23f39a5/artifacts
+end_time: 1748973816864
+entry_point_name: ''
+experiment_id: '156331270997136913'
+lifecycle_stage: active
+run_id: 05abf11408f4423eaad627c6c23f39a5
+run_name: Training_Session_20250603_140335
+run_uuid: 05abf11408f4423eaad627c6c23f39a5
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1748973816267
+status: 4
+tags: []
+user_id: jhigh
