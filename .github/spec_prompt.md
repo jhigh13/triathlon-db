@@ -13,6 +13,7 @@ Predict Triathlete Race Time and Event Ranking Performance
 - The model should be able to better predict and athletes time and position than a simply athlete mean baseline.
 - The model's prediction for each athlete should be uploaded to the database for easy access via the PowerBI report. 
 - Use machine learning package skilearn to create an optimal model
+- It should include thorough testing before output to the Power BI report. If it is not accurate enough we should iterate on needed features or PCA to create a better training dataset.
 </idea>
 
 Before generating the spec plan, be sure to review the [file](../docs/summary.md) and [file](../docs/ml_outline.md) to understand an overview of the project and the current ML pipeline. 
