@@ -50,7 +50,7 @@ def get_elite_programs(event_id):
     return [(p.get("prog_id"), p.get("prog_name")) for p in progs if p.get("prog_name") in ("Elite Men", "Elite Women")]
 
 
-def fetch_race_results(event_id, program_id, limit=25):
+def fetch_race_results(event_id, program_id, limit=50):
     url = results_url.format(event_id=event_id, program_id=program_id)
     resp = requests.get(url, headers=HEADERS, params={"limit": limit})
     resp.raise_for_status()
@@ -110,6 +110,13 @@ def upsert_events(events, engine):
 def upsert_race_results(df, engine):
     if df is None or df.empty:
         return
+    # Drop rows with NULLs in uniqueness constraint columns
+    df = df.dropna(subset=["athlete_id", "EventID", "TotalTime"])
+    if df.empty:
+        print("No valid race results to upsert after dropping NULLs in athlete_id, EventID, or TotalTime.")
+        return
+    print("Sample of race results to upsert (after dropping NULLs):")
+    print(df.head(5).to_string(index=False))
     records = df.to_dict(orient="records")
     insert_sql = """
         INSERT INTO race_results (
@@ -119,9 +126,7 @@ def upsert_race_results(df, engine):
             :athlete_id, :EventID, :ProgID, :Program, :CategoryName, :EventSpecifications,
             :Position, :TotalTime, :SwimTime, :T1, :BikeTime, :T2, :RunTime
         )
-    """
-    """
-        ON CONFLICT (athlete_id, "EventID") DO UPDATE SET
+        ON CONFLICT (athlete_id, "EventID", "TotalTime") DO UPDATE SET
             "Position" = EXCLUDED."Position",
             "TotalTime" = EXCLUDED."TotalTime",
             "SwimTime" = EXCLUDED."SwimTime",
@@ -129,7 +134,7 @@ def upsert_race_results(df, engine):
             "BikeTime" = EXCLUDED."BikeTime",
             "T2" = EXCLUDED."T2",
             "RunTime" = EXCLUDED."RunTime",
-            "ProgName" = EXCLUDED."Program",
+            "Program" = EXCLUDED."Program",
             "ProgID" = EXCLUDED."ProgID",
             "CategoryName" = EXCLUDED."CategoryName",
             "EventSpecifications" = EXCLUDED."EventSpecifications";
