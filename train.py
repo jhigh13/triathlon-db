@@ -171,18 +171,17 @@ class TriathlonMLTrainer:
                     X_processed,
                     y,
                     cv=cv,
-                    groups=groups,
-                    scoring=neg_mae_scorer,
+                    groups=groups,                    scoring=neg_mae_scorer,
                     n_jobs=-1,
                 )
 
                 mae_scores = -cv_scores
 
                 results[model_name] = {
-                    "mae_mean": mae_scores.mean(),
-                    "mae_std": mae_scores.std(),
+                    "mae_mean": float(mae_scores.mean()),
+                    "mae_std": float(mae_scores.std()),
                     "mae_scores": mae_scores.tolist(),
-                    "n_samples": len(df_dist),
+                    "n_samples": int(len(df_dist)),
                 }
 
                 logger.info(
@@ -234,9 +233,7 @@ class TriathlonMLTrainer:
 
         # Athlete-specific mean baseline
         athlete_means = df_dist.groupby("athlete_id")["TotalTime_sec"].mean()
-        baseline_preds = df_dist["athlete_id"].map(athlete_means)
-
-        # Calculate MAE where both prediction and target are available
+        baseline_preds = df_dist["athlete_id"].map(athlete_means)        # Calculate MAE where both prediction and target are available
         valid_mask = ~df_dist["next_time_sec"].isna() & ~baseline_preds.isna()
 
         if valid_mask.sum() > 0:
@@ -244,7 +241,7 @@ class TriathlonMLTrainer:
                 df_dist.loc[valid_mask, "next_time_sec"]
                 - baseline_preds.loc[valid_mask]
             ).mean()
-            return {"athlete_mean_baseline_mae": mae, "n_samples": valid_mask.sum()}
+            return {"athlete_mean_baseline_mae": float(mae), "n_samples": int(valid_mask.sum())}
 
         return {}
 

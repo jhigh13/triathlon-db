@@ -306,9 +306,7 @@ class FeatureEngineer:
 
     def encode_categorical_features(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        One-hot encode categorical features.
-
-        Args:
+        One-hot encode categorical features.        Args:
             df: DataFrame with categorical columns
 
         Returns:
@@ -321,6 +319,10 @@ class FeatureEngineer:
             columns=["race_type", "distance", "event_mode"],
             prefix=["rt", "dist", "mode"],
         )
+        
+        # Convert boolean dummy columns to integers for sklearn compatibility
+        dummy_columns = [col for col in df.columns if any(col.startswith(prefix) for prefix in ["rt_", "dist_", "mode_"])]
+        df[dummy_columns] = df[dummy_columns].astype(int)
 
         logger.info("Categorical encoding completed")
         return df
