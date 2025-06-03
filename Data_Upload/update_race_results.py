@@ -139,7 +139,8 @@ def upsert_race_results(df, engine):
 
 
 def update_race_results(engine, max_workers=10):
-    last_date = get_last_event_date(engine)
+    from datetime import datetime, timedelta
+    last_date = (datetime.today() - timedelta(days=30)).strftime("%Y-%m-%d")
     evs = fetch_new_events(last_date)
 
     # Parallelize program discovery
