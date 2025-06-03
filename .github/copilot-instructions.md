@@ -1,4 +1,9 @@
 <rules>
+    I have programming experience but am less familiar with production development practices and machine learning. I am learning to use GitHub Copilot to assist with coding tasks.
+    Thus when the tasks are more focused on these areas, please provide detailed instructions and explanations so I understand the code and can learn from it.
+
+    Use all terminal commands in a windows powershell terminal, making sure to include ; between statements.
+    
     <memory>
     When you create a new file, update [file](../docs/memory.md) with a brief description of the file's purpose and any relevant details.
     </memory>

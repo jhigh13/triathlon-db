@@ -1,51 +1,127 @@
 # Triathlon Database: A Comprehensive Data Pipeline and Analysis Tool
 
 ## Project Overview
-The **Triathlon Database** project automates the process of fetching, storing, and analyzing data related to triathletes, events, and race results. It integrates with the World Triathlon API to gather athlete profiles, race results, and rankings, and stores the data in a PostgreSQL database for further analysis and reporting.
+The **Triathlon Database** project is a production-ready data engineering solution that automates the process of fetching, storing, and analyzing triathlon data. It integrates with the World Triathlon API to gather athlete profiles, race results, and rankings, storing over **65,000+ race result rows** across **2,000+ athletes** and **3,400+ events** in a PostgreSQL database for analysis and reporting.
 
 ## Key Features
 
-**Completed** 
-### 1. Configuration, [folder](../config/)
-- Holds global variables and key links for API calls. 
-- Organized into modules for data import (`Data_Import`), data upload (`Data_Upload`), and configuration (`config`).
-- Easily extensible for additional features or data sources.
+**✅ Completed** 
+### 1. Configuration Management, [folder](../config/)
+- Centralized configuration system with environment variables and API endpoints
+- Secure credential management with `.env` file support
+- Modular configuration for different pipeline components
+- Easy deployment configuration with Docker support
 
-**Completed**
+**✅ Completed**
 ### 2. Data Import Pipeline, [folder](../Data_Import/)
-- A robust database schema to store and manage triathlon data.
-- Includes scripts for initializing and updating the database.
-- Calls the WTO API to query for raw JSON data attributed to World Triathlon athletes. 
-- Fetches athlete profiles and race results concurrently using Python's `concurrent.futures`.
-- Processes and organizes data into structured tables: `athletes`, `events`, and `race_results`, `athlete_rankings`.
-- Stores the data in a PostgreSQL database for long-term storage and querying.
+- **Master Data Import**: Full database initialization with athlete profiles, events, and historical race results
+- **Concurrent Processing**: High-performance data fetching using `concurrent.futures` with configurable thread pools
+- **Database Schema**: Robust PostgreSQL schema with proper indexing and constraints
+- **Data Validation**: Automatic duplicate detection and removal to prevent constraint violations
+- **Error Handling**: Comprehensive error handling with detailed logging for debugging
 
-**Completed**
+**✅ Completed**
 ### 3. Data Upload Pipeline, [folder](../Data_Upload/)
-- Utilizes the World Triathlon API to retrieve up-to-date information on athletes, events, and rankings.
-- Configurable endpoints for fetching recent race results, and accessing event details.
+- **Incremental Updates**: Smart detection of new events since last update
+- **Real-time Processing**: Fetches and processes new race results as events conclude
+- **Elite Program Filtering**: Automatically identifies and processes Elite Men/Women programs
+- **Upsert Operations**: Intelligent conflict resolution using PostgreSQL UPSERT functionality
+- **Data Quality**: Pre-processing validation to ensure data integrity before database insertion
 
-**Completed**
-### 4. Database Management
+**✅ Completed**
+### 4. Database Management & Analytics
+- **PostgreSQL 15**: Production-grade database with optimized schema and indexing
+- **Power BI Integration**: Direct database connection with automated refresh capabilities
+- **Jupyter Notebooks**: Interactive analysis tools (`get_top_triathletes.ipynb`, `model_pipeline.ipynb`)
+- **Reporting Dashboard**: Comprehensive Power BI report (`WTO_Report.pbix`) with podium analysis, fastest splits, and lifetime trends
+- **Data Quality Monitoring**: Built-in validation and constraint checking
 
-- Jupyter notebooks for exploratory data analysis (e.g., `get_top_triathletes.ipynb`).
-- Integration with Power BI for creating detailed reports and visualizations (e.g., `WTO_Report.pbix`).
-- PowerBI uses direct import with the PostgreSQL database and can refresh after data uploads following events. 
+**🔄 In Progress**
+### 5. Machine Learning & Predictions
+- **Predictive Modeling**: ML pipeline for athlete performance and race outcome predictions
+- **Feature Engineering**: Advanced feature extraction from historical performance data
+- **Model Selection**: Comparative analysis of different ML algorithms (LightGBM, XGBoost, Scikit-learn)
+- **Performance Metrics**: MSE optimization for accurate race time and position predictions
+- **Integration**: Seamless integration with existing database and Power BI infrastructure
 
-**In Progress**
-### 5. Race and Athlete Prediction 
+## Architecture & Implementation
 
-- Utilize past athlete performances to predict upcoming events for the World Triathlon Series.
-- Jupyter notebooks for exploratory data analysis, feature engineer, labelling, and model selection (`model_pipeline.ipynb`)
-- Analyze data to determine necessary data cleaning, and feature variables to improve MSE and enable accurate athlete race time and position predictions. 
-- Store as additional table in the database and pull into PowerBI for analysis in the report. 
+### Database Schema
+- **PostgreSQL 15** with optimized indexing and unique constraints
+- **Tables**: `athlete`, `events`, `race_results`, `athlete_rankings`
+- **Constraints**: Unique constraint on `(athlete_id, EventID, TotalTime)` prevents duplicate race results
+- **Data Types**: Proper typing for timestamps, numeric values, and text fields
+
+### ETL Pipeline
+- **Extract**: World Triathlon API integration with rate limiting and error handling
+- **Transform**: Data normalization, validation, and duplicate removal
+- **Load**: UPSERT operations with conflict resolution and data integrity checks
+
+### Recent Improvements (2025)
+- **🐛 Bug Fix**: Resolved PostgreSQL unique constraint violations in ETL processes
+- **🔧 Data Quality**: Added duplicate removal logic before database insertion
+- **📊 Validation**: Implemented data preview functionality for race result upserts
+- **⚡ Performance**: Optimized concurrent processing with configurable thread pools
+- **🧪 Testing**: Added comprehensive test suite with CI/CD integration
 
 ## Technologies Used
-- **Programming Language**: Python
-- **Database**: PostgreSQL
-- **Libraries**: Pandas, SQLAlchemy, Concurrent Futures
-- **Visualization**: Power BI, Jupyter Notebooks
-- **API**: World Triathlon API
+- **Programming Language**: Python 3.13
+- **Database**: PostgreSQL 15
+- **Core Libraries**: 
+  - `pandas` - Data manipulation and analysis
+  - `SQLAlchemy 2.0` - Database ORM and connection management
+  - `concurrent.futures` - Parallel processing
+  - `requests` - API communication
+- **ML Stack**: `scikit-learn`, `lightgbm`, `xgboost`, `matplotlib`
+- **Analytics**: Power BI, Jupyter Notebooks
+- **Infrastructure**: Docker, GitHub Actions CI/CD
+- **Data Format**: Parquet for ML datasets
 
-## Impact
-This project is a powerful tool for triathlon enthusiasts, analysts, and organizations to gain insights into athlete performance, event trends, and rankings. It showcases the use of modern data engineering practices to streamline data collection and analysis.
+## Getting Started
+
+### Prerequisites
+```bash
+# Install Python 3.13
+# Install PostgreSQL 15
+# Clone the repository
+git clone https://github.com/jhigh13/triathlon-db.git
+cd triathlon-db
+```
+
+### Quick Setup
+```bash
+# Install dependencies
+pip install -r requirements.txt
+
+# Configure environment
+cp .env.example .env
+# Edit .env with your database credentials
+
+# Initialize database and import data
+python main.py 1
+
+# Or use Docker
+docker-compose up
+```
+
+### Usage Options
+1. **Full Import**: Complete database rebuild with all historical data
+2. **Incremental Update**: Add recent events and results
+3. **Single Athlete**: Import specific athlete data by name
+
+## Data Quality & Reliability
+- **Duplicate Prevention**: Automatic detection and removal of duplicate records
+- **Data Validation**: Pre-insertion validation of required fields
+- **Error Handling**: Comprehensive logging and graceful error recovery
+- **Constraint Management**: Database-level integrity enforcement
+- **Testing**: Automated test suite with coverage reporting
+
+## Impact & Use Cases
+This project serves as a comprehensive solution for:
+- **Sports Analytics**: Performance tracking and trend analysis
+- **Predictive Modeling**: Race outcome and athlete performance predictions
+- **Business Intelligence**: Strategic insights for triathlon organizations
+- **Research**: Academic analysis of triathlon performance data
+- **Fan Engagement**: Interactive dashboards and visualizations
+
+The system demonstrates modern data engineering best practices including robust ETL pipelines, data quality management, and scalable architecture design.

@@ -9,11 +9,11 @@ Your goal is to generate a functional spec for implementing a feature based on t
 Predict Triathlete Race Time and Event Ranking Performance
 
 - It should take in the athlete's past race results stored in the PostgreSQL database.
-- The model should able to provide a relatively accurate prediction given the type of event, ie. sprint, supersprint, standard
-- The model should be able to better predict and athletes time and position than a simply athlete mean baseline.
-- The model's prediction for each athlete should be uploaded to the database for easy access via the PowerBI report. 
-- Use machine learning package skilearn to create an optimal model
-- It should include thorough testing before output to the Power BI report. If it is not accurate enough we should iterate on needed features or PCA to create a better training dataset.
+- You should determine the best features to use for predicting the athlete time and event positions. 
+- Conduct PCA to determine the best features to use for the model.
+- Conduct feature engineering to create a base training dataset for a preliminary machine learning model.
+- The dataset should be easily stored and used for the machine learning pipeline. If additional features are needed, they should be able to be added to the database and used for future model testing. 
+- The eventual machine learning model will use scikit-learn, but we do not need to build the model yet.
 </idea>
 
 Before generating the spec plan, be sure to review the [file](../docs/summary.md) and [file](../docs/ml_outline.md) to understand an overview of the project and the current ML pipeline. 
