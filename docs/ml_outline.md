@@ -1,126 +1,149 @@
-# Machine Learning Prediction Outline for Triathlon
+# Triathlon‑DB ML Pipeline Outline
 
-## 1. Define the Prediction Task
-
-**Target variable(s):**
-- Finish time (continuous regression)
-- Finish position (ordinal classification)
-
-**Scope:**  
-Predict a given athlete's result in their next event.
-
-## 2. Assemble & Label Training Data
-
-- **Historic Results:**  
-  Join `race_results` fact table with `events` (event_date, distance category) and `athlete` (age at race, gender, country).  
-  Optionally filter to a specific subset (e.g. Elite standard-distance races).
-
-- **Next-Race Labeling:**  
-  For each athlete, sort races by date and shift finish time/position forward by one.  
-  Drop the final race for each athlete (no "next" label).
-
-## 3. Database & ETL Pipeline
-
-- PostgreSQL schema: athlete (dimension), events (dimension), race_results (fact)
-- `master_data_import.py` for full loads
-- `update_race_results.py` for incremental upserts
-- SQLAlchemy for schema management, concurrency for API calls, batched inserts via `to_sql(method='multi')`
-
-## 4. Data Cleaning & Transformation
-
-- Separated DNF/DNS into valid vs. all datasets
-- Parsed race_type, distance, event_mode from event specifications
-- Converted times to seconds, computed days_since_last, calculated athlete age
-
-## 5. Feature Engineering
-
-**Athlete Features:**
-- Rolling averages (last 3–5 finishes times (distance specific and global), positions)
-- Total races in past 6–12 months
-- Age at race date
-
-**Event Features:**
-- Distance category (Sprint, Standard, Super-Sprint, Relay): have
-- Time of year (month, ISO week): have
-- Location metadata (continent, climate zone): have some
-- Venue Characteristics (if available):
-  - Elevation gain/loss: don't currently have
-  - Swim type (open-water vs. pool): don't currently have
-
-**Temporal/Contextual:**
-- Days since last race (fatigue metric): have
-- Days until a marquee competition (peaking indicator): don't have
-- Interactions:
-  - Age × average_speed
-  - Variability in finish times
-
-## 6. Label Creation - Completed 
-
-- Group by `athlete_id`, use `.shift(-1)` to attach next-race labels
-- Drop final record per athlete to create `df_model`
-
-## 7. Modeling Roadmap - In process
-
-- Train/test split with GroupKFold (temporal per athlete)
-- Baseline models: LinearRegression, RandomForest, GradientBoosting
-- Evaluation metrics: MAE/RMSE for time, accuracy/top-N accuracy for position
-
-## 8. Modular Preprocessing Pipeline
-
-- Use `ColumnTransformer` for numeric imputation & scaling
-- One-hot or target encoding for categoricals
-- Wrap all steps in an `sklearn.Pipeline` for reproducibility and hyperparameter search
-
-## 9. ETL Robustness & Metadata Tracking
-
-- Add metadata table to track last processed event_date or event_id per category
-- Centralize DB connection and introduce structured logging
-- Ensure idempotent, auditable incremental updates
-
-## 10. Outlier & Missing-Value Handling
-
-- Impute missing split times (median or KNN) and flag imputed rows
-- Clip or remove extreme finish times beyond 3σ to stabilize training
-
-## 11. Cross-Validation & Grouping Strategy
-
-- Implement GroupKFold by athlete_id with temporal splits
-- Nest hyperparameter tuning inside the group-aware CV loop to avoid leakage
-
-## 12. Additional Data Sources
-
-- Weather: temperature, humidity, wind speed
-- Course profile: elevation gain/loss
-- Athlete training load (e.g., Strava API)
-- Injury history or recent DNFs
-- Equipment details (bike, wetsuit)
-- Field strength (average competitor ranking)
-
-## 13. Two-Phase Workflow (Notebook → Production)
-
-- Exploratory prototyping in Jupyter (EDA, quick feature tests)
-- Refactor code into modules (`features.py`, `models.py`)
-- Parameterize via config files or CLI arguments
-- Automate end-to-end via scripts scheduled with cron/CI/CD
-
-## 14. Learning Resources
-
-- DataCamp modules on ML fundamentals and scikit-learn pipelines
-- [scikit-learn official tutorials](https://scikit-learn.org/stable/tutorial)
-- Coursera: Andrew Ng’s Machine Learning; University of Michigan’s Applied ML in Python
-- Kaggle Learn micro-courses on Pandas, ML, and pipelines
-- Book: Géron’s *Hands-On Machine Learning with Scikit-Learn, Keras, and TensorFlow*
-
-## 15. Next Immediate Steps
-
-1. Enroll in a foundational ML course and complete scikit-learn pipeline tutorials
-2. Prototype a baseline regression pipeline in Jupyter using ColumnTransformer
-3. Implement GroupKFold temporal splits and evaluate baseline performance
-4. Extract code into modular scripts and create a standalone CLI entry-point
-5. Set up a scheduled job (cron or CI) for ETL + model inference writing to PostgreSQL
-6. Integrate the predictions table into Power BI for live dashboards
+*Version 0.1 · June 2025*
+> **Note:** All ML testing and exploration is currently performed in `notebooks/model_pipeline.ipynb`. As the pipeline stabilizes, reusable code will be moved into versioned Python modules under `ml/`.
 
 ---
 
-This outline will guide iterative development and production deployment of next-race performance prediction models.
+## 🎯 Goal
 
+Predict an athlete’s **next‑race finish time** (seconds) within **⩽ 600 sec MAE** for each race distance:
+
+| Distance     | Abbrev | Typical Range (sec) |
+| ------------ | ------ | ------------------- |
+| Sprint       | `SPR`  |  2 800 – 5 000      |
+| Standard     | `STD`  |  5 500 – 9 000      |
+| Super‑Sprint | `SSP`  |   900 – 2 500       |
+
+Each distance gets its **own model** to avoid multi‑modal targets.
+
+---
+
+## 1  Data Requirements
+
+| Table                 | Key Fields                                                        | Purpose               |
+| --------------------- | ----------------------------------------------------------------- | --------------------- |
+| `race_results` (fact) | `athlete_id`, `EventID`, `Position`, `TotalTime_sec`, `EventDate` | raw outcomes & labels |
+| `events` (dim)        | `EventID`, `distance_category`, `country`, `Venue`                | metadata / dummies    |
+| `athlete` (dim)       | `athlete_id`, `gender`, `birth_year`                              | demographics          |
+
+*ETL already refreshes these tables weekly via Docker → Postgres.*
+
+---
+
+## 2  Label & Baseline Features
+
+```text
+next_time_sec      = finish‑time of athlete’s next race (shift -1)
+prev_time_sec      = finish‑time of previous race (shift +1)
+rolling3_time_dist = mean of last 3 times (distance‑specific)
+rolling5_time_dist = mean of last 5 times (distance‑specific)
+rolling3_pos       = mean of last 3 positions
+rolling5_pos       = mean of last 5 positions
+days_since_last    = EventDate − previous EventDate
+age                = EventDate.year − birth_year
+```
+
+*Drop athletes with < 3 historic races within that distance.*
+
+---
+
+## 3  Pre‑processing Graph
+
+```text
+┌─────────────┐    num_cols    ┌─────────────┐   PCA (0.95 var)
+│  raw df     │──────────────▶│ impute‑median│──────────────▶ PCs
+└─────────────┘   cat_cols    └─────────────┘
+        │                              ▲
+        │ one‑hot + impute‑mode        │
+        ▼                              │
+  OHE matrix ──────────────────────────┘
+          ▼ concat
+      final design matrix
+  
+> **PCA Integration:** The numerical pipeline applies PCA (`n_components=0.95`) after scaling to reduce dimensionality while retaining 95% of variance.
+```
+
+### Code Skeleton
+
+```python
+num_cols = [...see above...]
+cat_cols = ['gender'] + distance_dummies + mode_dummies
+
+num_pipe = Pipeline([
+    ('imp', SimpleImputer(strategy='median')),
+    ('sc',  StandardScaler()),
+    ('pca', PCA(n_components=0.95, svd_solver='full'))
+])
+cat_pipe = Pipeline([
+    ('imp', SimpleImputer(strategy='most_frequent')),
+    ('ohe', OneHotEncoder(handle_unknown='ignore'))
+])
+preproc = ColumnTransformer([
+    ('num', num_pipe, num_cols),
+    ('cat', cat_pipe, cat_cols)
+])
+model = GradientBoostingRegressor(random_state=42)
+pipe  = Pipeline([('prep', preproc), ('mod', model)])
+```
+
+---
+
+## 4  Hyper‑parameter Search (nested CV)
+
+```python
+param_grid = {
+    'prep__num__pca__n_components': [0.90, 0.95, 0.99],
+    'mod__n_estimators': [200, 400],
+    'mod__learning_rate': [0.03, 0.05],
+    'mod__max_depth': [3, 4]
+}
+outer = GroupKFold(5); inner = GroupKFold(3)
+search = GridSearchCV(pipe, param_grid, cv=inner,
+                      scoring='neg_mean_absolute_error', n_jobs=-1)
+mae = cross_val_score(search, X, y, cv=outer, groups=groups,
+                      scoring='neg_mean_absolute_error')
+print('distance', -mae.mean())
+```
+
+---
+
+## 5  Acceptance Criteria
+
+* **MAE ≤ 600 sec** on outer CV for each distance subset.
+* Nested CV ensures no learner sees the same athlete in train & test.
+* `mlflow.log_metric('MAE', value)` per distance (e.g., using a local file or SQLite backend).
+
+---
+
+## 6  Implementation Milestones
+
+| #  | Milestone            | Description                                                            |
+| -- | -------------------- | ---------------------------------------------------------------------- |
+|  1 | **Data Service**     | Verified distance splits, outlier filter committed                     |
+|  2 | **Feature Gen v1**   | SQL + Pandas scripts produce baseline cols incl. `prev_time_sec`       |
+|  3 | **Pipeline code**    | `pipeline.py` exposes `build_pipe()` + `train_search()`                |
+|  4 | **CI job**           | GitHub Actions runs `pytest` + `python train.py --distance SPR` on PRs |
+|  5 | **Benchmark report** | MD file logs baseline vs. model MAE; target met.                       |
+|  6 | **Testing**          | Unit & integration tests for feature-engineering and training modules |
+
+---
+
+## 7  Local Run Example
+
+```bash
+# Sprint model
+python train.py --distance SPR --n_jobs -1
+# Evaluate & persist best → models/sprint_best.pkl
+```
+
+---
+
+## 8  Future (Out‑of‑Scope)
+
+* Weather data integration (temperature, wind, precipitation) via external APIs
+* Detailed course metadata (lap counts, swim/bike conditions, surface type)
+* Elevation profile (total climb and descent) via GPS/course APIs
+* Equipment data (bike type, wetsuit usage)
+* LightGBM & XGBoost hyperparameter sweeps
+* Azure ML hyper-drive deployment
