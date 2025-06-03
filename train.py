@@ -39,6 +39,11 @@ from ml.label_generation import LabelGenerator
 from ml.preprocessing import TriathlonPreprocessor
 from Data_Import.database import get_engine
 
+# MLflow imports
+import mlflow
+import mlflow.sklearn
+from mlflow.tracking import MlflowClient
+
 # Set up logging
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -47,23 +52,58 @@ logger = logging.getLogger(__name__)
 
 
 class TriathlonMLTrainer:
-    """Orchestrates the complete triathlon ML pipeline."""
+    """Orchestrates the complete triathlon ML pipeline with MLflow tracking."""
 
-    def __init__(self, apply_pca: bool = True, pca_components: int = None):
+    def __init__(
+        self,
+        apply_pca: bool = True,
+        pca_components: int = None,
+        experiment_name: str = "Triathlon_Time_Prediction",
+    ):
         """
-        Initialize trainer.
+        Initialize trainer with MLflow experiment tracking.
 
         Args:
             apply_pca: Whether to apply PCA preprocessing
             pca_components: Number of PCA components (None for auto)
+            experiment_name: MLflow experiment name
         """
         self.apply_pca = apply_pca
         self.pca_components = pca_components
         self.models = {}
         self.results = {}
+        self.experiment_name = experiment_name
 
         # Create output directories
         self.model_dir = Path("models")
+        self.model_dir.mkdir(exist_ok=True)
+
+        # Setup MLflow experiment tracking
+        self.setup_mlflow()
+
+        # Initialize pipeline components
+        self.data_extractor = None
+        self.feature_engineer = FeatureEngineer()
+        self.label_generator = LabelGenerator()
+        self.preprocessor = TriathlonPreprocessor(apply_pca, pca_components)
+
+    def setup_mlflow(self):
+        """Initialize MLflow experiment tracking."""
+        try:
+            # Set MLflow tracking URI to local directory
+            mlflow_dir = Path("mlruns")
+            mlflow_dir.mkdir(exist_ok=True)
+            mlflow.set_tracking_uri(f"file:///{mlflow_dir.absolute()}")
+
+            # Set or create experiment
+            mlflow.set_experiment(self.experiment_name)
+            
+            logger.info(f"MLflow experiment '{self.experiment_name}' initialized")
+            logger.info(f"MLflow tracking URI: {mlflow.get_tracking_uri()}")
+            
+        except Exception as e:
+            logger.warning(f"MLflow setup failed: {e}")
+            logger.warning("Continuing without MLflow tracking")
         self.model_dir.mkdir(exist_ok=True)
 
         # Initialize pipeline components
@@ -155,55 +195,91 @@ class TriathlonMLTrainer:
 
         # Cross-validation setup
         cv = GroupKFold(n_splits=cv_folds)
-        neg_mae_scorer = make_scorer(mean_absolute_error, greater_is_better=False)
-
-        # Evaluate each model
+        neg_mae_scorer = make_scorer(mean_absolute_error, greater_is_better=False)        # Evaluate each model
         models = self.create_models()
         results = {}
 
         for model_name, model in models.items():
             logger.info(f"Evaluating {model_name} for {distance}...")
 
+            # Start MLflow run for this model/distance combination
+            run_name = f"{distance}_{model_name}_{'pca' if self.apply_pca else 'nopca'}"
+            
             try:
-                # Cross-validation scores
-                cv_scores = cross_val_score(
-                    model,
-                    X_processed,
-                    y,
-                    cv=cv,
-                    groups=groups,                    scoring=neg_mae_scorer,
-                    n_jobs=-1,
-                )
+                with mlflow.start_run(run_name=run_name, nested=True):
+                    # Log parameters
+                    mlflow.log_param("distance", distance)
+                    mlflow.log_param("model_type", model_name)
+                    mlflow.log_param("apply_pca", self.apply_pca)
+                    mlflow.log_param("pca_components", self.pca_components)
+                    mlflow.log_param("cv_folds", cv_folds)
+                    mlflow.log_param("n_features", X_processed.shape[1])
+                    mlflow.log_param("n_samples", len(df_dist))
+                    
+                    # Log model hyperparameters
+                    for param_name, param_value in model.get_params().items():
+                        mlflow.log_param(f"model_{param_name}", param_value)
 
-                mae_scores = -cv_scores
+                    # Cross-validation scores
+                    cv_scores = cross_val_score(
+                        model,
+                        X_processed,
+                        y,
+                        cv=cv,
+                        groups=groups,
+                        scoring=neg_mae_scorer,
+                        n_jobs=-1,
+                    )
 
-                results[model_name] = {
-                    "mae_mean": float(mae_scores.mean()),
-                    "mae_std": float(mae_scores.std()),
-                    "mae_scores": mae_scores.tolist(),
-                    "n_samples": int(len(df_dist)),
-                }
+                    mae_scores = -cv_scores
 
-                logger.info(
-                    f"{model_name} - MAE: {mae_scores.mean():.2f} ± {mae_scores.std():.2f} seconds"
-                )
+                    # Log metrics
+                    mlflow.log_metric("mae_mean", mae_scores.mean())
+                    mlflow.log_metric("mae_std", mae_scores.std())
+                    mlflow.log_metric("mae_min", mae_scores.min())
+                    mlflow.log_metric("mae_max", mae_scores.max())
+                    
+                    # Log individual fold scores
+                    for i, score in enumerate(mae_scores):
+                        mlflow.log_metric(f"mae_fold_{i}", score)
 
-                # Train final model on all data for persistence
-                model.fit(X_processed, y)
+                    results[model_name] = {
+                        "mae_mean": float(mae_scores.mean()),
+                        "mae_std": float(mae_scores.std()),
+                        "mae_scores": mae_scores.tolist(),
+                        "n_samples": int(len(df_dist)),
+                    }
 
-                # Save model with preprocessor
-                model_pipeline = Pipeline(
-                    [
-                        ("preprocessing", self.preprocessor.preprocessor),
-                        ("model", model),
-                    ]
-                )
+                    logger.info(
+                        f"{model_name} - MAE: {mae_scores.mean():.2f} ± {mae_scores.std():.2f} seconds"
+                    )
 
-                model_filename = f"{distance}_{model_name}_{'pca' if self.apply_pca else 'nopca'}.pkl"
-                model_path = self.model_dir / model_filename
-                joblib.dump(model_pipeline, model_path)
+                    # Train final model on all data for persistence
+                    model.fit(X_processed, y)
 
-                logger.info(f"Saved model to {model_path}")
+                    # Create and save model pipeline
+                    model_pipeline = Pipeline(
+                        [
+                            ("preprocessing", self.preprocessor.preprocessor),
+                            ("model", model),
+                        ]
+                    )
+
+                    model_filename = f"{distance}_{model_name}_{'pca' if self.apply_pca else 'nopca'}.pkl"
+                    model_path = self.model_dir / model_filename
+                    joblib.dump(model_pipeline, model_path)
+
+                    # Log model artifact to MLflow
+                    mlflow.sklearn.log_model(
+                        model_pipeline,
+                        artifact_path="model",
+                        registered_model_name=f"{distance}_{model_name}",
+                    )
+
+                    # Log model file as artifact
+                    mlflow.log_artifact(str(model_path), "saved_models")
+
+                    logger.info(f"Saved model to {model_path}")
 
             except Exception as e:
                 logger.error(f"Error evaluating {model_name} for {distance}: {e}")
@@ -229,11 +305,11 @@ class TriathlonMLTrainer:
         df_dist = df[df[distance_col] == 1].copy()
 
         if len(df_dist) == 0:
-            return {}
-
-        # Athlete-specific mean baseline
+            return {}        # Athlete-specific mean baseline
         athlete_means = df_dist.groupby("athlete_id")["TotalTime_sec"].mean()
-        baseline_preds = df_dist["athlete_id"].map(athlete_means)        # Calculate MAE where both prediction and target are available
+        baseline_preds = df_dist["athlete_id"].map(athlete_means)
+
+        # Calculate MAE where both prediction and target are available
         valid_mask = ~df_dist["next_time_sec"].isna() & ~baseline_preds.isna()
 
         if valid_mask.sum() > 0:
@@ -247,7 +323,7 @@ class TriathlonMLTrainer:
 
     def train_models(self, distances: list = None) -> dict:
         """
-        Train models for specified distances.
+        Train models for specified distances with MLflow experiment tracking.
 
         Args:
             distances: List of distances to train for (None for all)
@@ -257,76 +333,100 @@ class TriathlonMLTrainer:
         """
         logger.info("Starting model training pipeline...")
 
-        # Load and prepare data
-        df = self.load_and_prepare_data()
+        # Start parent MLflow run for this training session
+        training_run_name = f"Training_Session_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        
+        with mlflow.start_run(run_name=training_run_name):
+            # Load and prepare data
+            df = self.load_and_prepare_data()
 
-        # Determine distances to train on
-        if distances is None:
-            available_distances = [
-                col.replace("dist_", "")
-                for col in df.columns
-                if col.startswith("dist_")
-            ]
-            distances = [
-                d
-                for d in ["Sprint", "Standard", "Super Sprint"]
-                if d in available_distances
-            ]
+            # Determine distances to train on
+            if distances is None:
+                available_distances = [
+                    col.replace("dist_", "")
+                    for col in df.columns
+                    if col.startswith("dist_")
+                ]
+                distances = [
+                    d
+                    for d in ["Sprint", "Standard", "Super Sprint"]
+                    if d in available_distances
+                ]
 
-        logger.info(f"Training models for distances: {distances}")
+            logger.info(f"Training models for distances: {distances}")
 
-        # Train models for each distance
-        all_results = {}
+            # Log session-level parameters
+            mlflow.log_param("apply_pca", self.apply_pca)
+            mlflow.log_param("pca_components", self.pca_components)
+            mlflow.log_param("distances", distances)
+            mlflow.log_param("total_samples", len(df))
+            mlflow.log_param("total_features", len([c for c in df.columns if c not in ['athlete_id', 'next_time_sec', 'next_position']]))
 
-        for distance in distances:
-            logger.info(f"\\n{'='*50}")
-            logger.info(f"TRAINING FOR DISTANCE: {distance}")
-            logger.info(f"{'='*50}")
+            # Train models for each distance
+            all_results = {}
 
-            # Calculate baseline
-            baseline_results = self.calculate_baseline_metrics(df, distance)
+            for distance in distances:
+                logger.info(f"\\n{'='*50}")
+                logger.info(f"TRAINING FOR DISTANCE: {distance}")
+                logger.info(f"{'='*50}")
 
-            # Train and evaluate models
-            model_results = self.evaluate_model_for_distance(df, distance)
+                # Calculate baseline
+                baseline_results = self.calculate_baseline_metrics(df, distance)
 
-            # Combine results
-            all_results[distance] = {
-                "baseline": baseline_results,
-                "models": model_results,
-                "timestamp": datetime.now().isoformat(),
-            }
+                # Train and evaluate models
+                model_results = self.evaluate_model_for_distance(df, distance)
 
-            # Log summary
-            if baseline_results:
-                logger.info(
-                    f"Baseline MAE: {baseline_results.get('athlete_mean_baseline_mae', 'N/A'):.2f} seconds"
-                )
+                # Combine results
+                all_results[distance] = {
+                    "baseline": baseline_results,
+                    "models": model_results,
+                    "timestamp": datetime.now().isoformat(),
+                }
 
-            for model_name, result in model_results.items():
-                if "mae_mean" in result:
+                # Log distance-level metrics to parent run
+                if baseline_results and "athlete_mean_baseline_mae" in baseline_results:
+                    mlflow.log_metric(f"{distance}_baseline_mae", baseline_results["athlete_mean_baseline_mae"])
+
+                for model_name, result in model_results.items():
+                    if "mae_mean" in result:
+                        mlflow.log_metric(f"{distance}_{model_name}_mae", result["mae_mean"])
+                        mlflow.log_metric(f"{distance}_{model_name}_mae_std", result["mae_std"])
+
+                # Log summary
+                if baseline_results:
                     logger.info(
-                        f"{model_name} MAE: {result['mae_mean']:.2f} ± {result['mae_std']:.2f} seconds"
+                        f"Baseline MAE: {baseline_results.get('athlete_mean_baseline_mae', 'N/A'):.2f} seconds"
                     )
 
-        # Save results summary
-        results_path = (
-            self.model_dir
-            / f"training_results_{'pca' if self.apply_pca else 'nopca'}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-        )
+                for model_name, result in model_results.items():
+                    if "mae_mean" in result:
+                        logger.info(
+                            f"{model_name} MAE: {result['mae_mean']:.2f} ± {result['mae_std']:.2f} seconds"
+                        )
 
-        import json
+            # Save results summary
+            results_path = (
+                self.model_dir
+                / f"training_results_{'pca' if self.apply_pca else 'nopca'}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            )
 
-        with open(results_path, "w") as f:
-            json.dump(all_results, f, indent=2)
+            import json
 
-        logger.info(f"Training complete. Results saved to {results_path}")
+            with open(results_path, "w") as f:
+                json.dump(all_results, f, indent=2)
 
-        self.results = all_results
-        return all_results
+            # Log results file as artifact
+            mlflow.log_artifact(str(results_path), "training_results")
+
+            logger.info(f"Training complete. Results saved to {results_path}")
+
+            self.results = all_results
+            return all_results
 
 
 def main():
     """Main training script."""
+
     parser = argparse.ArgumentParser(
         description="Train triathlon race time prediction models"
     )
@@ -347,20 +447,26 @@ def main():
     parser.add_argument(
         "--cv-folds", type=int, default=5, help="Number of cross-validation folds"
     )
+    parser.add_argument(
+        "--experiment-name",
+        type=str,
+        default="Triathlon_Time_Prediction",
+        help="MLflow experiment name",
+    )
 
     args = parser.parse_args()
-
-    # Configure trainer
     apply_pca = not args.no_pca
     distances = [args.distance] if args.distance else None
 
     # Initialize trainer
     trainer = TriathlonMLTrainer(
-        apply_pca=apply_pca, pca_components=args.pca_components
+        apply_pca=apply_pca,
+        pca_components=args.pca_components,
+        experiment_name=args.experiment_name,
     )
 
     # Train models
-    results = trainer.train_models(distances=distances)    # Print summary
+    results = trainer.train_models(distances=distances)
     print("\n" + "=" * 60)
     print("TRAINING SUMMARY")
     print("=" * 60)
