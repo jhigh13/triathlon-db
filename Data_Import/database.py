@@ -67,13 +67,23 @@ def initialize_database():
         Column('ElapsedT1',      BigInteger),
         Column('ElapsedBike',    BigInteger),
         Column('ElapsedT2',      BigInteger),
-        Column('ElapsedRun',     BigInteger),
-        # seconds behind leader by program
+        Column('ElapsedRun',     BigInteger),        # seconds behind leader by program
         Column('BehindSwim',     BigInteger),
         Column('BehindT1',       BigInteger),
         Column('BehindBike',     BigInteger),
         Column('BehindT2',       BigInteger),
         Column('BehindRun',      BigInteger),
+        # position rankings at each checkpoint
+        Column('Position_at_Swim',     Integer),
+        Column('Position_at_T1',       Integer),
+        Column('Position_at_Bike',     Integer),
+        Column('Position_at_T2',       Integer),
+        Column('Position_at_Run',      Integer),
+        # position changes between checkpoints (negative = gained positions)
+        Column('Swim_to_T1_pos_change',   Integer),
+        Column('T1_to_Bike_pos_change',   Integer),
+        Column('Bike_to_T2_pos_change',   Integer),
+        Column('T2_to_Run_pos_change',    Integer),
         # Primary key constraint for upsert conflict target (NOT deferrable)
         PrimaryKeyConstraint('athlete_id', 'EventID', 'TotalTime', name='pk_race_results')
     )

@@ -10,7 +10,11 @@
   - Fetches new events since last database update
   - Processes Elite Men/Women programs specifically
   - UPSERT operations with duplicate handling
-- **Recent Changes**: Added NULL value filtering and data preview functionality to prevent constraint violations
+  - Position tracking and race dynamics analysis
+- **Recent Changes**: 
+  - Added NULL value filtering and data preview functionality to prevent constraint violations
+  - **June 2025**: Recreated file to fix corruption and add position tracking features
+  - **June 2025**: Added same position rankings and position change calculations as master import
 
 #### `Data_Import/master_data_import.py`
 - **Purpose**: Full database initialization with complete historical data import
@@ -18,7 +22,11 @@
   - Concurrent athlete data fetching
   - Event dimension table creation
   - Race results fact table population
-- **Recent Changes**: Added duplicate removal logic based on unique constraint columns before database insertion
+  - Position tracking and race dynamics analysis
+- **Recent Changes**: 
+  - Added duplicate removal logic based on unique constraint columns before database insertion
+  - **June 2025**: Added position rankings at each checkpoint (Position_at_Swim, Position_at_T1, etc.)
+  - **June 2025**: Added position change tracking between checkpoints (negative values = gained positions)
 
 #### `main.py`
 - **Purpose**: Command-line interface for all database operations
@@ -36,6 +44,9 @@
 - **Purpose**: Database schema definition and connection management
 - **Features**: Table creation, constraint definition, connection pooling
 - **Schema**: Optimized for triathlon data with proper indexing
+- **Recent Changes**: 
+  - **June 2025**: Added position tracking columns to race_results table
+  - **June 2025**: Enhanced schema with checkpoint position rankings and position change metrics
 
 ### Documentation & Analysis
 

@@ -103,9 +103,7 @@ def import_master_data():
     fact_df['ElapsedT1'] = fact_df['ElapsedSwim'] + fact_df['T1'].apply(parse_time_to_secs)
     fact_df['ElapsedBike'] = fact_df['ElapsedT1'] + fact_df['BikeTime'].apply(parse_time_to_secs)
     fact_df['ElapsedT2'] = fact_df['ElapsedBike'] + fact_df['T2'].apply(parse_time_to_secs)
-    fact_df['ElapsedRun'] = fact_df['ElapsedT2'] + fact_df['RunTime'].apply(parse_time_to_secs)
-
-    # Ensure all elapsed/behind columns are int64 and no NaN/inf
+    fact_df['ElapsedRun'] = fact_df['ElapsedT2'] + fact_df['RunTime'].apply(parse_time_to_secs)    # Ensure all elapsed/behind columns are int64 and no NaN/inf
     for col in ['ElapsedSwim','ElapsedT1','ElapsedBike','ElapsedT2','ElapsedRun',
                 'BehindSwim','BehindT1','BehindBike','BehindT2','BehindRun']:
         if col in fact_df:
@@ -139,6 +137,52 @@ def import_master_data():
     min_run = fact_df[fact_df['RunSecs'] > 0].groupby(['EventID','Program'])['ElapsedRun'] \
                  .transform('min').fillna(0)
     fact_df['BehindRun'] = fact_df['ElapsedRun'] - min_run
+    
+    # Calculate positions at each checkpoint (only for athletes with non-zero times)
+    print("Calculating position rankings at each checkpoint...")
+    
+    # Position at Swim (rank by ElapsedSwim, only athletes with SwimSecs > 0)
+    mask_swim = fact_df['SwimSecs'] > 0
+    fact_df.loc[mask_swim, 'Position_at_Swim'] = fact_df.loc[mask_swim].groupby(['EventID', 'Program'])['ElapsedSwim'].rank(method='min')
+    
+    # Position at T1 (rank by ElapsedT1, only athletes with T1Secs > 0)
+    mask_t1 = fact_df['T1Secs'] > 0
+    fact_df.loc[mask_t1, 'Position_at_T1'] = fact_df.loc[mask_t1].groupby(['EventID', 'Program'])['ElapsedT1'].rank(method='min')
+    
+    # Position at Bike (rank by ElapsedBike, only athletes with BikeSecs > 0)
+    mask_bike = fact_df['BikeSecs'] > 0
+    fact_df.loc[mask_bike, 'Position_at_Bike'] = fact_df.loc[mask_bike].groupby(['EventID', 'Program'])['ElapsedBike'].rank(method='min')
+    
+    # Position at T2 (rank by ElapsedT2, only athletes with T2Secs > 0)
+    mask_t2 = fact_df['T2Secs'] > 0
+    fact_df.loc[mask_t2, 'Position_at_T2'] = fact_df.loc[mask_t2].groupby(['EventID', 'Program'])['ElapsedT2'].rank(method='min')
+    
+    # Position at Run/Finish (rank by ElapsedRun, only athletes with RunSecs > 0)
+    mask_run = fact_df['RunSecs'] > 0
+    fact_df.loc[mask_run, 'Position_at_Run'] = fact_df.loc[mask_run].groupby(['EventID', 'Program'])['ElapsedRun'].rank(method='min')
+    
+    # Calculate position changes between checkpoints (negative = gained positions)
+    print("Calculating position changes between checkpoints...")
+    
+    # Swim to T1 position change
+    fact_df['Swim_to_T1_pos_change'] = fact_df['Position_at_T1'] - fact_df['Position_at_Swim']
+    
+    # T1 to Bike position change
+    fact_df['T1_to_Bike_pos_change'] = fact_df['Position_at_Bike'] - fact_df['Position_at_T1']
+    
+    # Bike to T2 position change
+    fact_df['Bike_to_T2_pos_change'] = fact_df['Position_at_T2'] - fact_df['Position_at_Bike']
+    
+    # T2 to Run position change
+    fact_df['T2_to_Run_pos_change'] = fact_df['Position_at_Run'] - fact_df['Position_at_T2']
+    
+    # Convert position columns to nullable integers (Int64) to handle NaN values properly
+    position_cols = ['Position_at_Swim', 'Position_at_T1', 'Position_at_Bike', 'Position_at_T2', 'Position_at_Run',
+                     'Swim_to_T1_pos_change', 'T1_to_Bike_pos_change', 'Bike_to_T2_pos_change', 'T2_to_Run_pos_change']
+    
+    for col in position_cols:
+        fact_df[col] = fact_df[col].astype('Int64')  # Nullable integer type
+    
     # Drop temporary split-second columns
     fact_df.drop(columns=['SwimSecs','T1Secs','BikeSecs','T2Secs','RunSecs'], inplace=True)
 
