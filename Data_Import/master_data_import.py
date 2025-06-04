@@ -6,7 +6,9 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import pandas as pd
 import concurrent.futures
+from sqlalchemy import text
 from Data_Import.database import get_engine, initialize_database
+from config.config import ATHLETE_TABLE_NAME, EVENTS_TABLE_NAME, RACE_RESULTS_TABLE_NAME
 from Data_Import.athlete_ids import get_top_athlete_ids
 from Data_Import.athlete_data import get_athlete_results_df, get_athlete_info_df
 
@@ -46,6 +48,15 @@ def import_master_data():
     Single-step process to import athletes, events, and race_results tables.
     """
     engine = get_engine()
+    
+    # Clean up any existing tables and constraints first
+    with engine.begin() as conn:
+        conn.execute(text(f'DROP TABLE IF EXISTS "{RACE_RESULTS_TABLE_NAME}" CASCADE'))
+        conn.execute(text(f'DROP TABLE IF EXISTS "{ATHLETE_TABLE_NAME}" CASCADE'))
+        conn.execute(text(f'DROP TABLE IF EXISTS "{EVENTS_TABLE_NAME}" CASCADE'))
+        conn.execute(text('DROP TABLE IF EXISTS athlete_rankings CASCADE'))
+        print("Dropped existing tables")
+    
     initialize_database()
 
     athlete_ids = get_top_athlete_ids()
@@ -67,18 +78,80 @@ def import_master_data():
 
     # Remove duplicates from fact_df based on unique constraint
     before = len(fact_df)
-    fact_df = fact_df.drop_duplicates(subset=["athlete_id", "EventID", "TotalTime"])
+    fact_df = fact_df.drop_duplicates(subset=["athlete_id", "EventID", "TotalTime"]).copy()
     after = len(fact_df)
     print(f"Removed {before - after} duplicate rows from race_results (kept {after}).")
+
+    # Helper to parse time strings into seconds
+    def parse_time_to_secs(t):
+        if pd.isna(t) or t == "":
+            return 0
+        parts = str(t).split(":")
+        try:
+            if len(parts) == 3:
+                h, m, s = parts
+                return int(h) * 3600 + int(m) * 60 + int(s)
+            elif len(parts) == 2:
+                m, s = parts
+                return int(m) * 60 + int(s)
+        except ValueError:
+            return 0
+        return 0
+
+    # Calculate elapsed times at each checkpoint (cumulative)
+    fact_df['ElapsedSwim'] = fact_df['SwimTime'].apply(parse_time_to_secs)
+    fact_df['ElapsedT1'] = fact_df['ElapsedSwim'] + fact_df['T1'].apply(parse_time_to_secs)
+    fact_df['ElapsedBike'] = fact_df['ElapsedT1'] + fact_df['BikeTime'].apply(parse_time_to_secs)
+    fact_df['ElapsedT2'] = fact_df['ElapsedBike'] + fact_df['T2'].apply(parse_time_to_secs)
+    fact_df['ElapsedRun'] = fact_df['ElapsedT2'] + fact_df['RunTime'].apply(parse_time_to_secs)
+
+    # Ensure all elapsed/behind columns are int64 and no NaN/inf
+    for col in ['ElapsedSwim','ElapsedT1','ElapsedBike','ElapsedT2','ElapsedRun',
+                'BehindSwim','BehindT1','BehindBike','BehindT2','BehindRun']:
+        if col in fact_df:
+            fact_df[col] = pd.to_numeric(fact_df[col], errors='coerce').fillna(0).astype('int64')
+
+    # Parse individual split seconds
+    fact_df['SwimSecs'] = fact_df['SwimTime'].apply(parse_time_to_secs)
+    fact_df['T1Secs']   = fact_df['T1'].apply(parse_time_to_secs)
+    fact_df['BikeSecs'] = fact_df['BikeTime'].apply(parse_time_to_secs)
+    fact_df['T2Secs']   = fact_df['T2'].apply(parse_time_to_secs)
+    fact_df['RunSecs']  = fact_df['RunTime'].apply(parse_time_to_secs)
+
+    # Compute seconds behind leader per EventID + Program, filtering only athletes who recorded that split
+    # Swim
+    min_swim = fact_df[fact_df['SwimSecs'] > 0].groupby(['EventID','Program'])['ElapsedSwim'] \
+                  .transform('min').fillna(0)
+    fact_df['BehindSwim'] = fact_df['ElapsedSwim'] - min_swim
+    # T1
+    min_t1 = fact_df[fact_df['T1Secs'] > 0].groupby(['EventID','Program'])['ElapsedT1'] \
+                .transform('min').fillna(0)
+    fact_df['BehindT1'] = fact_df['ElapsedT1'] - min_t1
+    # Bike
+    min_bike = fact_df[fact_df['BikeSecs'] > 0].groupby(['EventID','Program'])['ElapsedBike'] \
+                  .transform('min').fillna(0)
+    fact_df['BehindBike'] = fact_df['ElapsedBike'] - min_bike
+    # T2
+    min_t2 = fact_df[fact_df['T2Secs'] > 0].groupby(['EventID','Program'])['ElapsedT2'] \
+                .transform('min').fillna(0)
+    fact_df['BehindT2'] = fact_df['ElapsedT2'] - min_t2
+    # Run
+    min_run = fact_df[fact_df['RunSecs'] > 0].groupby(['EventID','Program'])['ElapsedRun'] \
+                 .transform('min').fillna(0)
+    fact_df['BehindRun'] = fact_df['ElapsedRun'] - min_run
+    # Drop temporary split-second columns
+    fact_df.drop(columns=['SwimSecs','T1Secs','BikeSecs','T2Secs','RunSecs'], inplace=True)
 
     print("Saving tables to database...")
 
     with engine.begin() as conn:
-        conn.exec_driver_sql("TRUNCATE TABLE athlete, events, race_results")
+        conn.exec_driver_sql(
+            f"TRUNCATE TABLE \"{ATHLETE_TABLE_NAME}\", \"{EVENTS_TABLE_NAME}\", \"{RACE_RESULTS_TABLE_NAME}\""
+        )
 
-    athletes_df.to_sql("athlete", engine, if_exists="append", index=False)
-    events_df.to_sql("events", engine, if_exists="append", index=False)
-    fact_df.to_sql("race_results", engine, if_exists="append", index=False)
+    athletes_df.to_sql(ATHLETE_TABLE_NAME, engine, if_exists="append", index=False)
+    events_df.to_sql(EVENTS_TABLE_NAME, engine, if_exists="append", index=False)
+    fact_df.to_sql(RACE_RESULTS_TABLE_NAME, engine, if_exists="append", index=False)
 
     print("Master data import completed.")
 

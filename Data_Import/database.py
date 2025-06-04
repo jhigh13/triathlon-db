@@ -1,8 +1,13 @@
-# Data_Import/database.py
+
 
 from sqlalchemy import (
     create_engine, MetaData, Table, Column,
-    Integer, String, Date, Boolean, PrimaryKeyConstraint, Float
+    Integer, String, Date, Boolean, PrimaryKeyConstraint, Float, BigInteger
+)
+from config.config import (
+    ATHLETE_TABLE_NAME,
+    EVENTS_TABLE_NAME,
+    RACE_RESULTS_TABLE_NAME,
 )
 from config.config import DB_URI
 
@@ -15,7 +20,7 @@ def initialize_database():
 
     # Event dimension table
     Table(
-        'events', metadata,
+        EVENTS_TABLE_NAME, metadata,
         Column('EventID',            Integer, primary_key=True),
         Column('EventName',          String,  nullable=False),
         Column('EventDate',          Date),
@@ -28,7 +33,7 @@ def initialize_database():
 
     # Athlete dimension table
     Table(
-        'athlete', metadata,
+        ATHLETE_TABLE_NAME, metadata,
         Column('athlete_id',         Integer, primary_key=True),
         Column('full_name',          String),
         Column('gender',             String),
@@ -43,21 +48,34 @@ def initialize_database():
 
     # Race‐results fact table with composite PK (athlete_id, EventID, TotalTime)
     Table(
-        'race_results', metadata,
-        Column('athlete_id',   Integer, nullable=False),
-        Column('EventID',      Integer, nullable=False),
-        Column('ProgID',    Integer),
-        Column('Program',      String),
-        Column('CategoryName', String),
+        RACE_RESULTS_TABLE_NAME, metadata,
+        Column('athlete_id',     Integer, nullable=False),
+        Column('EventID',        Integer, nullable=False),
+        Column('ProgID',         Integer),
+        Column('Program',        String),
+        Column('CategoryName',   String),
         Column('EventSpecifications', String),
-        Column('Position',     String),
-        Column('TotalTime',    String),
-        Column('SwimTime',     String),
-        Column('T1',           String),
-        Column('BikeTime',     String),
-        Column('T2',           String),
-        Column('RunTime',      String),
-        #PrimaryKeyConstraint('athlete_id', 'EventID', 'TotalTime', name='pk_race_results')
+        Column('Position',       String),
+        Column('TotalTime',      String),
+        Column('SwimTime',       String),
+        Column('T1',             String),
+        Column('BikeTime',       String),
+        Column('T2',             String),
+        Column('RunTime',        String),
+        # checkpoint elapsed times (seconds)
+        Column('ElapsedSwim',    BigInteger),
+        Column('ElapsedT1',      BigInteger),
+        Column('ElapsedBike',    BigInteger),
+        Column('ElapsedT2',      BigInteger),
+        Column('ElapsedRun',     BigInteger),
+        # seconds behind leader by program
+        Column('BehindSwim',     BigInteger),
+        Column('BehindT1',       BigInteger),
+        Column('BehindBike',     BigInteger),
+        Column('BehindT2',       BigInteger),
+        Column('BehindRun',      BigInteger),
+        # Primary key constraint for upsert conflict target (NOT deferrable)
+        PrimaryKeyConstraint('athlete_id', 'EventID', 'TotalTime', name='pk_race_results')
     )
 
     Table(
@@ -71,7 +89,16 @@ def initialize_database():
     )
 
     metadata.create_all(engine)
-    print("Database tables created (if not existing).")
+    # Ensure unique index for upsert ON CONFLICT target on race_results
+    from sqlalchemy import text
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                f'CREATE UNIQUE INDEX IF NOT EXISTS idx_{RACE_RESULTS_TABLE_NAME}_conflict '
+                f'ON "{RACE_RESULTS_TABLE_NAME}" (athlete_id, "EventID", "TotalTime")'
+            )
+        )
+    print("Database tables and conflict index ensured.")
 
 if __name__ == "__main__":
     initialize_database()

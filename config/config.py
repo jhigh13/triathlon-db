@@ -24,4 +24,7 @@ DB_URI = os.environ.get(
     "DB_URI",
     "postgresql+psycopg2://postgres:Bc020406!@localhost:5432/triathlon_results"
 )
-DATABASE_TABLE       = "race_results"
+# Table name overrides (via env vars for testing)
+ATHLETE_TABLE_NAME       = os.getenv('ATHLETE_TABLE_NAME', 'athlete')
+EVENTS_TABLE_NAME        = os.getenv('EVENTS_TABLE_NAME', 'events')
+RACE_RESULTS_TABLE_NAME  = os.getenv('RACE_RESULTS_TABLE_NAME', 'race_results')

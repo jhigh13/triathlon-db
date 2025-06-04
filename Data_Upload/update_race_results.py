@@ -2,6 +2,8 @@ import requests
 import pandas as pd
 from sqlalchemy import create_engine, text
 from config.config import HEADERS, BASE_URL, DB_URI
+from config.config import ATHLETE_TABLE_NAME, EVENTS_TABLE_NAME, RACE_RESULTS_TABLE_NAME
+from Data_Import.database import initialize_database
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # API endpoints
@@ -12,7 +14,7 @@ CATEGORY_IDS = "356|357|351"
 
 def get_last_event_date(engine):
     with engine.connect() as conn:
-        result = conn.execute(text('SELECT MAX("EventDate") FROM events'))
+        result = conn.execute(text(f'SELECT MAX("EventDate") FROM "{EVENTS_TABLE_NAME}"'))
         max_date = result.scalar()
         if max_date is None:
             return "2025-05-10"
@@ -92,8 +94,8 @@ def upsert_events(events, engine):
     if df.empty:
         return
     records = df.to_dict(orient="records")
-    insert_sql = """
-        INSERT INTO events ("EventID","EventName","EventDate","Venue","Country","CategoryName","EventSpecifications")
+    insert_sql = f"""
+        INSERT INTO "{EVENTS_TABLE_NAME}" ("EventID","EventName","EventDate","Venue","Country","CategoryName","EventSpecifications")
         VALUES (:EventID,:EventName,:EventDate,:Venue,:Country,:CategoryName,:EventSpecifications)
         ON CONFLICT ("EventID") DO UPDATE SET
             "EventName" = EXCLUDED."EventName",
@@ -115,16 +117,20 @@ def upsert_race_results(df, engine):
     if df.empty:
         print("No valid race results to upsert after dropping NULLs in athlete_id, EventID, or TotalTime.")
         return
-    print("Sample of race results to upsert (after dropping NULLs):")
-    print(df.head(5).to_string(index=False))
+    """print("Sample of race results to upsert (after dropping NULLs):")
+    print(df.head(5).to_string(index=False))"""
     records = df.to_dict(orient="records")
-    insert_sql = """
-        INSERT INTO race_results (
+    insert_sql = f"""
+        INSERT INTO "{RACE_RESULTS_TABLE_NAME}" (
             athlete_id, "EventID", "ProgID", "Program", "CategoryName", "EventSpecifications",
-            "Position", "TotalTime", "SwimTime", "T1", "BikeTime", "T2", "RunTime"
+            "Position", "TotalTime", "SwimTime", "T1", "BikeTime", "T2", "RunTime",
+            "ElapsedSwim", "ElapsedT1", "ElapsedBike", "ElapsedT2", "ElapsedRun",
+            "BehindSwim", "BehindT1", "BehindBike", "BehindT2", "BehindRun"
         ) VALUES (
             :athlete_id, :EventID, :ProgID, :Program, :CategoryName, :EventSpecifications,
-            :Position, :TotalTime, :SwimTime, :T1, :BikeTime, :T2, :RunTime
+            :Position, :TotalTime, :SwimTime, :T1, :BikeTime, :T2, :RunTime,
+            :ElapsedSwim, :ElapsedT1, :ElapsedBike, :ElapsedT2, :ElapsedRun,
+            :BehindSwim, :BehindT1, :BehindBike, :BehindT2, :BehindRun
         )
         ON CONFLICT (athlete_id, "EventID", "TotalTime") DO UPDATE SET
             "Position" = EXCLUDED."Position",
@@ -137,13 +143,28 @@ def upsert_race_results(df, engine):
             "Program" = EXCLUDED."Program",
             "ProgID" = EXCLUDED."ProgID",
             "CategoryName" = EXCLUDED."CategoryName",
-            "EventSpecifications" = EXCLUDED."EventSpecifications";
+            "EventSpecifications" = EXCLUDED."EventSpecifications",
+            "ElapsedSwim" = EXCLUDED."ElapsedSwim",
+            "ElapsedT1" = EXCLUDED."ElapsedT1",
+            "ElapsedBike" = EXCLUDED."ElapsedBike",
+            "ElapsedT2" = EXCLUDED."ElapsedT2",
+            "ElapsedRun" = EXCLUDED."ElapsedRun",
+            "BehindSwim" = EXCLUDED."BehindSwim",
+            "BehindT1" = EXCLUDED."BehindT1",
+            "BehindBike" = EXCLUDED."BehindBike",
+            "BehindT2" = EXCLUDED."BehindT2",
+            "BehindRun" = EXCLUDED."BehindRun";
     """
     with engine.begin() as conn:
         conn.execute(text(insert_sql), records)
 
 
 def update_race_results(engine, max_workers=10):
+    # Drop and recreate test race_results table to ensure correct PK for upsert
+    with engine.begin() as conn:
+        conn.exec_driver_sql(f'DROP TABLE IF EXISTS "{RACE_RESULTS_TABLE_NAME}" CASCADE')
+    # Ensure tables exist with proper constraints
+    initialize_database()
     from datetime import datetime, timedelta
     last_date = (datetime.today() - timedelta(days=30)).strftime("%Y-%m-%d")
     evs = fetch_new_events(last_date)
@@ -189,6 +210,79 @@ def update_race_results(engine, max_workers=10):
 
     if all_dfs:
         combined = pd.concat(all_dfs, ignore_index=True)
+        # Helper to parse time strings into seconds
+        def parse_time_to_secs(t):
+            if pd.isna(t) or t == "":
+                return 0
+            parts = str(t).split(":")
+            try:
+                if len(parts) == 3:
+                    h, m, s = parts
+                    return int(h) * 3600 + int(m) * 60 + int(s)
+                elif len(parts) == 2:
+                    m, s = parts
+                    return int(m) * 60 + int(s)
+            except ValueError:
+                return 0
+            return 0        # Calculate elapsed times at each checkpoint (cumulative)
+        combined['ElapsedSwim'] = combined['SwimTime'].apply(parse_time_to_secs)
+        combined['ElapsedT1'] = combined['ElapsedSwim'] + combined['T1'].apply(parse_time_to_secs)
+        combined['ElapsedBike'] = combined['ElapsedT1'] + combined['BikeTime'].apply(parse_time_to_secs)
+        combined['ElapsedT2'] = combined['ElapsedBike'] + combined['T2'].apply(parse_time_to_secs)
+        combined['ElapsedRun'] = combined['ElapsedT2'] + combined['RunTime'].apply(parse_time_to_secs)
+
+        # Parse individual split seconds
+        combined['SwimSecs'] = combined['SwimTime'].apply(parse_time_to_secs)
+        combined['T1Secs']   = combined['T1'].apply(parse_time_to_secs)
+        combined['BikeSecs'] = combined['BikeTime'].apply(parse_time_to_secs)
+        combined['T2Secs']   = combined['T2'].apply(parse_time_to_secs)
+        combined['RunSecs']  = combined['RunTime'].apply(parse_time_to_secs)
+
+        # Compute seconds behind leader per EventID + Program, filtering only athletes who recorded that split
+        # Swim
+        min_swim = combined[combined['SwimSecs'] > 0].groupby(['EventID','Program'])['ElapsedSwim'] \
+                      .transform('min').fillna(0)
+        combined['BehindSwim'] = combined['ElapsedSwim'] - min_swim
+        # T1
+        min_t1 = combined[combined['T1Secs'] > 0].groupby(['EventID','Program'])['ElapsedT1'] \
+                    .transform('min').fillna(0)
+        combined['BehindT1'] = combined['ElapsedT1'] - min_t1
+        # Bike
+        min_bike = combined[combined['BikeSecs'] > 0].groupby(['EventID','Program'])['ElapsedBike'] \
+                      .transform('min').fillna(0)
+        combined['BehindBike'] = combined['ElapsedBike'] - min_bike
+        # T2
+        min_t2 = combined[combined['T2Secs'] > 0].groupby(['EventID','Program'])['ElapsedT2'] \
+                    .transform('min').fillna(0)
+        combined['BehindT2'] = combined['ElapsedT2'] - min_t2
+        # Run
+        min_run = combined[combined['RunSecs'] > 0].groupby(['EventID','Program'])['ElapsedRun'] \
+                     .transform('min').fillna(0)
+        combined['BehindRun'] = combined['ElapsedRun'] - min_run
+        # Drop temporary split-second columns
+        combined.drop(columns=['SwimSecs','T1Secs','BikeSecs','T2Secs','RunSecs'], inplace=True)        # Ensure all elapsed/behind columns are int64 and no NaN/inf (CRITICAL for BigInt compatibility)
+        for col in ['ElapsedSwim','ElapsedT1','ElapsedBike','ElapsedT2','ElapsedRun',
+                    'BehindSwim','BehindT1','BehindBike','BehindT2','BehindRun']:
+            # Convert to numeric, replace NaN/inf with 0, then convert to int64
+            combined[col] = pd.to_numeric(combined[col], errors='coerce')
+            combined[col] = combined[col].replace([float('inf'), float('-inf')], 0).fillna(0).astype('int64')
+
+        # Final validation: check for any remaining NaN or problematic values
+        problematic_cols = []
+        for col in ['ElapsedSwim','ElapsedT1','ElapsedBike','ElapsedT2','ElapsedRun',
+                    'BehindSwim','BehindT1','BehindBike','BehindT2','BehindRun']:
+            if combined[col].isna().any():
+                problematic_cols.append(col)
+        
+        if problematic_cols:
+            print(f"WARNING: Found NaN values in columns: {problematic_cols}")
+            # Force clean any remaining NaN values
+            for col in problematic_cols:
+                combined[col] = combined[col].fillna(0).astype('int64')
+            print("NaN values have been replaced with 0.")
+
+        print(f"Data validation complete. Sample behind times: {combined[['BehindSwim','BehindRun']].head()}")
+        
         upsert_race_results(combined, engine)
         print(f"Upserted {len(combined)} race results.")
     else:
