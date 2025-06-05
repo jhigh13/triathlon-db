@@ -11,10 +11,12 @@
   - Processes Elite Men/Women programs specifically
   - UPSERT operations with duplicate handling
   - Position tracking and race dynamics analysis
+  - **Individual split rankings**: SwimRank, T1Rank, BikeRank, T2Rank, RunRank
 - **Recent Changes**: 
   - Added NULL value filtering and data preview functionality to prevent constraint violations
   - **June 2025**: Recreated file to fix corruption and add position tracking features
   - **June 2025**: Added same position rankings and position change calculations as master import
+  - **June 2025**: Added individual split rankings for each segment (swim, T1, bike, T2, run)
 
 #### `Data_Import/master_data_import.py`
 - **Purpose**: Full database initialization with complete historical data import
@@ -23,10 +25,12 @@
   - Event dimension table creation
   - Race results fact table population
   - Position tracking and race dynamics analysis
+  - **Individual split rankings**: SwimRank, T1Rank, BikeRank, T2Rank, RunRank
 - **Recent Changes**: 
   - Added duplicate removal logic based on unique constraint columns before database insertion
   - **June 2025**: Added position rankings at each checkpoint (Position_at_Swim, Position_at_T1, etc.)
   - **June 2025**: Added position change tracking between checkpoints (negative values = gained positions)
+  - **June 2025**: Added individual split rankings for each segment (swim, T1, bike, T2, run)
 
 #### `main.py`
 - **Purpose**: Command-line interface for all database operations
@@ -47,6 +51,7 @@
 - **Recent Changes**: 
   - **June 2025**: Added position tracking columns to race_results table
   - **June 2025**: Enhanced schema with checkpoint position rankings and position change metrics
+  - **June 2025**: Added individual split ranking columns (SwimRank, T1Rank, BikeRank, T2Rank, RunRank)
 
 ### Documentation & Analysis
 

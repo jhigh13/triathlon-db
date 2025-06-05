@@ -169,9 +169,33 @@ def calculate_position_metrics(df):
     df['Bike_to_T2_pos_change'] = df['Position_at_T2'] - df['Position_at_Bike']
     df['T2_to_Run_pos_change'] = df['Position_at_Run'] - df['Position_at_T2']
     
+    # Calculate individual split rankings (rank by split time, not cumulative time)
+    print("Calculating individual split rankings...")
+    
+    # Swim ranking (rank by SwimSecs, only athletes with SwimSecs > 0)
+    mask_swim_rank = df['SwimSecs'] > 0
+    df.loc[mask_swim_rank, 'SwimRank'] = df.loc[mask_swim_rank].groupby(['EventID', 'Program'])['SwimSecs'].rank(method='min')
+    
+    # T1 ranking (rank by T1Secs, only athletes with T1Secs > 0)
+    mask_t1_rank = df['T1Secs'] > 0
+    df.loc[mask_t1_rank, 'T1Rank'] = df.loc[mask_t1_rank].groupby(['EventID', 'Program'])['T1Secs'].rank(method='min')
+    
+    # Bike ranking (rank by BikeSecs, only athletes with BikeSecs > 0)
+    mask_bike_rank = df['BikeSecs'] > 0
+    df.loc[mask_bike_rank, 'BikeRank'] = df.loc[mask_bike_rank].groupby(['EventID', 'Program'])['BikeSecs'].rank(method='min')
+    
+    # T2 ranking (rank by T2Secs, only athletes with T2Secs > 0)
+    mask_t2_rank = df['T2Secs'] > 0
+    df.loc[mask_t2_rank, 'T2Rank'] = df.loc[mask_t2_rank].groupby(['EventID', 'Program'])['T2Secs'].rank(method='min')
+    
+    # Run ranking (rank by RunSecs, only athletes with RunSecs > 0)
+    mask_run_rank = df['RunSecs'] > 0
+    df.loc[mask_run_rank, 'RunRank'] = df.loc[mask_run_rank].groupby(['EventID', 'Program'])['RunSecs'].rank(method='min')
+    
     # Convert position columns to nullable integers (Int64) to handle NaN values properly
     position_cols = ['Position_at_Swim', 'Position_at_T1', 'Position_at_Bike', 'Position_at_T2', 'Position_at_Run',
-                     'Swim_to_T1_pos_change', 'T1_to_Bike_pos_change', 'Bike_to_T2_pos_change', 'T2_to_Run_pos_change']
+                     'Swim_to_T1_pos_change', 'T1_to_Bike_pos_change', 'Bike_to_T2_pos_change', 'T2_to_Run_pos_change',
+                     'SwimRank', 'T1Rank', 'BikeRank', 'T2Rank', 'RunRank']
     
     for col in position_cols:
         df[col] = df[col].astype('Int64')  # Nullable integer type
@@ -241,14 +265,14 @@ def upsert_race_results(df, engine):
     records = df.to_dict(orient="records")
     with engine.begin() as conn:
         for record in records:
-            conn.execute(text(f"""
-                INSERT INTO "{RACE_RESULTS_TABLE_NAME}" (
+            conn.execute(text(f"""                INSERT INTO "{RACE_RESULTS_TABLE_NAME}" (
                     athlete_id, "EventID", "ProgID", "Program", "CategoryName", "EventSpecifications",
                     "Position", "TotalTime", "SwimTime", "T1", "BikeTime", "T2", "RunTime",
                     "ElapsedSwim", "ElapsedT1", "ElapsedBike", "ElapsedT2", "ElapsedRun",
                     "BehindSwim", "BehindT1", "BehindBike", "BehindT2", "BehindRun",
                     "Position_at_Swim", "Position_at_T1", "Position_at_Bike", "Position_at_T2", "Position_at_Run",
-                    "Swim_to_T1_pos_change", "T1_to_Bike_pos_change", "Bike_to_T2_pos_change", "T2_to_Run_pos_change"
+                    "Swim_to_T1_pos_change", "T1_to_Bike_pos_change", "Bike_to_T2_pos_change", "T2_to_Run_pos_change",
+                    "SwimRank", "T1Rank", "BikeRank", "T2Rank", "RunRank"
                 )
                 VALUES (
                     :athlete_id, :EventID, :ProgID, :Program, :CategoryName, :EventSpecifications,
@@ -256,7 +280,8 @@ def upsert_race_results(df, engine):
                     :ElapsedSwim, :ElapsedT1, :ElapsedBike, :ElapsedT2, :ElapsedRun,
                     :BehindSwim, :BehindT1, :BehindBike, :BehindT2, :BehindRun,
                     :Position_at_Swim, :Position_at_T1, :Position_at_Bike, :Position_at_T2, :Position_at_Run,
-                    :Swim_to_T1_pos_change, :T1_to_Bike_pos_change, :Bike_to_T2_pos_change, :T2_to_Run_pos_change
+                    :Swim_to_T1_pos_change, :T1_to_Bike_pos_change, :Bike_to_T2_pos_change, :T2_to_Run_pos_change,
+                    :SwimRank, :T1Rank, :BikeRank, :T2Rank, :RunRank
                 )
                 ON CONFLICT (athlete_id, "EventID", "TotalTime") DO UPDATE SET
                     "ProgID" = EXCLUDED."ProgID",
@@ -278,8 +303,7 @@ def upsert_race_results(df, engine):
                     "BehindT1" = EXCLUDED."BehindT1",
                     "BehindBike" = EXCLUDED."BehindBike",
                     "BehindT2" = EXCLUDED."BehindT2",
-                    "BehindRun" = EXCLUDED."BehindRun",
-                    "Position_at_Swim" = EXCLUDED."Position_at_Swim",
+                    "BehindRun" = EXCLUDED."BehindRun",                    "Position_at_Swim" = EXCLUDED."Position_at_Swim",
                     "Position_at_T1" = EXCLUDED."Position_at_T1",
                     "Position_at_Bike" = EXCLUDED."Position_at_Bike",
                     "Position_at_T2" = EXCLUDED."Position_at_T2",
@@ -287,7 +311,12 @@ def upsert_race_results(df, engine):
                     "Swim_to_T1_pos_change" = EXCLUDED."Swim_to_T1_pos_change",
                     "T1_to_Bike_pos_change" = EXCLUDED."T1_to_Bike_pos_change",
                     "Bike_to_T2_pos_change" = EXCLUDED."Bike_to_T2_pos_change",
-                    "T2_to_Run_pos_change" = EXCLUDED."T2_to_Run_pos_change"
+                    "T2_to_Run_pos_change" = EXCLUDED."T2_to_Run_pos_change",
+                    "SwimRank" = EXCLUDED."SwimRank",
+                    "T1Rank" = EXCLUDED."T1Rank",
+                    "BikeRank" = EXCLUDED."BikeRank",
+                    "T2Rank" = EXCLUDED."T2Rank",
+                    "RunRank" = EXCLUDED."RunRank"
             """), record)
     print(f"Upserted {len(records)} race results.")
 

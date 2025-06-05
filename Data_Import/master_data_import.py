@@ -182,9 +182,33 @@ def import_master_data():
     # T2 to Run position change
     fact_df['T2_to_Run_pos_change'] = fact_df['Position_at_Run'] - fact_df['Position_at_T2']
     
+    # Calculate individual split rankings (rank by split time, not cumulative time)
+    print("Calculating individual split rankings...")
+    
+    # Swim ranking (rank by SwimSecs, only athletes with SwimSecs > 0)
+    mask_swim_rank = fact_df['SwimSecs'] > 0
+    fact_df.loc[mask_swim_rank, 'SwimRank'] = fact_df.loc[mask_swim_rank].groupby(['EventID', 'Program'])['SwimSecs'].rank(method='min')
+    
+    # T1 ranking (rank by T1Secs, only athletes with T1Secs > 0)
+    mask_t1_rank = fact_df['T1Secs'] > 0
+    fact_df.loc[mask_t1_rank, 'T1Rank'] = fact_df.loc[mask_t1_rank].groupby(['EventID', 'Program'])['T1Secs'].rank(method='min')
+    
+    # Bike ranking (rank by BikeSecs, only athletes with BikeSecs > 0)
+    mask_bike_rank = fact_df['BikeSecs'] > 0
+    fact_df.loc[mask_bike_rank, 'BikeRank'] = fact_df.loc[mask_bike_rank].groupby(['EventID', 'Program'])['BikeSecs'].rank(method='min')
+    
+    # T2 ranking (rank by T2Secs, only athletes with T2Secs > 0)
+    mask_t2_rank = fact_df['T2Secs'] > 0
+    fact_df.loc[mask_t2_rank, 'T2Rank'] = fact_df.loc[mask_t2_rank].groupby(['EventID', 'Program'])['T2Secs'].rank(method='min')
+    
+    # Run ranking (rank by RunSecs, only athletes with RunSecs > 0)
+    mask_run_rank = fact_df['RunSecs'] > 0
+    fact_df.loc[mask_run_rank, 'RunRank'] = fact_df.loc[mask_run_rank].groupby(['EventID', 'Program'])['RunSecs'].rank(method='min')
+    
     # Convert position columns to nullable integers (Int64) to handle NaN values properly
     position_cols = ['Position_at_Swim', 'Position_at_T1', 'Position_at_Bike', 'Position_at_T2', 'Position_at_Run',
-                     'Swim_to_T1_pos_change', 'T1_to_Bike_pos_change', 'Bike_to_T2_pos_change', 'T2_to_Run_pos_change']
+                     'Swim_to_T1_pos_change', 'T1_to_Bike_pos_change', 'Bike_to_T2_pos_change', 'T2_to_Run_pos_change',
+                     'SwimRank', 'T1Rank', 'BikeRank', 'T2Rank', 'RunRank']
     
     for col in position_cols:
         fact_df[col] = fact_df[col].astype('Int64')  # Nullable integer type

@@ -1,5 +1,3 @@
-
-
 from sqlalchemy import (
     create_engine, MetaData, Table, Column,
     Integer, String, Date, Boolean, PrimaryKeyConstraint, Float, BigInteger
@@ -84,6 +82,12 @@ def initialize_database():
         Column('T1_to_Bike_pos_change',   Integer),
         Column('Bike_to_T2_pos_change',   Integer),
         Column('T2_to_Run_pos_change',    Integer),
+        # individual split rankings (rank for each split time within event/program)
+        Column('SwimRank',     Integer),
+        Column('T1Rank',       Integer),
+        Column('BikeRank',     Integer),
+        Column('T2Rank',       Integer),
+        Column('RunRank',      Integer),
         # Primary key constraint for upsert conflict target (NOT deferrable)
         PrimaryKeyConstraint('athlete_id', 'EventID', 'TotalTime', name='pk_race_results')
     )
