@@ -109,6 +109,12 @@ def import_master_data():
         if col in fact_df:
             fact_df[col] = pd.to_numeric(fact_df[col], errors='coerce').fillna(0).astype('int64')
 
+    # Ensure all elapsed/behind columns are int64 and no NaN/inf
+    for col in ['ElapsedSwim','ElapsedT1','ElapsedBike','ElapsedT2','ElapsedRun',
+                'BehindSwim','BehindT1','BehindBike','BehindT2','BehindRun']:
+        if col in fact_df:
+            fact_df[col] = pd.to_numeric(fact_df[col], errors='coerce').fillna(0).astype('int64')
+
     # Parse individual split seconds
     fact_df['SwimSecs'] = fact_df['SwimTime'].apply(parse_time_to_secs)
     fact_df['T1Secs']   = fact_df['T1'].apply(parse_time_to_secs)
