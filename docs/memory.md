@@ -55,6 +55,19 @@
 
 ### Documentation & Analysis
 
+#### `docs/historical-rankings-scraping.md`
+- **Purpose**: Comprehensive functional specification for historical triathlon rankings data scraping feature
+- **Key Features**:
+  - Web scraping infrastructure for old.triathlon.org historical rankings
+  - Data validation and quality assurance processes
+  - Integration with existing athlete_rankings database table
+  - Athlete name matching algorithms
+  - Incremental processing and monitoring capabilities
+- **Scope**: Historical World Triathlon Championship Series rankings (2009-2024)
+- **Target Data**: Rank position, athlete name, country, points by year and gender
+- **ML Integration**: Enhanced feature engineering for career trajectory and ranking trends analysis
+- **Created**: June 2025 as detailed implementation roadmap
+
 #### `docs/Summary.md`
 - **Purpose**: High-level project overview and current state documentation
 - **Updated**: June 2025 with recent bug fixes and architectural improvements
