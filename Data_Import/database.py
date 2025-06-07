@@ -1,16 +1,53 @@
+def create_test_tables():
+    """
+    Create test_athlete and test_athlete_rankings tables in the real database for integration testing.
+    """
+    engine = get_engine()
+    from sqlalchemy import text
+    with engine.begin() as conn:
+        # Drop if exists for clean test runs
+        conn.execute(text("DROP TABLE IF EXISTS test_athlete_rankings"))
+        conn.execute(text("DROP TABLE IF EXISTS test_athlete"))
+        # Create test_athlete
+        conn.execute(text('''
+            CREATE TABLE test_athlete (
+                athlete_id INTEGER PRIMARY KEY,
+                full_name VARCHAR(255) NOT NULL
+            )
+        '''))
+        # Create test_athlete_rankings
+        conn.execute(text('''
+            CREATE TABLE test_athlete_rankings (
+                athlete_id INTEGER,
+                athlete_name VARCHAR(255) NOT NULL,
+                ranking_cat_name VARCHAR(255) NOT NULL,
+                ranking_cat_id INTEGER NOT NULL,
+                rank_position INTEGER NOT NULL,
+                total_points FLOAT NOT NULL,
+                retrieved_at DATE NOT NULL,
+                PRIMARY KEY (athlete_name, ranking_cat_name, retrieved_at)
+            )
+        '''))
+    print("Test tables test_athlete and test_athlete_rankings created.")
 from sqlalchemy import (
     create_engine, MetaData, Table, Column,
     Integer, String, Date, Boolean, PrimaryKeyConstraint, Float, BigInteger
 )
+import os
 from config.config import (
     ATHLETE_TABLE_NAME,
     EVENTS_TABLE_NAME,
     RACE_RESULTS_TABLE_NAME,
 )
-from config.config import DB_URI
+# DB_URI default imported for reference; actual URI chosen at runtime
+from config.config import DB_URI as DEFAULT_DB_URI
 
 def get_engine(echo: bool = False):
-    return create_engine(DB_URI, echo=echo)
+    """
+    Create a SQLAlchemy engine using DB_URI from environment or default.
+    """
+    uri = os.environ.get('DB_URI', DEFAULT_DB_URI)
+    return create_engine(uri, echo=echo)
 
 def initialize_database():
     engine = get_engine()
@@ -94,7 +131,7 @@ def initialize_database():
 
     Table(
         'athlete_rankings', metadata,
-        Column('athlete_id',      Integer, nullable=False),
+        Column('athlete_id',      Integer, nullable=True),  # allow null until API matching
         Column('athlete_name',    String,  nullable=False),
         Column('ranking_cat_name', String, nullable=False),
         Column('ranking_cat_id',  Integer, nullable=False),
@@ -102,6 +139,17 @@ def initialize_database():
         Column('total_points',    Float,   nullable=False),
         Column('retrieved_at',    Date,    nullable=False),
         PrimaryKeyConstraint('athlete_name','ranking_cat_name','retrieved_at', name='pk_athlete_rankings')
+    )
+    # Staging table for historical rankings (no constraints)
+    Table(
+        'staging_rankings', metadata,
+        Column('athlete_id',      Integer, nullable=True),
+        Column('athlete_name',    String,  nullable=False),
+        Column('ranking_cat_name', String, nullable=False),
+        Column('ranking_cat_id',  Integer, nullable=False),
+        Column('rank_position',   Integer, nullable=False),
+        Column('total_points',    Float,   nullable=False),
+        Column('retrieved_at',    Date,    nullable=False)
     )
 
     metadata.create_all(engine)

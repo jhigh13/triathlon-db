@@ -52,6 +52,9 @@ class HistoricalRankingsScraper:
             'Connection': 'keep-alive',
             'Upgrade-Insecure-Requests': '1',
         })
+        # Athlete ID matching utility
+        from Data_Import.athlete_matching import match_athlete_id
+        self.match_athlete_id = match_athlete_id
         
     def discover_available_rankings(self) -> List[Dict]:
         """
@@ -65,9 +68,9 @@ class HistoricalRankingsScraper:
         available_rankings = []
         
 
-        # ITU WTCS rankings (2016-2020) use a different URL pattern
+        # ITU WTCS rankings (2016-2019, no data for 2020) use a different URL pattern
         ITU_WTCS_URL_PATTERN = "https://old.triathlon.org/rankings/itu_world_triathlon_series_{year}/{gender}"
-        for year in range(2016, 2021):
+        for year in range(2016, 2020):
             for gender in ["male", "female"]:
                 url = ITU_WTCS_URL_PATTERN.format(year=year, gender=gender)
                 ranking_info = self._check_ranking_availability(
@@ -139,14 +142,14 @@ class HistoricalRankingsScraper:
                     if not header_row:
                         continue
                     cols = [cell.get_text().strip().lower() for cell in header_row.find_all(['th', 'td'])]
-                    logger.debug(f"Checking table headers at {url}: {cols}")
+                    #logger.debug(f"Checking table headers at {url}: {cols}")
                     # match full ITU schema or WTCS schema
                     if itu_pattern.issubset(set(cols)) or wtcs_pattern.issubset(set(cols)):
                         ranking_table = tbl
                         break
                 if not ranking_table:
                     tables = soup.find_all('table')
-                    logger.debug(f"No suitable ranking table found among {len(tables)} tables at {url}")
+                    #logger.debug(f"No suitable ranking table found among {len(tables)} tables at {url}")
                     # Log header of the largest table for debugging
                     if tables:
                         largest = max(tables, key=lambda t: len(t.find_all('tr')))
@@ -234,11 +237,159 @@ class HistoricalRankingsScraper:
         gender_names = {"male": "Male", "female": "Female"}
         
         return f"{series_names.get(series, series)} {year} {gender_names.get(gender, gender)}"
+    
+    def upsert_rankings(self, rankings: List[Dict]):
+        """
+        Upsert scraped rankings into the existing athlete_rankings table.
+        """
+        engine = get_engine()
+        today = date.today()
+        upsert_sql = text(
+            """
+            INSERT INTO athlete_rankings
+              (athlete_id, athlete_name, ranking_cat_name, ranking_cat_id,
+               rank_position, total_points, retrieved_at)
+            VALUES (:athlete_id, :athlete_name, :ranking_cat_name, :ranking_cat_id,
+                    :rank_position, :total_points, :retrieved_at)
+            ON CONFLICT (athlete_name, ranking_cat_name, retrieved_at)
+            DO UPDATE SET
+              rank_position = EXCLUDED.rank_position,
+              total_points = EXCLUDED.total_points
+            """
+        )
+        inserted = 0
+        for r in rankings:
+            cat_name = r['ranking_cat_name']
+            cat_id = r['ranking_cat_id']
+            with engine.begin() as conn:
+                for athlete in r['athletes']:
+                    full_name = f"{athlete['given_name']} {athlete['family_name']}"
+                    aid = self.match_athlete_id(full_name)
+                    params = {
+                        'athlete_id': aid,
+                        'athlete_name': full_name,
+                        'ranking_cat_name': cat_name,
+                        'ranking_cat_id': cat_id,
+                        'rank_position': athlete['rank'],
+                        'total_points': athlete['total_points'],
+                        'retrieved_at': today
+                    }
+                    conn.execute(upsert_sql, params)
+                    inserted += 1
+        logger.info(f"Upsert of athlete rankings complete. {inserted} records processed.")
+
+    def stage_rankings(self, rankings: List[Dict]):
+        """
+        Stage raw scraped rankings into the staging_rankings table.
+        """
+        engine = get_engine()
+        today = date.today()
+        insert_sql = text(
+            """
+            INSERT INTO staging_rankings
+              (athlete_id, athlete_name, ranking_cat_name, ranking_cat_id,
+               rank_position, total_points, retrieved_at)
+            VALUES (:athlete_id, :athlete_name, :ranking_cat_name, :ranking_cat_id,
+                    :rank_position, :total_points, :retrieved_at)
+            """
+        )
+        inserted = 0
+        with engine.begin() as conn:
+            # Clear existing staging data for today's run
+            conn.execute(text("DELETE FROM staging_rankings WHERE retrieved_at = :today"), {"today": today})
+            for r in rankings:
+                for athlete in r.get('athletes', []):
+                    full_name = f"{athlete['given_name']} {athlete['family_name']}"
+                    params = {
+                        'athlete_id': None,
+                        'athlete_name': full_name,
+                        'ranking_cat_name': r['ranking_cat_name'],
+                        'ranking_cat_id': r['ranking_cat_id'],
+                        'rank_position': athlete['rank'],
+                        'total_points': athlete['total_points'],
+                        'retrieved_at': today
+                    }
+                    conn.execute(insert_sql, params)
+                    inserted += 1
+        logger.info(f"Staged {inserted} ranking records into staging_rankings.")
+    
+    def resolve_athlete_ids(self):
+        """
+        Resolve missing athlete_id in staging_rankings by matching existing or calling external API,
+        and upsert new athlete records into athlete table.
+        """
+        engine = get_engine()
+        today = date.today()
+        # Load resolving utilities
+        from Data_Upload.search_id import get_athlete_id as api_get_athlete_id
+        from Data_Import.athlete_data import get_athlete_info_df
+        from config.config import ATHLETE_TABLE_NAME
+        # Statements
+        select_names = text(
+            """
+            SELECT DISTINCT athlete_name
+            FROM staging_rankings
+            WHERE athlete_id IS NULL AND retrieved_at = :today
+            """
+        )
+        update_stage = text(
+            """
+            UPDATE staging_rankings
+            SET athlete_id = :aid
+            WHERE athlete_name = :name AND retrieved_at = :today
+            """
+        )
+        upsert_athlete = text(f"""
+            INSERT INTO {ATHLETE_TABLE_NAME}
+              (athlete_id, full_name, gender, country, age,
+               category_to, category_coach, category_athlete,
+               category_medical, category_paratriathlete)
+            VALUES (:athlete_id, :full_name, :gender, :country, :age,
+                    :category_to, :category_coach, :category_athlete,
+                    :category_medical, :category_paratriathlete)
+            ON CONFLICT (athlete_id) DO UPDATE SET
+              full_name = EXCLUDED.full_name,
+              gender = EXCLUDED.gender,
+              country = EXCLUDED.country,
+              age = EXCLUDED.age,
+              category_to = EXCLUDED.category_to,
+              category_coach = EXCLUDED.category_coach,
+              category_athlete = EXCLUDED.category_athlete,
+              category_medical = EXCLUDED.category_medical,
+              category_paratriathlete = EXCLUDED.category_paratriathlete
+        """
+        )
+        with engine.begin() as conn:
+            rows = conn.execute(select_names, {"today": today}).fetchall()
+            for (name,) in rows:
+                # Try existing athlete match
+                aid = self.match_athlete_id(name)
+                if not aid:
+                    try:
+                        aid = api_get_athlete_id(name)
+                        info_df = get_athlete_info_df(aid)
+                        if not info_df.empty:
+                            rec = info_df.to_dict(orient='records')[0]
+                            conn.execute(upsert_athlete, rec)
+                    except Exception as e:
+                        logger.error(f"Failed to fetch/create athlete record for '{name}': {e}")
+                        continue
+                # Update staging_rankings with resolved id
+                conn.execute(update_stage, {"aid": aid, "name": name, "today": today})
+                logger.debug(f"Resolved athlete '{name}' to ID {aid}")
+        logger.info("Athlete ID resolution complete.")
 
 def main():
-    """Main function to test ranking discovery."""
+    """Main function to initialize schema then stage scraped rankings."""
+    # Ensure database and staging table exist
+    from Data_Import.database import initialize_database
+    initialize_database()
     scraper = HistoricalRankingsScraper()
     available_rankings = scraper.discover_available_rankings()
+    # Stage scraped rankings into staging_rankings table
+    scraper.stage_rankings(available_rankings)
+    # Resolve missing athlete_id values in staging table and upsert athlete records
+    scraper.resolve_athlete_ids()
     
     print(f"\n=== DISCOVERY SUMMARY ===")
     print(f"Total available rankings: {len(available_rankings)}")
