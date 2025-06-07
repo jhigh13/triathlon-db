@@ -6,17 +6,18 @@ description: 'Plan a feature'
 Your goal is to generate a functional spec for implementing a feature based on the provided idea:
 
 <idea>
-Predict Triathlete Race Time and Event Ranking Performance
+Obtain Historical Triathlete Rankings Data 
 
-- It should take in the athlete's past race results stored in the PostgreSQL database.
-- You should determine the best features to use for predicting the athlete time and event positions. 
-- Conduct PCA to determine the best features to use for the model.
-- Conduct feature engineering to create a base training dataset for a preliminary machine learning model.
-- The dataset should be easily stored and used for the machine learning pipeline. If additional features are needed, they should be able to be added to the database and used for future model testing. 
+- It should search the World Triathlon website for historical athlete rankings data.
+- The data can be obtained from web scraping at links with follwing format: 
+    - https://old.triathlon.org/rankings/world_triathlon_championship_series_2024/male
+    - https://old.triathlon.org/rankings/world_triathlon_championship_series_2024/female
+- I would like to obtain the rank, athlete name, country, and points for each athlete, along with the year of the ranking.
+- The data should then be stored in the database in the existing table called athlete_rankings
 - The eventual machine learning model will use scikit-learn, but we do not need to build the model yet.
 </idea>
 
-Before generating the spec plan, be sure to review the [file](../docs/summary.md) and [file](../docs/ml_outline.md) to understand an overview of the project and the current ML pipeline. 
+Before generating the spec plan, be sure to review the [file](../docs/summary.md) and to understand an overview of the project. 
 
 RULES:
 - Start by defining goal of the model as simple as possible

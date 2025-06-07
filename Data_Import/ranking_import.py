@@ -21,6 +21,8 @@ def fetch_rankings(ranking_cat_id: int, limit: int = 100) -> pd.DataFrame:
     for r in js.get('rankings', []):
         records.append({
             'athlete_id':     r['athlete_id'],
+            'athlete_name':   r['athlete_name'],
+            'ranking_cat_name': js['ranking_cat_name'],
             'ranking_cat_id': js['ranking_cat_id'],
             'rank_position':  r['rank'],
             'total_points':   r['total'],
@@ -31,7 +33,7 @@ def fetch_rankings(ranking_cat_id: int, limit: int = 100) -> pd.DataFrame:
 
 def upsert_rankings(df: pd.DataFrame, engine):
     """
-    Batch upsert into athlete_rankings with ON CONFLICT on (athlete_id, ranking_cat_id, retrieved_at).
+    Batch upsert into athlete_rankings with ON CONFLICT on (athlete_name, ranking_cat_name, retrieved_at).
     """
     if df.empty:
         return
@@ -39,11 +41,11 @@ def upsert_rankings(df: pd.DataFrame, engine):
     insert_sql = text(
         """
         INSERT INTO athlete_rankings (
-            athlete_id, ranking_cat_id, rank_position, total_points, retrieved_at
+            athlete_id, athlete_name, ranking_cat_name, ranking_cat_id, rank_position, total_points, retrieved_at
         ) VALUES (
-            :athlete_id, :ranking_cat_id, :rank_position, :total_points, :retrieved_at
+            :athlete_id, :athlete_name, :ranking_cat_name, :ranking_cat_id, :rank_position, :total_points, :retrieved_at
         )
-        ON CONFLICT (athlete_id, ranking_cat_id, retrieved_at) DO UPDATE SET
+        ON CONFLICT (athlete_name, ranking_cat_name, retrieved_at) DO UPDATE SET
             rank_position = EXCLUDED.rank_position,
             total_points  = EXCLUDED.total_points;
         """
@@ -58,7 +60,7 @@ def import_rankings():
     """
     engine = get_engine()
     # list of ranking_cat_ids to import (e.g. 13 for Elite Men, 14 for Elite Women)
-    ranking_ids = [13, 14]
+    ranking_ids = [13, 14, 15, 16]
     all_dfs = []
     for cat in ranking_ids:
         df = fetch_rankings(cat)

@@ -95,11 +95,13 @@ def initialize_database():
     Table(
         'athlete_rankings', metadata,
         Column('athlete_id',      Integer, nullable=False),
+        Column('athlete_name',    String,  nullable=False),
+        Column('ranking_cat_name', String, nullable=False),
         Column('ranking_cat_id',  Integer, nullable=False),
         Column('rank_position',   Integer, nullable=False),
         Column('total_points',    Float,   nullable=False),
         Column('retrieved_at',    Date,    nullable=False),
-        PrimaryKeyConstraint('athlete_id','ranking_cat_id','retrieved_at', name='pk_athlete_rankings')
+        PrimaryKeyConstraint('athlete_name','ranking_cat_name','retrieved_at', name='pk_athlete_rankings')
     )
 
     metadata.create_all(engine)
