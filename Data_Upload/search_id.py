@@ -1,8 +1,10 @@
 # athlete_search.py
+from dotenv import load_dotenv
 import sys
 import os
 # Add project root to path for package imports
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+load_dotenv()
 
 import requests
 from config.config import HEADERS, ATHLETE_SEARCH_URL

@@ -1,5 +1,7 @@
 # --- New script: Data_Import/rankings_import.py ---
 
+from dotenv import load_dotenv
+load_dotenv()
 import sys
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))

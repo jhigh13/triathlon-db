@@ -1,6 +1,8 @@
 # config/config.py
+from dotenv import load_dotenv
 import os
 
+load_dotenv()
 API_KEY = os.getenv("TRI_API_KEY")
 HEADERS = {"apikey": API_KEY}
 

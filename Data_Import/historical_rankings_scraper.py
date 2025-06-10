@@ -2,9 +2,11 @@
 # Add project root to path for package imports
 
 import sys
+from dotenv import load_dotenv
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
+load_dotenv()
 import requests
 import time
 import logging
@@ -16,9 +18,6 @@ from sqlalchemy import text
 from Data_Import.database import get_engine
 from config.config import HEADERS
 
-import sys
-import os
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 # Configure logging to show debug statements for troubleshooting
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
