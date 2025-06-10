@@ -18,7 +18,7 @@ We need to adapt the current scraper to:
 
 ## Proposed Implementation Steps
 
-### 1. Temporary Staging Table
+### 1. Temporary Staging Table (Completed - saved into staging_rankings)
 - Create a new table `staging_rankings` with the same columns as `athlete_rankings`, but without constraints or conflicts.
 - Modify `upsert_rankings` (temporarily) to insert all scraped records into `staging_rankings`.
 - This allows inspection of raw data before upserting.

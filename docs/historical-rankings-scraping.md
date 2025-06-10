@@ -12,7 +12,7 @@ The triathlon database currently stores:
 
 ## Functional Requirements
 
-### 1. Historical Rankings Data Discovery
+### 1. Historical Rankings Data Discovery (Completed)
 **Requirement**: Identify and catalog available historical ranking pages on the World Triathlon website.
 
 **Implementation Details**:

@@ -1,3 +1,21 @@
+import os
+import sys
+# Add project root to path for package imports
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+from config.config import (
+    ATHLETE_TABLE_NAME,
+    EVENTS_TABLE_NAME,
+    RACE_RESULTS_TABLE_NAME,
+)
+# DB_URI default imported for reference; actual URI chosen at runtime
+from config.config import DB_URI as DEFAULT_DB_URI
+
+from sqlalchemy import (
+    create_engine, MetaData, Table, Column,
+    Integer, String, Date, Boolean, PrimaryKeyConstraint, Float, BigInteger, text
+)
+
 def create_test_tables():
     """
     Create test_athlete and test_athlete_rankings tables in the real database for integration testing.
@@ -24,23 +42,12 @@ def create_test_tables():
                 ranking_cat_id INTEGER NOT NULL,
                 rank_position INTEGER NOT NULL,
                 total_points FLOAT NOT NULL,
+                year INTEGER NOT NULL,
                 retrieved_at DATE NOT NULL,
                 PRIMARY KEY (athlete_name, ranking_cat_name, retrieved_at)
             )
         '''))
     print("Test tables test_athlete and test_athlete_rankings created.")
-from sqlalchemy import (
-    create_engine, MetaData, Table, Column,
-    Integer, String, Date, Boolean, PrimaryKeyConstraint, Float, BigInteger
-)
-import os
-from config.config import (
-    ATHLETE_TABLE_NAME,
-    EVENTS_TABLE_NAME,
-    RACE_RESULTS_TABLE_NAME,
-)
-# DB_URI default imported for reference; actual URI chosen at runtime
-from config.config import DB_URI as DEFAULT_DB_URI
 
 def get_engine(echo: bool = False):
     """
@@ -137,8 +144,9 @@ def initialize_database():
         Column('ranking_cat_id',  Integer, nullable=False),
         Column('rank_position',   Integer, nullable=False),
         Column('total_points',    Float,   nullable=False),
+        Column('year',            Integer, nullable=False),  # year of the ranking
         Column('retrieved_at',    Date,    nullable=False),
-        PrimaryKeyConstraint('athlete_name','ranking_cat_name','retrieved_at', name='pk_athlete_rankings')
+        PrimaryKeyConstraint('athlete_name','ranking_cat_name', 'year', 'retrieved_at', name='pk_athlete_rankings')
     )
     # Staging table for historical rankings (no constraints)
     Table(
@@ -149,12 +157,12 @@ def initialize_database():
         Column('ranking_cat_id',  Integer, nullable=False),
         Column('rank_position',   Integer, nullable=False),
         Column('total_points',    Float,   nullable=False),
+        Column('year',            Integer, nullable=False),  # year of the ranking
         Column('retrieved_at',    Date,    nullable=False)
     )
 
     metadata.create_all(engine)
     # Ensure unique index for upsert ON CONFLICT target on race_results
-    from sqlalchemy import text
     with engine.begin() as conn:
         conn.execute(
             text(

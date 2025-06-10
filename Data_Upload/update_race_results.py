@@ -321,7 +321,7 @@ def upsert_race_results(df, engine):
     print(f"Upserted {len(records)} race results.")
 
 
-def update_race_results(engine, max_workers=10):
+def update_race_results(engine, max_workers=100):
     """Main function to update race results with new events."""
     since_date = get_last_event_date(engine)
     print(f"Fetching events since {since_date}...")
