@@ -1,5 +1,6 @@
 # Data_Import/historical_rankings_scraper.py
 # Add project root to path for package imports
+
 import sys
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -20,14 +21,23 @@ import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 # Configure logging to show debug statements for troubleshooting
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+
 logger = logging.getLogger(__name__)
+
+# Suppress urllib3 and requests logging
+logging.getLogger("urllib3").setLevel(logging.WARNING)
+logging.getLogger("requests").setLevel(logging.WARNING)
 
 # URL patterns for historical rankings
 WTCS_URL_PATTERN = "https://old.triathlon.org/rankings/world_triathlon_championship_series_{year}/{gender}"
 WTR_URL_PATTERN = "https://old.triathlon.org/rankings/world_rankings_{year}/{gender}"
 
+
 # Rate limiting configuration
 RATE_LIMIT_DELAY = 1.5  # seconds between requests
+
+# Table name for race results
+RACE_RESULTS_TABLE_NAME = "race_results"
 
 # Historical ranking category mappings
 RANKING_CATEGORIES = {
@@ -389,7 +399,7 @@ class HistoricalRankingsScraper:
                         continue
                 # Update staging_rankings with resolved id
                 conn.execute(update_stage, {"aid": aid, "name": name, "today": today})
-                logger.debug(f"Resolved athlete '{name}' to ID {aid}")
+                #logger.debug(f"Resolved athlete '{name}' to ID {aid}")
         
         logger.info(f"Athlete ID resolution complete. Found {len(new_athletes)} new athletes.")
         
@@ -402,15 +412,39 @@ class HistoricalRankingsScraper:
                     results_df = get_athlete_results_df(athlete_id)
                     if not results_df.empty:
                         # Calculate position metrics (rankings, position changes, etc.)
-                        results_df = calculate_position_metrics(results_df)
+                        #results_df = calculate_position_metrics(results_df)
                         # Upsert race results into database
-                        upsert_race_results(results_df, engine)
-                        logger.info(f"Stored {len(results_df)} race results for '{athlete_name}' (ID: {athlete_id})")
-                    else:
-                        logger.debug(f"No race results found for '{athlete_name}' (ID: {athlete_id})")
+                        #upsert_race_results(results_df, engine)
+
+                        results_df = results_df.dropna(subset=["athlete_id", "EventID", "TotalTime"])
+                        results_df = results_df.drop_duplicates(subset=["athlete_id", "EventID", "TotalTime"])
+
+                        records = results_df.to_dict(orient="records")
+                        with engine.begin() as conn:
+                            for record in records:
+                                conn.execute(text(f"""                INSERT INTO "{RACE_RESULTS_TABLE_NAME}" (
+                                        athlete_id, "EventID", "ProgID", "Program", "CategoryName", "EventSpecifications",
+                                        "Position", "TotalTime", "SwimTime", "T1", "BikeTime", "T2", "RunTime"
+                                    )
+                                    VALUES (
+                                        :athlete_id, :EventID, :ProgID, :Program, :CategoryName, :EventSpecifications,
+                                        :Position, :TotalTime, :SwimTime, :T1, :BikeTime, :T2, :RunTime
+                                    )
+                                    ON CONFLICT (athlete_id, "EventID", "TotalTime") DO UPDATE SET
+                                        "ProgID" = EXCLUDED."ProgID",
+                                        "Program" = EXCLUDED."Program",
+                                        "CategoryName" = EXCLUDED."CategoryName",
+                                        "EventSpecifications" = EXCLUDED."EventSpecifications",
+                                        "Position" = EXCLUDED."Position",
+                                        "SwimTime" = EXCLUDED."SwimTime",
+                                        "T1" = EXCLUDED."T1",
+                                        "BikeTime" = EXCLUDED."BikeTime",
+                                        "T2" = EXCLUDED."T2",
+                                        "RunTime" = EXCLUDED."RunTime"
+                                """), record)
+                        print(f"Upserted {len(records)} race results.")
                 except Exception as e:
-                    logger.error(f"Failed to fetch/store race results for '{athlete_name}' (ID: {athlete_id}): {e}")
-            logger.info("Race results fetching complete for new athletes.")
+                    logger.error(f"Failed to upsert race results for '{athlete_name}' (ID: {athlete_id}): {e}")
 
     def get_staged_rankings(self):
         """
