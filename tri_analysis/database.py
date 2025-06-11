@@ -1,15 +1,17 @@
 import os
 import sys
-# Add project root to path for package imports
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from config.config import (
+# Add project root to path for package imports (only if not already present)
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+if project_root not in sys.path:
+    sys.path.append(project_root)
+
+from config import (
     ATHLETE_TABLE_NAME,
     EVENTS_TABLE_NAME,
     RACE_RESULTS_TABLE_NAME,
+    DB_URI as DEFAULT_DB_URI 
 )
-# DB_URI default imported for reference; actual URI chosen at runtime
-from config.config import DB_URI as DEFAULT_DB_URI
 
 from sqlalchemy import (
     create_engine, MetaData, Table, Column,
@@ -104,12 +106,34 @@ def initialize_database():
         Column('BikeTime',       String),
         Column('T2',             String),
         Column('RunTime',        String),
-        # checkpoint elapsed times (seconds)
+        # Primary key constraint for upsert conflict target (NOT deferrable)
+        PrimaryKeyConstraint('athlete_id', 'EventID', 'TotalTime', name='pk_race_results')
+    )
+
+    Table(
+        'athlete_rankings', metadata,
+        Column('athlete_id',      Integer, nullable=True),  # allow null until API matching
+        Column('athlete_name',    String,  nullable=False),
+        Column('ranking_cat_name', String, nullable=False),
+        Column('ranking_cat_id',  Integer, nullable=False),
+        Column('rank_position',   Integer, nullable=False),
+        Column('total_points',    Float,   nullable=False),
+        Column('year',            Integer, nullable=False),  # year of the ranking
+        Column('retrieved_at',    Date,    nullable=False),
+        PrimaryKeyConstraint('athlete_name','ranking_cat_name', 'year', 'retrieved_at', name='pk_athlete_rankings')
+    )
+
+    Table(
+        'position_metrics', metadata,
+        #keys
+        Column('athlete_id',      Integer, nullable=False),
+        Column('EventID',         Integer, nullable=False),
+        #total elapsed times for each segment
         Column('ElapsedSwim',    BigInteger),
         Column('ElapsedT1',      BigInteger),
         Column('ElapsedBike',    BigInteger),
         Column('ElapsedT2',      BigInteger),
-        Column('ElapsedRun',     BigInteger),        # seconds behind leader by program
+        Column('ElapsedRun',     BigInteger),        
         Column('BehindSwim',     BigInteger),
         Column('BehindT1',       BigInteger),
         Column('BehindBike',     BigInteger),
@@ -132,22 +156,8 @@ def initialize_database():
         Column('BikeRank',     Integer),
         Column('T2Rank',       Integer),
         Column('RunRank',      Integer),
-        # Primary key constraint for upsert conflict target (NOT deferrable)
-        PrimaryKeyConstraint('athlete_id', 'EventID', 'TotalTime', name='pk_race_results')
     )
-
-    Table(
-        'athlete_rankings', metadata,
-        Column('athlete_id',      Integer, nullable=True),  # allow null until API matching
-        Column('athlete_name',    String,  nullable=False),
-        Column('ranking_cat_name', String, nullable=False),
-        Column('ranking_cat_id',  Integer, nullable=False),
-        Column('rank_position',   Integer, nullable=False),
-        Column('total_points',    Float,   nullable=False),
-        Column('year',            Integer, nullable=False),  # year of the ranking
-        Column('retrieved_at',    Date,    nullable=False),
-        PrimaryKeyConstraint('athlete_name','ranking_cat_name', 'year', 'retrieved_at', name='pk_athlete_rankings')
-    )
+       
     # Staging table for historical rankings (no constraints)
     Table(
         'staging_rankings', metadata,

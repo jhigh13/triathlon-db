@@ -1,17 +1,15 @@
 # main.py (root of Triathlon_Database)
 
-from dotenv import load_dotenv
-load_dotenv()
-
 import sys
 import os
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-
+from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from config.config import DB_URI
 from Data_Import.master_data_import import import_master_data
 from Data_Upload.update_race_results import update_race_results
 
+load_dotenv()
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 def main():
     # ---------- NEW: detect CLI arg ----------

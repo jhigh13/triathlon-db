@@ -1,10 +1,8 @@
 # Data_Import/athlete_data.py
-
 import json
 import requests
 import pandas as pd
 from config.config import HEADERS, ATHLETE_RESULTS_URL, ATHLETE_DATA_URL
-
 
 def get_athlete_info_df(athlete_id: int) -> pd.DataFrame:
     """
@@ -40,7 +38,6 @@ def get_athlete_info_df(athlete_id: int) -> pd.DataFrame:
         "category_medical": categories.get("medical", False),
         "category_paratriathlete": categories.get("paratriathlete", False),
     }
-
     return pd.DataFrame([info]) if info else pd.DataFrame()
 
 
@@ -64,12 +61,9 @@ def fetch_race_results(athlete_id: int) -> list:
         url = page.get("next_page_url")
     return results
 
-
 def get_athlete_results_df(athlete_id: int) -> pd.DataFrame:
     """
     Return a DataFrame of structured race results for an athlete.
-
-    Only includes Elite Men and Elite Women programs, with program IDs.
     """
     raw_events = fetch_race_results(athlete_id)
     records = []
@@ -77,14 +71,10 @@ def get_athlete_results_df(athlete_id: int) -> pd.DataFrame:
     for event in raw_events:
         prog_name = event.get("prog_name")
         prog_id = event.get("prog_id")
-        # Filter only Elite Men/Women races
-        #if prog_name not in ("Elite Men", "Elite Women"):
-        #    continue
 
         splits = event.get("splits", [])
         category_names = event.get("event_categories") or []
         spec_names = event.get("event_specifications") or []
-
 
         records.append({
             "athlete_id": athlete_id,

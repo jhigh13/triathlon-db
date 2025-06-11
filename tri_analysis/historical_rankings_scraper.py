@@ -2,25 +2,24 @@
 # Add project root to path for package imports
 
 import sys
-from dotenv import load_dotenv
 import os
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-
-load_dotenv()
 import requests
 import time
 import logging
+import pandas as pd
 from bs4 import BeautifulSoup
 from datetime import datetime, date
 from typing import List, Dict, Tuple, Optional
-import pandas as pd
 from sqlalchemy import text
 from Data_Import.database import get_engine
 from config.config import HEADERS
+from dotenv import load_dotenv
+
+load_dotenv()
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 # Configure logging to show debug statements for troubleshooting
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
-
 logger = logging.getLogger(__name__)
 
 # Suppress urllib3 and requests logging
@@ -31,9 +30,8 @@ logging.getLogger("requests").setLevel(logging.WARNING)
 WTCS_URL_PATTERN = "https://old.triathlon.org/rankings/world_triathlon_championship_series_{year}/{gender}"
 WTR_URL_PATTERN = "https://old.triathlon.org/rankings/world_rankings_{year}/{gender}"
 
-
 # Rate limiting configuration
-RATE_LIMIT_DELAY = 1.5  # seconds between requests
+RATE_LIMIT_DELAY = 1.0  # seconds between requests
 
 # Table name for race results
 RACE_RESULTS_TABLE_NAME = "race_results"
@@ -66,17 +64,11 @@ class HistoricalRankingsScraper:
         self.match_athlete_id = match_athlete_id
         
     def discover_available_rankings(self) -> List[Dict]:
-        """
-        Discover available historical ranking pages.
-        
-        Returns:
-            List of dictionaries containing ranking metadata
-        """
+        # Discover available historical ranking pages. Return list of dictionaries with metadata.
+
         logger.info("Starting discovery of available historical rankings...")
-        
         available_rankings = []
         
-
         # ITU WTCS rankings (2016-2019, no data for 2020) use a different URL pattern
         ITU_WTCS_URL_PATTERN = "https://old.triathlon.org/rankings/itu_world_triathlon_series_{year}/{gender}"
         for year in range(2016, 2020):
@@ -151,14 +143,12 @@ class HistoricalRankingsScraper:
                     if not header_row:
                         continue
                     cols = [cell.get_text().strip().lower() for cell in header_row.find_all(['th', 'td'])]
-                    #logger.debug(f"Checking table headers at {url}: {cols}")
                     # match full ITU schema or WTCS schema
                     if itu_pattern.issubset(set(cols)) or wtcs_pattern.issubset(set(cols)):
                         ranking_table = tbl
                         break
                 if not ranking_table:
                     tables = soup.find_all('table')
-                    #logger.debug(f"No suitable ranking table found among {len(tables)} tables at {url}")
                     # Log header of the largest table for debugging
                     if tables:
                         largest = max(tables, key=lambda t: len(t.find_all('tr')))
@@ -224,9 +214,6 @@ class HistoricalRankingsScraper:
                     return ranking_info
                 else:
                     logger.warning(f"✗ No ranking table found: {url}")
-                    
-            elif response.status_code == 404:
-                logger.debug(f"✗ Page not found: {url}")
             else:
                 logger.warning(f"✗ HTTP {response.status_code}: {url}")
                 
@@ -234,7 +221,6 @@ class HistoricalRankingsScraper:
             logger.error(f"✗ Request failed for {url}: {str(e)}")
         except Exception as e:
             logger.error(f"✗ Unexpected error for {url}: {str(e)}")
-            
         return None
     
     def _build_category_name(self, series: str) -> str:
@@ -244,7 +230,6 @@ class HistoricalRankingsScraper:
             "world_rankings": "World Rankings"
         }
         gender_names = {"male": "Male", "female": "Female"}
-        
         return f"{series_names.get(series, series)}"
     
     def upsert_rankings(self, rankings: List[Dict]):

@@ -1,17 +1,15 @@
 # --- New script: Data_Import/rankings_import.py ---
-
-from dotenv import load_dotenv
-load_dotenv()
 import sys
 import os
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import requests
 import pandas as pd
+from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 from config.config import HEADERS, BASE_URL, DB_URI
-
-# helper to get engine
 from Data_Import.database import get_engine
+
+load_dotenv()
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 def fetch_rankings(ranking_cat_id: int, limit: int = 200) -> pd.DataFrame:
     """
@@ -79,7 +77,6 @@ def import_rankings():
     full = pd.concat(all_dfs, ignore_index=True)
     upsert_rankings(full, engine)
     print(f"Imported {len(full)} ranking records.")
-
 
 if __name__ == '__main__':
     import_rankings()

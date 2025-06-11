@@ -9,7 +9,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 # API endpoints
 events_url = f"{BASE_URL}/events"
 results_url = f"{BASE_URL}/events/{{event_id}}/programs/{{program_id}}/results"
-CATEGORY_IDS = "356|357|351"
+
+CATEGORY_IDS = "340|341|342|623|343|352|347|640|624|351|348|349" #Add Para afterwards
+SPEC_IDS = "356|357"
 
 
 def get_last_event_date(engine):
@@ -19,10 +21,10 @@ def get_last_event_date(engine):
     return thirty_days_ago.strftime("%Y-%m-%d")
 
 
-def fetch_new_events(since_date, per_page=100, category_ids=CATEGORY_IDS):
+ def fetch_new_events(since_date, per_page=500, spec_ids=SPEC_IDS):
     """Fetch events from the API since a given date."""
     events = []
-    params = {"per_page": per_page, "start_date": since_date, "order": "asc", "page": 1, "category_ids": category_ids}
+    params = {"per_page": per_page, "start_date": since_date, "order": "asc", "page": 1, "category_id": category_ids, "specification_id": spec_ids}
 
     while True:
         resp = requests.get(events_url, headers=HEADERS, params=params)
@@ -41,7 +43,6 @@ def fetch_new_events(since_date, per_page=100, category_ids=CATEGORY_IDS):
         params["page"] += 1
     return events
 
-
 def get_elite_programs(event_id):
     """Get Elite Men and Elite Women program IDs for a given event."""
     resp = requests.get(f"{BASE_URL}/events/{event_id}", headers=HEADERS)
@@ -57,7 +58,6 @@ def fetch_race_results(event_id, program_id, limit=50):
     resp.raise_for_status()
     data = resp.json().get("data") or {}
     return data.get("results") or []
-
 
 def process_race_results(results, event, program_id, program_name):
     """Process raw race results into a DataFrame with proper column structure."""
@@ -83,133 +83,6 @@ def process_race_results(results, event, program_id, program_name):
         "athlete_id", "EventID", "ProgID", "Program", "CategoryName", "EventSpecifications",  
         "position", "total_time", "SwimTime", "T1", "BikeTime", "T2", "RunTime"
     ]].rename(columns={"position": "Position", "total_time": "TotalTime"})
-
-
-def calculate_position_metrics(df):
-    """Calculate position rankings and position changes for race results."""
-    if df.empty:
-        return df
-    
-    # Helper to parse time strings into seconds
-    def parse_time_to_secs(t):
-        if pd.isna(t) or t == "":
-            return 0
-        parts = str(t).split(":")
-        try:
-            if len(parts) == 3:
-                h, m, s = parts
-                return int(h) * 3600 + int(m) * 60 + int(s)
-            elif len(parts) == 2:
-                m, s = parts
-                return int(m) * 60 + int(s)
-        except ValueError:
-            return 0
-        return 0
-
-    # Calculate elapsed times at each checkpoint (cumulative)
-    df['ElapsedSwim'] = df['SwimTime'].apply(parse_time_to_secs)
-    df['ElapsedT1'] = df['ElapsedSwim'] + df['T1'].apply(parse_time_to_secs)
-    df['ElapsedBike'] = df['ElapsedT1'] + df['BikeTime'].apply(parse_time_to_secs)
-    df['ElapsedT2'] = df['ElapsedBike'] + df['T2'].apply(parse_time_to_secs)
-    df['ElapsedRun'] = df['ElapsedT2'] + df['RunTime'].apply(parse_time_to_secs)
-
-    # Ensure all elapsed columns are int64 and no NaN/inf
-    for col in ['ElapsedSwim','ElapsedT1','ElapsedBike','ElapsedT2','ElapsedRun']:
-        if col in df:
-            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype('int64')
-
-    # Parse individual split seconds for filtering
-    df['SwimSecs'] = df['SwimTime'].apply(parse_time_to_secs)
-    df['T1Secs'] = df['T1'].apply(parse_time_to_secs)
-    df['BikeSecs'] = df['BikeTime'].apply(parse_time_to_secs)
-    df['T2Secs'] = df['T2'].apply(parse_time_to_secs)
-    df['RunSecs'] = df['RunTime'].apply(parse_time_to_secs)
-
-    # Compute seconds behind leader per EventID + Program
-    # Swim
-    min_swim = df[df['SwimSecs'] > 0].groupby(['EventID','Program'])['ElapsedSwim'].transform('min').fillna(0)
-    df['BehindSwim'] = df['ElapsedSwim'] - min_swim
-    # T1
-    min_t1 = df[df['T1Secs'] > 0].groupby(['EventID','Program'])['ElapsedT1'].transform('min').fillna(0)
-    df['BehindT1'] = df['ElapsedT1'] - min_t1
-    # Bike
-    min_bike = df[df['BikeSecs'] > 0].groupby(['EventID','Program'])['ElapsedBike'].transform('min').fillna(0)
-    df['BehindBike'] = df['ElapsedBike'] - min_bike
-    # T2
-    min_t2 = df[df['T2Secs'] > 0].groupby(['EventID','Program'])['ElapsedT2'].transform('min').fillna(0)
-    df['BehindT2'] = df['ElapsedT2'] - min_t2
-    # Run
-    min_run = df[df['RunSecs'] > 0].groupby(['EventID','Program'])['ElapsedRun'].transform('min').fillna(0)
-    df['BehindRun'] = df['ElapsedRun'] - min_run
-
-    # Calculate positions at each checkpoint (only for athletes with non-zero times)
-    # Position at Swim
-    mask_swim = df['SwimSecs'] > 0
-    df.loc[mask_swim, 'Position_at_Swim'] = df.loc[mask_swim].groupby(['EventID', 'Program'])['ElapsedSwim'].rank(method='min')
-    
-    # Position at T1
-    mask_t1 = df['T1Secs'] > 0
-    df.loc[mask_t1, 'Position_at_T1'] = df.loc[mask_t1].groupby(['EventID', 'Program'])['ElapsedT1'].rank(method='min')
-    
-    # Position at Bike
-    mask_bike = df['BikeSecs'] > 0
-    df.loc[mask_bike, 'Position_at_Bike'] = df.loc[mask_bike].groupby(['EventID', 'Program'])['ElapsedBike'].rank(method='min')
-    
-    # Position at T2
-    mask_t2 = df['T2Secs'] > 0
-    df.loc[mask_t2, 'Position_at_T2'] = df.loc[mask_t2].groupby(['EventID', 'Program'])['ElapsedT2'].rank(method='min')
-    
-    # Position at Run/Finish
-    mask_run = df['RunSecs'] > 0
-    df.loc[mask_run, 'Position_at_Run'] = df.loc[mask_run].groupby(['EventID', 'Program'])['ElapsedRun'].rank(method='min')
-    
-    # Calculate position changes between checkpoints (negative = gained positions)
-    df['Swim_to_T1_pos_change'] = df['Position_at_T1'] - df['Position_at_Swim']
-    df['T1_to_Bike_pos_change'] = df['Position_at_Bike'] - df['Position_at_T1']
-    df['Bike_to_T2_pos_change'] = df['Position_at_T2'] - df['Position_at_Bike']
-    df['T2_to_Run_pos_change'] = df['Position_at_Run'] - df['Position_at_T2']
-    
-    # Calculate individual split rankings (rank by split time, not cumulative time)
-    print("Calculating individual split rankings...")
-    
-    # Swim ranking (rank by SwimSecs, only athletes with SwimSecs > 0)
-    mask_swim_rank = df['SwimSecs'] > 0
-    df.loc[mask_swim_rank, 'SwimRank'] = df.loc[mask_swim_rank].groupby(['EventID', 'Program'])['SwimSecs'].rank(method='min')
-    
-    # T1 ranking (rank by T1Secs, only athletes with T1Secs > 0)
-    mask_t1_rank = df['T1Secs'] > 0
-    df.loc[mask_t1_rank, 'T1Rank'] = df.loc[mask_t1_rank].groupby(['EventID', 'Program'])['T1Secs'].rank(method='min')
-    
-    # Bike ranking (rank by BikeSecs, only athletes with BikeSecs > 0)
-    mask_bike_rank = df['BikeSecs'] > 0
-    df.loc[mask_bike_rank, 'BikeRank'] = df.loc[mask_bike_rank].groupby(['EventID', 'Program'])['BikeSecs'].rank(method='min')
-    
-    # T2 ranking (rank by T2Secs, only athletes with T2Secs > 0)
-    mask_t2_rank = df['T2Secs'] > 0
-    df.loc[mask_t2_rank, 'T2Rank'] = df.loc[mask_t2_rank].groupby(['EventID', 'Program'])['T2Secs'].rank(method='min')
-    
-    # Run ranking (rank by RunSecs, only athletes with RunSecs > 0)
-    mask_run_rank = df['RunSecs'] > 0
-    df.loc[mask_run_rank, 'RunRank'] = df.loc[mask_run_rank].groupby(['EventID', 'Program'])['RunSecs'].rank(method='min')
-    
-    # Convert position columns to nullable integers (Int64) to handle NaN values properly
-    position_cols = ['Position_at_Swim', 'Position_at_T1', 'Position_at_Bike', 'Position_at_T2', 'Position_at_Run',
-                     'Swim_to_T1_pos_change', 'T1_to_Bike_pos_change', 'Bike_to_T2_pos_change', 'T2_to_Run_pos_change',
-                     'SwimRank', 'T1Rank', 'BikeRank', 'T2Rank', 'RunRank']
-    
-    for col in position_cols:
-        df[col] = df[col].astype('Int64')  # Nullable integer type
-
-    # Ensure behind columns are int64
-    for col in ['BehindSwim','BehindT1','BehindBike','BehindT2','BehindRun']:
-        if col in df:
-            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype('int64')
-    
-    # Drop temporary split-second columns
-    df.drop(columns=['SwimSecs','T1Secs','BikeSecs','T2Secs','RunSecs'], inplace=True)
-    
-    return df
-
 
 def upsert_events(events, engine):
     """Upsert events into the events table."""
@@ -248,40 +121,20 @@ def upsert_race_results(df, engine):
     if df.empty:
         return
     
-    # Filter out rows with NULL values in key columns to prevent constraint violations
+    # Filter out rows with NULL values in key columns to prevent constraint violations; remove duplicates
     df = df.dropna(subset=["athlete_id", "EventID", "TotalTime"])
-    
-    if df.empty:
-        print("No valid race results to upsert (all had NULL key values).")
-        return
-    
-    # Remove duplicates based on unique constraint
-    before = len(df)
     df = df.drop_duplicates(subset=["athlete_id", "EventID", "TotalTime"])
-    after = len(df)
-    if before != after:
-        print(f"Removed {before - after} duplicate rows from race_results (kept {after}).")
     
     records = df.to_dict(orient="records")
     with engine.begin() as conn:
         for record in records:
             conn.execute(text(f"""                INSERT INTO "{RACE_RESULTS_TABLE_NAME}" (
                     athlete_id, "EventID", "ProgID", "Program", "CategoryName", "EventSpecifications",
-                    "Position", "TotalTime", "SwimTime", "T1", "BikeTime", "T2", "RunTime",
-                    "ElapsedSwim", "ElapsedT1", "ElapsedBike", "ElapsedT2", "ElapsedRun",
-                    "BehindSwim", "BehindT1", "BehindBike", "BehindT2", "BehindRun",
-                    "Position_at_Swim", "Position_at_T1", "Position_at_Bike", "Position_at_T2", "Position_at_Run",
-                    "Swim_to_T1_pos_change", "T1_to_Bike_pos_change", "Bike_to_T2_pos_change", "T2_to_Run_pos_change",
-                    "SwimRank", "T1Rank", "BikeRank", "T2Rank", "RunRank"
+                    "Position", "TotalTime", "SwimTime", "T1", "BikeTime", "T2", "RunTime"
                 )
                 VALUES (
                     :athlete_id, :EventID, :ProgID, :Program, :CategoryName, :EventSpecifications,
-                    :Position, :TotalTime, :SwimTime, :T1, :BikeTime, :T2, :RunTime,
-                    :ElapsedSwim, :ElapsedT1, :ElapsedBike, :ElapsedT2, :ElapsedRun,
-                    :BehindSwim, :BehindT1, :BehindBike, :BehindT2, :BehindRun,
-                    :Position_at_Swim, :Position_at_T1, :Position_at_Bike, :Position_at_T2, :Position_at_Run,
-                    :Swim_to_T1_pos_change, :T1_to_Bike_pos_change, :Bike_to_T2_pos_change, :T2_to_Run_pos_change,
-                    :SwimRank, :T1Rank, :BikeRank, :T2Rank, :RunRank
+                    :Position, :TotalTime, :SwimTime, :T1, :BikeTime, :T2, :RunTime
                 )
                 ON CONFLICT (athlete_id, "EventID", "TotalTime") DO UPDATE SET
                     "ProgID" = EXCLUDED."ProgID",
@@ -293,36 +146,11 @@ def upsert_race_results(df, engine):
                     "T1" = EXCLUDED."T1",
                     "BikeTime" = EXCLUDED."BikeTime",
                     "T2" = EXCLUDED."T2",
-                    "RunTime" = EXCLUDED."RunTime",
-                    "ElapsedSwim" = EXCLUDED."ElapsedSwim",
-                    "ElapsedT1" = EXCLUDED."ElapsedT1",
-                    "ElapsedBike" = EXCLUDED."ElapsedBike",
-                    "ElapsedT2" = EXCLUDED."ElapsedT2",
-                    "ElapsedRun" = EXCLUDED."ElapsedRun",
-                    "BehindSwim" = EXCLUDED."BehindSwim",
-                    "BehindT1" = EXCLUDED."BehindT1",
-                    "BehindBike" = EXCLUDED."BehindBike",
-                    "BehindT2" = EXCLUDED."BehindT2",
-                    "BehindRun" = EXCLUDED."BehindRun",                    
-                    "Position_at_Swim" = EXCLUDED."Position_at_Swim",
-                    "Position_at_T1" = EXCLUDED."Position_at_T1",
-                    "Position_at_Bike" = EXCLUDED."Position_at_Bike",
-                    "Position_at_T2" = EXCLUDED."Position_at_T2",
-                    "Position_at_Run" = EXCLUDED."Position_at_Run",
-                    "Swim_to_T1_pos_change" = EXCLUDED."Swim_to_T1_pos_change",
-                    "T1_to_Bike_pos_change" = EXCLUDED."T1_to_Bike_pos_change",
-                    "Bike_to_T2_pos_change" = EXCLUDED."Bike_to_T2_pos_change",
-                    "T2_to_Run_pos_change" = EXCLUDED."T2_to_Run_pos_change",
-                    "SwimRank" = EXCLUDED."SwimRank",
-                    "T1Rank" = EXCLUDED."T1Rank",
-                    "BikeRank" = EXCLUDED."BikeRank",
-                    "T2Rank" = EXCLUDED."T2Rank",
-                    "RunRank" = EXCLUDED."RunRank"
+                    "RunTime" = EXCLUDED."RunTime"
             """), record)
     print(f"Upserted {len(records)} race results.")
 
-
-def update_race_results(engine, max_workers=100):
+def update_race_results(engine, max_workers=200):
     """Main function to update race results with new events."""
     since_date = get_last_event_date(engine)
     print(f"Fetching events since {since_date}...")
