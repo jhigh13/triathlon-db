@@ -65,14 +65,31 @@ def initialize_database():
     # Event dimension table
     Table(
         EVENTS_TABLE_NAME, metadata,
-        Column('EventID',            Integer, primary_key=True),
-        Column('EventName',          String,  nullable=False),
-        Column('EventDate',          Date),
-        Column('Venue',              String),
-        Column('Country',            String),
-        Column('CategoryName',       String),
-        Column('EventSpecifications',String),
-        PrimaryKeyConstraint('EventID', name='pk_evnets')
+        Column('prog_id',            Integer, primary_key=True),
+        Column('event_id',           Integer, primary_key=True),
+        Column('prog_name',         String),
+        Column('prog_distance_category',String),
+        Column('Swim_laps',         Integer),
+        Column('Swim_distance',     Float),
+        Column('Bike_laps',         Integer),
+        Column('Bike_distance',     Float),
+        Column('Run_laps',          Integer),
+        Column('Run_distance',      Float),
+        Column('event_name',        String),
+        Column('event_venue',       String),
+        Column('event_date',        Date),
+        Column('event_country',     String),
+        Column('event_latitude',    Float),
+        Column('event_longitude',   Float),
+        Column('cat_name',          String),
+        Column('temperature_water', Float),
+        Column('temperature_air',   Float),
+        Column('humidity',          Float),
+        Column('wbgt',              Float),
+        Column('wind',              Float),
+        Column('weather',           String),
+        Column('wetsuit',           String),
+        PrimaryKeyConstraint('event_id', 'prog_id', name='pk_events')
     )
 
     # Athlete dimension table
@@ -93,42 +110,42 @@ def initialize_database():
     # Race‐results fact table with composite PK (athlete_id, EventID, TotalTime)
     Table(
         RACE_RESULTS_TABLE_NAME, metadata,
-        Column('athlete_id',     Integer, nullable=False),
-        Column('EventID',        Integer, nullable=False),
-        Column('ProgID',         Integer),
-        Column('Program',        String),
-        Column('CategoryName',   String),
-        Column('EventSpecifications', String),
-        Column('Position',       String),
-        Column('TotalTime',      String),
+        Column('event_id',        Integer),
+        Column('prog_id',         Integer, primary_key=True),  
+        Column('athlete_id',     Integer, primary_key=True),
+        Column('athlete_full_name',   String),
         Column('SwimTime',       String),
-        Column('T1',             String),
+        Column('T1Time',             String),
         Column('BikeTime',       String),
-        Column('T2',             String),
+        Column('T2Time',             String),
         Column('RunTime',        String),
+        Column('position',       String),
+        Column('total_time',      String, primary_key=True),
+        Column('start_num',     String),
         # Primary key constraint for upsert conflict target (NOT deferrable)
-        PrimaryKeyConstraint('athlete_id', 'EventID', 'TotalTime', name='pk_race_results')
+        PrimaryKeyConstraint('athlete_id', 'prog_id', 'total_time', name='pk_race_results')
     )
 
     Table(
         'athlete_rankings', metadata,
         Column('athlete_id',      Integer, nullable=True),  # allow null until API matching
-        Column('athlete_name',    String,  nullable=False),
-        Column('ranking_cat_name', String, nullable=False),
-        Column('ranking_cat_id',  Integer, nullable=False),
-        Column('rank_position',   Integer, nullable=False),
-        Column('total_points',    Float,   nullable=False),
-        Column('year',            Integer, nullable=False),  # year of the ranking
-        Column('retrieved_at',    Date,    nullable=False),
+        Column('athlete_name',    String),
+        Column('ranking_cat_name', String),
+        Column('ranking_cat_id',  Integer),
+        Column('rank_position',   Integer),
+        Column('total_points',    Float),
+        Column('year',            Integer),  # year of the ranking
+        Column('retrieved_at',    Date),
         PrimaryKeyConstraint('athlete_name','ranking_cat_name', 'year', 'retrieved_at', name='pk_athlete_rankings')
     )
 
     Table(
         'position_metrics', metadata,
-        #keys
-        Column('athlete_id',      Integer, nullable=False),
-        Column('EventID',         Integer, nullable=False),
-        #total elapsed times for each segment
+        # keys
+        Column('athlete_id',      Integer),
+        Column('event_id',        Integer),
+        Column('prog_id',         Integer),
+        # total elapsed times for each segment
         Column('ElapsedSwim',    BigInteger),
         Column('ElapsedT1',      BigInteger),
         Column('ElapsedBike',    BigInteger),
@@ -177,7 +194,7 @@ def initialize_database():
         conn.execute(
             text(
                 f'CREATE UNIQUE INDEX IF NOT EXISTS idx_{RACE_RESULTS_TABLE_NAME}_conflict '
-                f'ON "{RACE_RESULTS_TABLE_NAME}" (athlete_id, "EventID", "TotalTime")'
+                f'ON "{RACE_RESULTS_TABLE_NAME}" (athlete_id, "prog_id", "total_time")'
             )
         )
     print("Database tables and conflict index ensured.")

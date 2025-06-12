@@ -157,6 +157,7 @@ def process_program_data(event_id, program_id) -> pd.DataFrame:
 
     # Event info
     event = data.get("event", {})
+    row["event_name"] = event.get("event_title")
     row["event_venue"] = event.get("event_venue")
     row["event_date"] = event.get("event_date")
     row["event_country"] = event.get("event_country")
@@ -195,6 +196,8 @@ def fetch_and_process_program_results(event_id, program_id, limit=50) -> pd.Data
     for r in results:
         splits = r.get("splits", [])
         row = {
+            "event_id": event_id,
+            "prog_id": program_id,
             "athlete_id": r.get("athlete_id"),
             "athlete_full_name": r.get("athlete_full_name"),
             "SwimTime": splits[0] if len(splits) > 0 else None,
