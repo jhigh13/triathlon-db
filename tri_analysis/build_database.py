@@ -18,6 +18,7 @@ from tri_analysis.api_handling import (
     process_program_data,
     fetch_and_process_program_results,
 )
+from tri_analysis.upsert_tables import upsert_athlete, upsert_events, upsert_race_results
 load_dotenv()
 
 def is_valid_df(df):
@@ -41,16 +42,17 @@ def fetch_and_validate_athlete_info(athlete_id):
 # Get database engine, drop existing tables, and initialize the database
 engine = get_engine()
 with engine.begin() as conn:
-    conn.execute(text(f'DROP TABLE IF EXISTS "{RACE_RESULTS_TABLE_NAME}" CASCADE'))
-    conn.execute(text(f'DROP TABLE IF EXISTS "{ATHLETE_TABLE_NAME}" CASCADE'))
-    conn.execute(text(f'DROP TABLE IF EXISTS "{EVENTS_TABLE_NAME}" CASCADE'))
-    conn.execute(text(f'DROP TABLE IF EXISTS "{RANKINGS_RESULTS_TABLE_NAME}" CASCADE'))
+    #conn.execute(text(f'DROP TABLE IF EXISTS "{RACE_RESULTS_TABLE_NAME}" CASCADE'))
+    #conn.execute(text(f'DROP TABLE IF EXISTS "{ATHLETE_TABLE_NAME}" CASCADE'))
+    #conn.execute(text(f'DROP TABLE IF EXISTS "{EVENTS_TABLE_NAME}" CASCADE'))
+    #conn.execute(text(f'DROP TABLE IF EXISTS "{RANKINGS_RESULTS_TABLE_NAME}" CASCADE'))
     conn.execute(text(f'DROP TABLE IF EXISTS "{METRICS_TABLE_NAME}" CASCADE'))
     print("Dropped existing tables")
 initialize_database()
 
     
-start_date = datetime.date(2012, 1, 1).strftime("%Y-%m-%d")    
+start_date = datetime.date(2022, 1, 1).strftime("%Y-%m-%d")
+end_date = datetime.date(2022, 12, 31).strftime("%Y-%m-%d")
 
 # Initialize as an empty list to collect DataFrames from each process_program_data call
 event_df = []
@@ -59,8 +61,8 @@ athletes_df = []
 
 
 print("Fetching event IDs...")    # Fetch event IDs since the specified start date
-events_id = fetch_events_ids(start_date=start_date)  
-print(f"Found {len(events_id)} events since {start_date}.")
+events_id = fetch_events_ids(start_date=start_date, end_date=end_date)  
+print(f"Found {len(events_id)} events from {start_date} to {end_date}.")
 
 print("Fetching program IDs for each event concurrently...")
 with concurrent.futures.ThreadPoolExecutor(max_workers=500) as executor:
@@ -91,7 +93,7 @@ race_results_df = race_results_df.drop_duplicates(subset=["athlete_id", "prog_id
 print("Fetching athlete information concurrently...")
 unique_athlete_ids = race_results_df["athlete_id"].dropna().unique().tolist()
 athletes_df_list = []
-with concurrent.futures.ThreadPoolExecutor(max_workers=500) as executor:
+with concurrent.futures.ThreadPoolExecutor(max_workers=100) as executor:
     for df in executor.map(fetch_and_validate_athlete_info, unique_athlete_ids):
         if df is not None:
             athletes_df_list.append(df)
@@ -112,15 +114,26 @@ print("Writing DataFrames to database...")
 
 # Write athletes_df
 if not athletes_df.empty:
-    athletes_df.to_sql(ATHLETE_TABLE_NAME, engine, if_exists='append', index=False, method='multi')
+    upsert_athlete(athletes_df, engine)
     print(f"Wrote {len(athletes_df)} rows to {ATHLETE_TABLE_NAME}")
 
 # Write event_df
 if not event_df.empty:
-    event_df.to_sql(EVENTS_TABLE_NAME, engine, if_exists='append', index=False, method='multi')
+    event_df.columns = [c.lower() for c in event_df.columns]
+    # Replace empty strings with None in numeric columns
+    numeric_cols = [
+        "prog_id", "event_id", "swim_laps", "swim_distance", "bike_laps", "bike_distance",
+        "run_laps", "run_distance", "event_latitude", "event_longitude",
+        "temperature_water", "temperature_air", "humidity", "wbgt", "wind"
+    ]
+    for col in numeric_cols:
+        if col in event_df.columns:
+            event_df[col] = event_df[col].replace("", None)
+    upsert_events(event_df, engine)
     print(f"Wrote {len(event_df)} rows to {EVENTS_TABLE_NAME}")
 
 # Write race_results_df
 if not race_results_df.empty:
-    race_results_df.to_sql(RACE_RESULTS_TABLE_NAME, engine, if_exists='append', index=False, method='multi')
+    race_results_df.columns = [c.lower() for c in race_results_df.columns]
+    upsert_race_results(race_results_df, engine)
     print(f"Wrote {len(race_results_df)} rows to {RACE_RESULTS_TABLE_NAME}")

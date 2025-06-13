@@ -73,7 +73,7 @@ def fetch_race_results(athlete_id: int) -> list:
         url = page.get("next_page_url")
     return results
 
-def fetch_events_ids(start_date, per_page=500, spec_ids=SPEC_IDS, category_ids=CATEGORY_IDS) -> list:
+def fetch_events_ids(start_date, end_date, per_page=500, spec_ids=SPEC_IDS, category_ids=CATEGORY_IDS) -> list:
     """
     Fetch events from the API since a given date. Returns a list of event ids.
     """
@@ -84,7 +84,8 @@ def fetch_events_ids(start_date, per_page=500, spec_ids=SPEC_IDS, category_ids=C
         "order": "asc",
         "page": 1,
         "category_id": category_ids,
-        "specification_id": spec_ids
+        "specification_id": spec_ids,
+        "end_date": end_date
     }
     while True:
         resp = requests.get(EVENT_LISTING_URL, headers=HEADERS, params=params)
