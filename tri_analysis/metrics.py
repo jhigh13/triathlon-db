@@ -53,7 +53,11 @@ def calculate_position_metrics():
     
     # Apply outlier check per group for each split segment
     for col in ['swimsecs', 't1secs', 'bikesecs', 't2secs', 'runsecs']:
-        df[col] = df.groupby(['event_id','prog_id'])[col].transform(lambda s: adjust_outlier(s, 2))
+        if col in ['t1secs', 't2secs']:  # T1 and T2 are transitions, not splits
+            threshold = 3
+        else:
+            threshold = 2
+        df[col] = df.groupby(['event_id','prog_id'])[col].transform(lambda s: adjust_outlier(s, threshold))
 
     # Compute seconds behind leader per event_id + prog_id
     min_swim = df[df['swimsecs'] > 0].groupby(['event_id','prog_id'])['elapsedswim'].transform('min').fillna(0)

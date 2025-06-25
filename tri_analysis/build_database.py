@@ -51,8 +51,8 @@ with engine.begin() as conn:
 initialize_database()
 
     
-start_date = datetime.date(2022, 1, 1).strftime("%Y-%m-%d")
-end_date = datetime.date(2022, 12, 31).strftime("%Y-%m-%d")
+start_date = datetime.date(2025, 6, 8).strftime("%Y-%m-%d")
+end_date = datetime.date(2025, 6, 16).strftime("%Y-%m-%d")
 
 # Initialize as an empty list to collect DataFrames from each process_program_data call
 event_df = []
