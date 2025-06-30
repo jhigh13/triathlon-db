@@ -188,6 +188,44 @@ def initialize_database():
         Column('retrieved_at',    Date,    nullable=False)
     )
 
+    # Head-to-Head summary table for Power BI integration
+    Table(
+        'h2h_summary', metadata,
+        Column('athlete_a', String, nullable=False),
+        Column('athlete_b', String, nullable=False),
+        Column('total_matches', Integer, nullable=False),
+        Column('wins_a', Integer, nullable=False),
+        Column('wins_b', Integer, nullable=False),
+        Column('win_pct_a', Float, nullable=False),
+        Column('win_pct_b', Float, nullable=False),
+        # Segment statistics
+        Column('swim_wins_a', Integer),
+        Column('swim_wins_b', Integer),
+        Column('swim_win_pct_a', Float),
+        Column('swim_total', Integer),
+        Column('t1_wins_a', Integer),
+        Column('t1_wins_b', Integer),
+        Column('t1_win_pct_a', Float),
+        Column('t1_total', Integer),
+        Column('bike_wins_a', Integer),
+        Column('bike_wins_b', Integer),
+        Column('bike_win_pct_a', Float),
+        Column('bike_total', Integer),
+        Column('t2_wins_a', Integer),
+        Column('t2_wins_b', Integer),
+        Column('t2_win_pct_a', Float),
+        Column('t2_total', Integer),
+        Column('run_wins_a', Integer),
+        Column('run_wins_b', Integer),
+        Column('run_win_pct_a', Float),
+        Column('run_total', Integer),
+        # Metadata
+        Column('date_range_start', Date),
+        Column('date_range_end', Date),
+        Column('last_updated', Date, nullable=False),
+        Column('min_matches_filter', Integer, nullable=False)
+    )
+
     metadata.create_all(engine)
     # Ensure unique index for upsert ON CONFLICT target on race_results
     with engine.begin() as conn:

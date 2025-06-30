@@ -83,6 +83,25 @@
 - **Features**: Podium analysis, split times, performance trends
 - **Integration**: Direct PostgreSQL connection with refresh capabilities
 
+### Analysis & ML Pipeline
+
+#### `tri_analysis/h2h.ipynb`
+- **Purpose**: Head-to-head (H2H) athlete comparison analysis system
+- **Key Features**:
+  - Dynamic athlete pair comparison with win/loss statistics
+  - Segment-by-segment performance analysis (swim, T1, bike, T2, run)
+  - Scalable parameterized queries for Power BI integration
+  - Flexible filtering by athlete, event, country, and date range
+  - Win percentage matrices and statistical aggregations
+- **Technical Implementation**:
+  - Joins race_results with position_metrics tables using program ID
+  - Generates all possible athlete pairs per event/program
+  - Calculates win flags for overall and segment performance
+  - Aggregates H2H metrics with minimum match thresholds
+  - Provides Power BI-ready Python script for dynamic queries
+- **Power BI Integration**: Complete setup with parameterized queries to avoid loading millions of rows
+- **Created**: June 2025 as robust solution for athlete comparison analytics
+
 ### Testing & Quality Assurance
 
 #### `tests/` Directory
