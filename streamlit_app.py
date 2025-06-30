@@ -4,6 +4,17 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import os
 from sqlalchemy import create_engine
+from sqlalchemy.exc import SQLAlchemyError
+
+@st.cache_data(ttl=600)
+def load_athlete_names(_engine):
+    """Cached load of athlete full names from database"""
+    return pd.read_sql("SELECT full_name FROM athlete ORDER BY full_name", _engine)
+
+@st.cache_data(ttl=600)
+def load_event_names(_engine):
+    """Cached load of distinct event names from database"""
+    return pd.read_sql("SELECT DISTINCT event_name FROM events ORDER BY event_name", _engine)
 
 
 def time_to_seconds(timestr):
@@ -36,50 +47,65 @@ def seconds_to_hms(seconds):
     s = seconds % 60
     return f"{sign}{m:02}:{s:02}"
 
-def h2h_summary(athletes, events, engine) -> pd.DataFrame: 
+# Cache H2H summary to avoid repeated DB calls for same selections
+@st.cache_data(show_spinner=False)
+def h2h_summary(athletes, events, _engine) -> pd.DataFrame: 
   
-  # Load race_results (for position) and position_metrics (for elapsedrun)
-  df = pd.read_sql("""
+  # Load athlete and event lookup for filtering
+  df_athletes = pd.read_sql("SELECT athlete_id, full_name FROM athlete", _engine)
+  df_events = pd.read_sql("SELECT event_id, event_name, prog_id, prog_name FROM events", _engine)
+  df_events = df_events[df_events['prog_name'] != "Mixed Relay"]
+  athlete_ids = df_athletes[df_athletes['full_name'].isin(athletes)]['athlete_id'].tolist()
+  event_ids = df_events[df_events['event_name'].isin(events)]['event_id'].tolist()
+
+  # Load only relevant race_results and metrics
+  df = pd.read_sql(
+      f"""
       SELECT
-        rr.event_id,
-        rr.athlete_id,
-        rr.prog_id,
-        rr.position,
-        rr.swimtime,
-        rr.t1time, 
-        rr.biketime,
-        rr.t2time,
-        rr.runtime,
-        pm.elapsedrun 
+          rr.event_id,
+          rr.athlete_id,
+          rr.prog_id,
+          rr.position,
+          rr.swimtime,
+          rr.t1time,
+          rr.biketime,
+          rr.t2time,
+          rr.runtime,
+          pm.elapsedrun
       FROM race_results rr
       LEFT JOIN position_metrics pm
-        ON rr.event_id = pm.event_id AND rr.athlete_id = pm.athlete_id AND rr.prog_id = pm.prog_id
-  """, engine)
+          ON rr.event_id = pm.event_id AND rr.athlete_id = pm.athlete_id AND rr.prog_id = pm.prog_id
+      WHERE rr.athlete_id IN ({','.join(map(str, athlete_ids))})
+        AND rr.event_id IN ({','.join(map(str, event_ids))})
+      """ , _engine
+  )
+  
+  # Load split rankings filtered by selection
+  df_metrics = pd.read_sql(
+      f"""
+      SELECT
+          event_id,
+          athlete_id,
+          prog_id,
+          swimrank,
+          t1rank,
+          bikerank,
+          t2rank,
+          runrank
+      FROM position_metrics
+      WHERE athlete_id IN ({','.join(map(str, athlete_ids))})
+        AND event_id IN ({','.join(map(str, event_ids))})
+      """ , _engine
+  )
 
   # Convert segment times to seconds
   for col in ['swimtime','t1time','biketime','t2time','runtime']:
       df[col + '_sec'] = df[col].apply(time_to_seconds)
 
-  # Load split rankings from position_metrics and merge with race_results
-  df_metrics = pd.read_sql("""
-      SELECT
-        event_id,
-        athlete_id,
-        prog_id,
-        swimrank,
-        t1rank,
-        bikerank,
-        t2rank,
-        runrank
-      FROM position_metrics
-  """, engine)
-
   # Merge split rankings into main race results DataFrame
   df = df.merge(df_metrics, on=["event_id", "athlete_id", "prog_id"], how="left")
 
-  # Load athlete full names and join to df
-  df_athletes = pd.read_sql("SELECT athlete_id, full_name FROM athlete", engine)
-  df_events = pd.read_sql("SELECT event_id, event_name, prog_id, prog_name FROM events", engine)
+  # Merge athlete names
   df = df.merge(df_athletes, on="athlete_id", how="left")
   df = df.merge(df_events[['event_id', 'prog_id', 'prog_name']], on=['event_id', 'prog_id'], how='left')
   df = df[df['prog_name'] != "Mixed Relay"]
@@ -302,12 +328,15 @@ DB_URI = os.environ.get(
     "postgresql+psycopg2://postgres:Bc020406!@localhost:5432/triathlon_results"
 )
 engine = create_engine(os.environ.get('DB_URI', DB_URI), echo=False)
-
-
-# Load options
-ath_df = pd.read_sql("SELECT full_name FROM athlete ORDER BY full_name", engine)
-ev_df = pd.read_sql("SELECT DISTINCT event_name FROM events ORDER BY event_name", engine)
-
+ 
+# Load options with caching, spinner, and error handling
+try:
+    with st.spinner("Loading athlete and event options..."):
+        ath_df = load_athlete_names(engine)
+        ev_df = load_event_names(engine)
+except SQLAlchemyError as e:
+    st.error(f"Database error while loading options: {e}")
+    st.stop()
 
 athletes = ath_df['full_name'].tolist()
 events = ev_df['event_name'].tolist()
@@ -355,7 +384,12 @@ with st.sidebar:
 
 # --- Tabs for charts ---
 if st.session_state.selected_athletes and st.session_state.selected_events:
-    df = h2h_summary(st.session_state.selected_athletes, st.session_state.selected_events, engine=engine)
+    try:
+        with st.spinner("Computing H2H summary..."):
+            df = h2h_summary(st.session_state.selected_athletes, st.session_state.selected_events, engine)
+    except SQLAlchemyError as e:
+        st.error(f"Error computing H2H summary: {e}")
+        st.stop()
     tab_names = ["Overall H2H", "Swim Segment", "T1 Segment", "Bike Segment", "T2 Segment", "Run Segment"]
     tabs = st.tabs(tab_names)
     # Overall
