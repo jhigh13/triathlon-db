@@ -1,8 +1,8 @@
 import streamlit as st
 import pandas as pd
-import seaborn as sns
-import matplotlib.pyplot as plt
 import os
+from dotenv import load_dotenv
+load_dotenv()
 from sqlalchemy import create_engine
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -292,10 +292,13 @@ def build_segment_matrix(h2h_df, segment):
     return matrix, annot_matrix
 
 def plot_heatmap(mat, annot, title):
+    import seaborn as sns
+    import matplotlib.pyplot as plt
+
     z = mat.map(color_code).values
     n = len(mat)
-    # Dynamically scale the figure size based on number of athletes (min 8, max 16)
-    size = max(8, min(2 + n, 16))
+    # Dynamically scale the heatmap size so cells (and text) have enough room
+    size = max(8, n * 1.5)
     fig, ax = plt.subplots(figsize=(size, size))
     cmap = sns.color_palette(["#dc3545", "white", "#28a745"])
     sns.heatmap(
@@ -321,11 +324,13 @@ def plot_heatmap(mat, annot, title):
 
 st.title("Triathlon H2H Dashboard")
 
-DB_URI = os.environ.get(
-    "DB_URI",
-    "postgresql://postgres.kzddtovwtnsfxccyicjd:6mBe-4ZKA_YWawR@aws-0-us-east-2.pooler.supabase.com:5432/postgres"
-)
-engine = create_engine(os.environ.get('DB_URI', DB_URI), echo=False)
+
+# Get database URI from environment or Streamlit secrets
+DB_URI = os.getenv("DB_URI")
+if not DB_URI:
+    st.error("Database URI not set. Please configure DB_URI in your environment or Streamlit secrets.")
+    st.stop()
+engine = create_engine(DB_URI, echo=False)
  
 # Load options with caching, spinner, and error handling
 try:
@@ -377,6 +382,12 @@ with st.sidebar:
         st.rerun()
     selected_athletes = st.multiselect("Select Athletes to Compare", athletes, default=st.session_state.selected_athletes, key="athlete_multiselect")
     selected_events = st.multiselect("Select Events to Include", events, default=st.session_state.selected_events, key="event_multiselect")
+    if st.session_state.selected_events:
+        st.markdown("---")
+        st.markdown("**Selected Events:**")
+        for ev in st.session_state.selected_events:
+            st.write(ev)
+
 
 # --- Tabs for charts ---
 if st.session_state.selected_athletes and st.session_state.selected_events:
@@ -402,8 +413,3 @@ else:
     st.write("Please select at least one athlete and event from the sidebar.")
 
 # --- Show selected event names at the bottom ---
-if st.session_state.selected_events:
-    st.markdown("---")
-    st.markdown("**Selected Events:**")
-    for ev in st.session_state.selected_events:
-        st.write(ev)
