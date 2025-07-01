@@ -48,7 +48,7 @@ def seconds_to_hms(seconds):
     return f"{sign}{m:02}:{s:02}"
 
 # Cache H2H summary to avoid repeated DB calls for same selections
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False, persist=False)
 def h2h_summary(athletes, events, _engine) -> pd.DataFrame: 
   
   # Load athlete and event lookup for filtering
@@ -363,8 +363,19 @@ DEFAULT_EVENTS = [
 ]
 
 
-# Sidebar selectors with USA Men/Women buttons
 
+# --- Load event dates for date range filtering ---
+@st.cache_data(ttl=600)
+def load_event_dates(_engine):
+    return pd.read_sql("SELECT event_name, event_date FROM events ORDER BY event_date", _engine)
+
+event_dates_df = load_event_dates(engine)
+event_dates_df['event_date'] = pd.to_datetime(event_dates_df['event_date'])
+min_event_date = event_dates_df['event_date'].min()
+max_event_date = event_dates_df['event_date'].max()
+
+
+# Sidebar selectors with event/date mode
 with st.sidebar:
     st.markdown("### H2H Selection")
     st.markdown("#### Select Default U.S. Mens or Womens Athletes/Events or Choose Your Own")
@@ -372,47 +383,146 @@ with st.sidebar:
         st.session_state.selected_athletes = []
     if 'selected_events' not in st.session_state:
         st.session_state.selected_events = []
-    if st.button("USA Men"):
-        st.session_state.selected_athletes = [a for a in USA_MEN if a in athletes]
-        st.session_state.selected_events = [e for e in DEFAULT_EVENTS if e in events]
+    if 'date_range' not in st.session_state:
+        st.session_state.date_range = (min_event_date, max_event_date)
+    if 'event_mode' not in st.session_state:
+        st.session_state.event_mode = 'By Event'
+
+
+    # Place USA Men and USA Women buttons side by side
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("USA Men"):
+            st.session_state.selected_athletes = [a for a in USA_MEN if a in athletes]
+            if st.session_state.event_mode == "By Event":
+                st.session_state.selected_events = [e for e in DEFAULT_EVENTS if e in events]
+            else:
+                st.session_state.selected_events = []
+            st.rerun()
+    with col2:
+        if st.button("USA Women"):
+            st.session_state.selected_athletes = [a for a in USA_WOMEN if a in athletes]
+            if st.session_state.event_mode == "By Event":
+                st.session_state.selected_events = [e for e in DEFAULT_EVENTS if e in events]
+            else:
+                st.session_state.selected_events = []
+            st.rerun()
+
+    selected_athletes = st.multiselect(
+        "Select Athletes to Compare",
+        athletes,
+        default=st.session_state.selected_athletes,
+        key="athlete_multiselect"
+    )
+
+    # Move event selection mode radio right above event selection/date
+    event_mode = st.radio(
+        "Event Selection Mode",
+        ["By Event", "By Date Range"],
+        index=0 if st.session_state.event_mode == 'By Event' else 1,
+        key="event_mode_radio"
+    )
+    st.session_state.event_mode = event_mode
+
+    if event_mode == "By Event":
+        selected_events = st.multiselect(
+            "Select Events to Include",
+            events,
+            default=st.session_state.selected_events,
+            key="event_multiselect"
+        )
+        date_range = st.session_state.date_range
+    else:
+        date_range = st.date_input(
+            "Select event date range",
+            value=st.session_state.date_range,
+            min_value=min_event_date,
+            max_value=max_event_date,
+            key="date_range_picker"
+        )
+        st.session_state.date_range = date_range
+        selected_events = []  # Not used in this mode
+
+    update = st.button("Done (Update Selection)")
+    if update:
+        st.session_state.selected_athletes = selected_athletes
+        st.session_state.selected_events = selected_events
+        st.session_state.date_range = date_range
         st.rerun()
-    if st.button("USA Women"):
-        st.session_state.selected_athletes = [a for a in USA_WOMEN if a in athletes]
-        st.session_state.selected_events = [e for e in DEFAULT_EVENTS if e in events]
-        st.rerun()
-    selected_athletes = st.multiselect("Select Athletes to Compare", athletes, default=st.session_state.selected_athletes, key="athlete_multiselect")
-    selected_events = st.multiselect("Select Events to Include", events, default=st.session_state.selected_events, key="event_multiselect")
-    # Synchronize session state with multiselects
-    st.session_state.selected_athletes = selected_athletes
-    st.session_state.selected_events = selected_events
-    if st.session_state.selected_events:
+    if event_mode == "By Event" and st.session_state.selected_events:
         st.markdown("---")
         st.markdown("**Selected Events:**")
         for ev in st.session_state.selected_events:
             st.write(ev)
+    if event_mode == "By Date Range":
+        st.markdown(f"---\n**Date Range:** {date_range[0]} to {date_range[1]}")
 
 
 # --- Tabs for charts ---
-if st.session_state.selected_athletes and st.session_state.selected_events:
+run_h2h = False
+selected_events_for_h2h = []
+if st.session_state.selected_athletes:
+    if st.session_state.event_mode == "By Event" and st.session_state.selected_events:
+        selected_events_for_h2h = st.session_state.selected_events
+        run_h2h = True
+    elif st.session_state.event_mode == "By Date Range":
+        # Use all events in the selected date range
+        date_range = st.session_state.date_range
+        selected_events_for_h2h = event_dates_df[
+            (event_dates_df['event_date'] >= pd.to_datetime(date_range[0])) &
+            (event_dates_df['event_date'] <= pd.to_datetime(date_range[1]))
+        ]['event_name'].tolist()
+        if selected_events_for_h2h:
+            run_h2h = True
+
+if run_h2h:
     try:
         with st.spinner("Computing H2H summary..."):
-            df = h2h_summary(st.session_state.selected_athletes, st.session_state.selected_events, engine)
+            df = h2h_summary(st.session_state.selected_athletes, selected_events_for_h2h, engine)
     except SQLAlchemyError as e:
         st.error(f"Error computing H2H summary: {e}")
         st.stop()
-    tab_names = ["Overall H2H", "Swim Segment", "T1 Segment", "Bike Segment", "T2 Segment", "Run Segment"]
-    tabs = st.tabs(tab_names)
-    # Overall
-    with tabs[0]:
-        mat, annot = build_overall_matrix(df)
-        plot_heatmap(mat, annot, "Overall H2H Record & Time Gaps")
-    # Segments
-    segments = ["swim", "t1", "bike", "t2", "run"]
-    for i, seg in enumerate(segments, start=1):
-        with tabs[i]:
-            mat, annot = build_segment_matrix(df, seg)
-            plot_heatmap(mat, annot, f"{seg.capitalize()} Segment H2H Record & Time Gaps")
-else:
-    st.write("Please select at least one athlete and event from the sidebar.")
 
-# --- Show selected event names at the bottom ---
+    if df.empty:
+        st.warning("No H2H data found for the selected athletes and events.")
+        # Also show which athletes are missing (none raced in selected events)
+        missing_athletes = st.session_state.selected_athletes
+        if missing_athletes:
+            st.markdown("---")
+            st.info(
+                "The following athlete(s) were not found in the H2H results (they did not race in the selected event(s)):")
+            for athlete in missing_athletes:
+                st.write(f"- {athlete}")
+    else: 
+        tab_names = ["Overall H2H", "Swim Segment", "T1 Segment", "Bike Segment", "T2 Segment", "Run Segment"]
+        tabs = st.tabs(tab_names)
+        # Overall
+        with tabs[0]:
+            mat, annot = build_overall_matrix(df)
+            if mat.empty or mat.shape[0] == 0 or mat.shape[1] == 0:
+                st.warning("No valid H2H matrix could be generated for this selection.")
+            else:
+                plot_heatmap(mat, annot, "Overall H2H Record & Time Gaps")
+        # Segments
+        segments = ["swim", "t1", "bike", "t2", "run"]
+        for i, seg in enumerate(segments, start=1):
+            with tabs[i]:
+                mat, annot = build_segment_matrix(df, seg)
+                if mat.empty or mat.shape[0] == 0 or mat.shape[1] == 0:
+                    st.warning(f"No valid {seg.capitalize()} segment H2H matrix for this selection.")
+                else:
+                    plot_heatmap(mat, annot, f"{seg.capitalize()} Segment H2H Record & Time Gaps")
+
+        # --- Show missing athletes at the bottom of the page ---
+        athletes_in_results = set(df['athlete_name_a'].unique()).union(set(df['athlete_name_b'].unique()))
+        missing_athletes = [a for a in st.session_state.selected_athletes if a not in athletes_in_results]
+        if missing_athletes:
+            st.markdown("---")
+            st.info(
+                "The following athlete(s) were not found in the H2H results (they did not race in the selected event(s)):")
+            for athlete in missing_athletes:
+                st.write(f"- {athlete}")
+else:
+    st.write("Please select at least one athlete and event selection mode from the sidebar.")
+
+
