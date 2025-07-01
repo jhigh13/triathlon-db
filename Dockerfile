@@ -1,8 +1,14 @@
 # Use official Python runtime
-FROM python:3.13-slim
+FROM python:3.12-slim
 
 # Set working directory
 WORKDIR /app
+
+# Install build tools and Postgres client libs
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        build-essential gcc libpq-dev && \
+    rm -rf /var/lib/apt/lists/*
 
 # Copy requirements and install
 COPY requirements.txt .

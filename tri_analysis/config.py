@@ -26,6 +26,11 @@ PROGRAM_RESULTS_URL = f"{BASE_URL}/events/{{event_id}}/programs/{{program_id}}/r
 # Database
 DB_URI = os.environ.get(
     "DB_URI",
+    "postgresql://postgres.kzddtovwtnsfxccyicjd:6mBe-4ZKA_YWawR@aws-0-us-east-2.pooler.supabase.com:5432/postgres"
+)
+
+DB_URI_OLD = os.environ.get(
+    "DB_URI",
     "postgresql+psycopg2://postgres:Bc020406!@localhost:5432/triathlon_results"
 )
 

@@ -6,7 +6,7 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if project_root not in sys.path:
     sys.path.append(project_root)
 
-from config.config import (
+from config import (
     ATHLETE_TABLE_NAME,
     EVENTS_TABLE_NAME,
     RACE_RESULTS_TABLE_NAME,

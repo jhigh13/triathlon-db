@@ -26,8 +26,16 @@ def is_valid_df(df):
 
 def process_pair(pair):
     event_id, program_id = pair
-    event_data = process_program_data(event_id, program_id)
-    result_data = fetch_and_process_program_results(event_id, program_id)
+    try:
+        event_data = process_program_data(event_id, program_id)
+    except Exception as e:
+        print(f"Skipping event_id={event_id}, program_id={program_id} in process_program_data due to error: {e}")
+        event_data = None
+    try:
+        result_data = fetch_and_process_program_results(event_id, program_id)
+    except Exception as e:
+        print(f"Skipping event_id={event_id}, program_id={program_id} in fetch_and_process_program_results due to error: {e}")
+        result_data = None
     return event_data, result_data
 
 def fetch_and_validate_athlete_info(athlete_id):
@@ -51,8 +59,8 @@ with engine.begin() as conn:
 initialize_database()
 
     
-start_date = datetime.date(2025, 6, 8).strftime("%Y-%m-%d")
-end_date = datetime.date(2025, 6, 16).strftime("%Y-%m-%d")
+start_date = datetime.date(2023, 1, 1).strftime("%Y-%m-%d")
+end_date = datetime.date(2025, 12, 31).strftime("%Y-%m-%d")
 
 # Initialize as an empty list to collect DataFrames from each process_program_data call
 event_df = []

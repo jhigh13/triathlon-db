@@ -204,8 +204,6 @@ def h2h_summary(athletes, events, _engine) -> pd.DataFrame:
   return h2h
 
 
-
-
 # Utility to color heatmap cells
 
 def color_code(val):
@@ -325,7 +323,7 @@ st.title("Triathlon H2H Dashboard")
 
 DB_URI = os.environ.get(
     "DB_URI",
-    "postgresql+psycopg2://postgres:Bc020406!@localhost:5432/triathlon_results"
+    "postgresql://postgres.kzddtovwtnsfxccyicjd:6mBe-4ZKA_YWawR@aws-0-us-east-2.pooler.supabase.com:5432/postgres"
 )
 engine = create_engine(os.environ.get('DB_URI', DB_URI), echo=False)
  
@@ -361,26 +359,24 @@ DEFAULT_EVENTS = [
 
 
 # Sidebar selectors with USA Men/Women buttons
+
 with st.sidebar:
     st.markdown("### H2H Selection")
+    st.markdown("#### Select Default U.S. Mens or Womens Athletes/Events or Choose Your Own")
     if 'selected_athletes' not in st.session_state:
         st.session_state.selected_athletes = []
     if 'selected_events' not in st.session_state:
         st.session_state.selected_events = []
-    col1, col2 = st.columns([2,1])
-    with col1:
-        selected_athletes = st.multiselect("Select Athletes", athletes, default=st.session_state.selected_athletes, key="athlete_multiselect")
-        selected_events = st.multiselect("Select Events", events, default=st.session_state.selected_events, key="event_multiselect")
-    with col2:
-        if st.button("USA Men"):
-            st.session_state.selected_athletes = [a for a in USA_MEN if a in athletes]
-            st.session_state.selected_events = [e for e in DEFAULT_EVENTS if e in events]
-            st.rerun()
-        if st.button("USA Women"):
-            st.session_state.selected_athletes = [a for a in USA_WOMEN if a in athletes]
-            st.session_state.selected_events = [e for e in DEFAULT_EVENTS if e in events]
-            st.rerun()
-
+    if st.button("USA Men"):
+        st.session_state.selected_athletes = [a for a in USA_MEN if a in athletes]
+        st.session_state.selected_events = [e for e in DEFAULT_EVENTS if e in events]
+        st.rerun()
+    if st.button("USA Women"):
+        st.session_state.selected_athletes = [a for a in USA_WOMEN if a in athletes]
+        st.session_state.selected_events = [e for e in DEFAULT_EVENTS if e in events]
+        st.rerun()
+    selected_athletes = st.multiselect("Select Athletes to Compare", athletes, default=st.session_state.selected_athletes, key="athlete_multiselect")
+    selected_events = st.multiselect("Select Events to Include", events, default=st.session_state.selected_events, key="event_multiselect")
 
 # --- Tabs for charts ---
 if st.session_state.selected_athletes and st.session_state.selected_events:
