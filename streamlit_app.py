@@ -382,6 +382,9 @@ with st.sidebar:
         st.rerun()
     selected_athletes = st.multiselect("Select Athletes to Compare", athletes, default=st.session_state.selected_athletes, key="athlete_multiselect")
     selected_events = st.multiselect("Select Events to Include", events, default=st.session_state.selected_events, key="event_multiselect")
+    # Synchronize session state with multiselects
+    st.session_state.selected_athletes = selected_athletes
+    st.session_state.selected_events = selected_events
     if st.session_state.selected_events:
         st.markdown("---")
         st.markdown("**Selected Events:**")
