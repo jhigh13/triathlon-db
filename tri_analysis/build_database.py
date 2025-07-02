@@ -46,102 +46,106 @@ def fetch_and_validate_athlete_info(athlete_id):
         print(f"Skipping athlete_id={athlete_id} due to error: {e}")
         return None
 
-
+def main(): 
 # Get database engine, drop existing tables, and initialize the database
-engine = get_engine()
-with engine.begin() as conn:
-    #conn.execute(text(f'DROP TABLE IF EXISTS "{RACE_RESULTS_TABLE_NAME}" CASCADE'))
-    #conn.execute(text(f'DROP TABLE IF EXISTS "{ATHLETE_TABLE_NAME}" CASCADE'))
-    #conn.execute(text(f'DROP TABLE IF EXISTS "{EVENTS_TABLE_NAME}" CASCADE'))
-    #conn.execute(text(f'DROP TABLE IF EXISTS "{RANKINGS_RESULTS_TABLE_NAME}" CASCADE'))
-    conn.execute(text(f'DROP TABLE IF EXISTS "{METRICS_TABLE_NAME}" CASCADE'))
-    print("Dropped existing tables")
-initialize_database()
+    engine = get_engine()
+    with engine.begin() as conn:
+        #conn.execute(text(f'DROP TABLE IF EXISTS "{RACE_RESULTS_TABLE_NAME}" CASCADE'))
+        #conn.execute(text(f'DROP TABLE IF EXISTS "{ATHLETE_TABLE_NAME}" CASCADE'))
+        #conn.execute(text(f'DROP TABLE IF EXISTS "{EVENTS_TABLE_NAME}" CASCADE'))
+        #conn.execute(text(f'DROP TABLE IF EXISTS "{RANKINGS_RESULTS_TABLE_NAME}" CASCADE'))
+        conn.execute(text(f'DROP TABLE IF EXISTS "{METRICS_TABLE_NAME}" CASCADE'))
+        print("Dropped existing tables")
+    initialize_database()
 
-    
-start_date = datetime.date(2023, 1, 1).strftime("%Y-%m-%d")
-end_date = datetime.date(2025, 12, 31).strftime("%Y-%m-%d")
+        
+    start_date = datetime.date(2023, 1, 1).strftime("%Y-%m-%d")
+    end_date = datetime.date(2025, 12, 31).strftime("%Y-%m-%d")
 
-# Initialize as an empty list to collect DataFrames from each process_program_data call
-event_df = []
-race_results_df = []
-athletes_df = []
-
-
-print("Fetching event IDs...")    # Fetch event IDs since the specified start date
-events_id = fetch_events_ids(start_date=start_date, end_date=end_date)  
-print(f"Found {len(events_id)} events from {start_date} to {end_date}.")
-
-print("Fetching program IDs for each event concurrently...")
-with concurrent.futures.ThreadPoolExecutor(max_workers=500) as executor:
-    program_id_lists = list(executor.map(fetch_program_ids, events_id))
-
-# Flatten the list of lists and keep track of (event_id, program_id) pairs
-event_program_pairs = [
-    (event_id, prog_id)
-    for event_id, prog_ids in zip(events_id, program_id_lists)
-    for prog_id in prog_ids
-]
-
-print("Processing program data and race results concurrently...") # Process each event
-with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
-    for event_data, result_data in executor.map(process_pair, event_program_pairs):
-        if is_valid_df(event_data):
-            event_df.append(event_data)
-        if is_valid_df(result_data):
-            race_results_df.append(result_data)
-
-event_df = pd.concat(event_df, ignore_index=True) if event_df else pd.DataFrame()
-race_results_df = pd.concat(race_results_df, ignore_index=True) if race_results_df else pd.DataFrame()
-print(f"Processed {len(event_df)} programs and {len(race_results_df)} race results.")
-
-race_results_df = race_results_df.drop_duplicates(subset=["athlete_id", "prog_id", "total_time"]).copy()
+    # Initialize as an empty list to collect DataFrames from each process_program_data call
+    event_df = []
+    race_results_df = []
+    athletes_df = []
 
 
-print("Fetching athlete information concurrently...")
-unique_athlete_ids = race_results_df["athlete_id"].dropna().unique().tolist()
-athletes_df_list = []
-with concurrent.futures.ThreadPoolExecutor(max_workers=100) as executor:
-    for df in executor.map(fetch_and_validate_athlete_info, unique_athlete_ids):
-        if df is not None:
-            athletes_df_list.append(df)
-athletes_df = pd.concat(athletes_df_list, ignore_index=True) if athletes_df_list else pd.DataFrame()
+    print("Fetching event IDs...")    # Fetch event IDs since the specified start date
+    events_id = fetch_events_ids(start_date=start_date, end_date=end_date)  
+    print(f"Found {len(events_id)} events from {start_date} to {end_date}.")
 
-# Remove rows with null athlete_id before writing to race_results
-race_results_df = race_results_df.dropna(subset=["athlete_id"])
+    print("Fetching program IDs for each event concurrently...")
+    with concurrent.futures.ThreadPoolExecutor(max_workers=500) as executor:
+        program_id_lists = list(executor.map(fetch_program_ids, events_id))
 
-# Remove rows with null total_time before writing to race_results
-before = len(race_results_df)
-race_results_df = race_results_df.dropna(subset=["total_time"])
-after = len(race_results_df)
-if before != after:
-    print(f"Warning: Dropped {before - after} rows from race_results_df due to null total_time.")
-
-# Write DataFrames to database
-print("Writing DataFrames to database...")
-
-# Write athletes_df
-if not athletes_df.empty:
-    upsert_athlete(athletes_df, engine)
-    print(f"Wrote {len(athletes_df)} rows to {ATHLETE_TABLE_NAME}")
-
-# Write event_df
-if not event_df.empty:
-    event_df.columns = [c.lower() for c in event_df.columns]
-    # Replace empty strings with None in numeric columns
-    numeric_cols = [
-        "prog_id", "event_id", "swim_laps", "swim_distance", "bike_laps", "bike_distance",
-        "run_laps", "run_distance", "event_latitude", "event_longitude",
-        "temperature_water", "temperature_air", "humidity", "wbgt", "wind"
+    # Flatten the list of lists and keep track of (event_id, program_id) pairs
+    event_program_pairs = [
+        (event_id, prog_id)
+        for event_id, prog_ids in zip(events_id, program_id_lists)
+        for prog_id in prog_ids
     ]
-    for col in numeric_cols:
-        if col in event_df.columns:
-            event_df[col] = event_df[col].replace("", None)
-    upsert_events(event_df, engine)
-    print(f"Wrote {len(event_df)} rows to {EVENTS_TABLE_NAME}")
 
-# Write race_results_df
-if not race_results_df.empty:
-    race_results_df.columns = [c.lower() for c in race_results_df.columns]
-    upsert_race_results(race_results_df, engine)
-    print(f"Wrote {len(race_results_df)} rows to {RACE_RESULTS_TABLE_NAME}")
+    print("Processing program data and race results concurrently...") # Process each event
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+        for event_data, result_data in executor.map(process_pair, event_program_pairs):
+            if is_valid_df(event_data):
+                event_df.append(event_data)
+            if is_valid_df(result_data):
+                race_results_df.append(result_data)
+
+    event_df = pd.concat(event_df, ignore_index=True) if event_df else pd.DataFrame()
+    race_results_df = pd.concat(race_results_df, ignore_index=True) if race_results_df else pd.DataFrame()
+    print(f"Processed {len(event_df)} programs and {len(race_results_df)} race results.")
+
+    race_results_df = race_results_df.drop_duplicates(subset=["athlete_id", "prog_id", "total_time"]).copy()
+
+
+    print("Fetching athlete information concurrently...")
+    unique_athlete_ids = race_results_df["athlete_id"].dropna().unique().tolist()
+    athletes_df_list = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=100) as executor:
+        for df in executor.map(fetch_and_validate_athlete_info, unique_athlete_ids):
+            if df is not None:
+                athletes_df_list.append(df)
+    athletes_df = pd.concat(athletes_df_list, ignore_index=True) if athletes_df_list else pd.DataFrame()
+
+    # Remove rows with null athlete_id before writing to race_results
+    race_results_df = race_results_df.dropna(subset=["athlete_id"])
+
+    # Remove rows with null total_time before writing to race_results
+    before = len(race_results_df)
+    race_results_df = race_results_df.dropna(subset=["total_time"])
+    after = len(race_results_df)
+    if before != after:
+        print(f"Warning: Dropped {before - after} rows from race_results_df due to null total_time.")
+
+    # Write DataFrames to database
+    print("Writing DataFrames to database...")
+
+    # Write athletes_df
+    if not athletes_df.empty:
+        upsert_athlete(athletes_df, engine)
+        print(f"Wrote {len(athletes_df)} rows to {ATHLETE_TABLE_NAME}")
+
+    # Write event_df
+    if not event_df.empty:
+        event_df.columns = [c.lower() for c in event_df.columns]
+        # Replace empty strings with None in numeric columns
+        numeric_cols = [
+            "prog_id", "event_id", "swim_laps", "swim_distance", "bike_laps", "bike_distance",
+            "run_laps", "run_distance", "event_latitude", "event_longitude",
+            "temperature_water", "temperature_air", "humidity", "wbgt", "wind"
+        ]
+        for col in numeric_cols:
+            if col in event_df.columns:
+                event_df[col] = event_df[col].replace("", None)
+        upsert_events(event_df, engine)
+        print(f"Wrote {len(event_df)} rows to {EVENTS_TABLE_NAME}")
+
+    # Write race_results_df
+    if not race_results_df.empty:
+        race_results_df.columns = [c.lower() for c in race_results_df.columns]
+        upsert_race_results(race_results_df, engine)
+        print(f"Wrote {len(race_results_df)} rows to {RACE_RESULTS_TABLE_NAME}")
+
+if __name__ == "__main__":
+    main()
+    print("Database build complete.")

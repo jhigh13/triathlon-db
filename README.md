@@ -118,7 +118,7 @@ LIMIT 10;
 I have included both the raw `.pbix` and a static PDF export below.
 
 - **Download the PBIX file** (requires Power BI Desktop):  
-  [WTO_Report.pbix](docs/WTO_Report.pbix)
+  [WTO_Report_Rankings.pbix](docs/WTO_Report_Rankings.pbix)
 
 - **View the PDF in‐browser** (no download needed):  
   [▶ View Static Report (PDF)](https://jhigh13.github.io/triathlon-db/WTO_Report.pdf)

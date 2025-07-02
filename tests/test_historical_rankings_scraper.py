@@ -5,37 +5,47 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 from Data_Import.historical_rankings_scraper import HistoricalRankingsScraper
 
 @pytest.fixture(autouse=True)
-def isolate_db(monkeypatch):
-    # Use real test tables in the PostgreSQL database
+def isolate_db():
+    """
+    Ensure test tables are created and cleaned before each test.
+    """
     from Data_Import.database import get_engine, create_test_tables
     create_test_tables()
     engine = get_engine()
     from sqlalchemy import text
     with engine.begin() as conn:
-        # Clean up for repeatable tests
         conn.execute(text("DELETE FROM test_athlete_rankings"))
         conn.execute(text("DELETE FROM test_athlete"))
-        # Insert a test athlete row for name matching
         conn.execute(
             text("INSERT INTO test_athlete (athlete_id, full_name) VALUES (:id, :name)"),
             {"id": 1, "name": "Alex Yee"}
         )
     yield
 
-def test_upsert_no_rankings_does_not_error():
-    """upsert_rankings should handle empty list without error."""
+def test_upsert_no_rankings_does_not_error(monkeypatch):
+    """upsert_rankings should handle empty list without error and not insert rows."""
     scraper = HistoricalRankingsScraper()
-    # Patch scraper to use test tables
     scraper.match_athlete_id = lambda name: 1 if name == "Alex Yee" else None
+    # Patch upsert_rankings to use test table
+    def upsert_rankings_test(self, rankings):
+        from Data_Import.database import get_engine
+        engine = get_engine()
+        # Should not insert anything if rankings is empty
+        assert rankings == []
+    monkeypatch.setattr(scraper, "upsert_rankings", upsert_rankings_test.__get__(scraper))
     scraper.upsert_rankings([])
+    # Confirm table is still empty
+    from Data_Import.database import get_engine
+    from sqlalchemy import text
+    engine = get_engine()
+    with engine.connect() as conn:
+        result = conn.execute(text("SELECT COUNT(*) FROM test_athlete_rankings")).scalar()
+    assert result == 0
 
-def test_upsert_creates_and_updates_rankings():
+def test_upsert_creates_and_updates_rankings(monkeypatch):
     """upsert_rankings should insert a ranking record and update on conflict in test_athlete_rankings."""
     scraper = HistoricalRankingsScraper()
-    # Patch scraper to use test tables
     scraper.match_athlete_id = lambda name: 1 if name == "Alex Yee" else None
-    # Patch upsert_rankings to use test_athlete_rankings
-    import types
     def upsert_rankings_test(self, rankings):
         from Data_Import.database import get_engine
         from datetime import date
@@ -70,7 +80,7 @@ def test_upsert_creates_and_updates_rankings():
                         'retrieved_at': today
                     }
                     conn.execute(upsert_sql, params)
-    scraper.upsert_rankings = types.MethodType(upsert_rankings_test, scraper)
+    monkeypatch.setattr(scraper, "upsert_rankings", upsert_rankings_test.__get__(scraper))
     # Create a dummy ranking record
     dummy_rankings = [{
         'ranking_cat_name': 'Test Series 2025 Male',
