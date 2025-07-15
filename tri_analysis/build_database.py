@@ -59,8 +59,8 @@ def main():
     initialize_database()
 
         
-    start_date = datetime.date(2023, 1, 1).strftime("%Y-%m-%d")
-    end_date = datetime.date(2025, 12, 31).strftime("%Y-%m-%d")
+    start_date = datetime.date(2025, 6, 16).strftime("%Y-%m-%d")
+    end_date = datetime.date(2025, 7, 14).strftime("%Y-%m-%d")
 
     # Initialize as an empty list to collect DataFrames from each process_program_data call
     event_df = []
@@ -139,6 +139,7 @@ def main():
                 event_df[col] = event_df[col].replace("", None)
         upsert_events(event_df, engine)
         print(f"Wrote {len(event_df)} rows to {EVENTS_TABLE_NAME}")
+        event_df['event_id'].drop_duplicates().to_csv('latest_events.txt', index=False, header=False)
 
     # Write race_results_df
     if not race_results_df.empty:

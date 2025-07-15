@@ -14,8 +14,16 @@ def adjust_outlier(series, threshold=2):
 
 # Load in all race results and calculate position metrics. Save to the position_metrics table.
 def calculate_position_metrics():
+    try:
+        with open('latest_events.txt') as f:
+            event_ids = [int(line.strip()) for line in f if line.strip().isdigit()]
+    except Exception as e:
+        print("Could not load latest_events.txt, calculating for all events.")
+        event_ids = None
 
     df = pd.read_sql_table('race_results', get_engine(), schema='public')
+    if event_ids:
+        df = df[df['event_id'].isin(event_ids)]
     
     def parse_time_to_secs(t):
         if pd.isna(t) or t == "":

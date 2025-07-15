@@ -177,7 +177,7 @@ def process_program_data(event_id, program_id) -> pd.DataFrame:
 
     return pd.DataFrame([row])
 
-def fetch_and_process_program_results(event_id, program_id, limit=50) -> pd.DataFrame:
+def fetch_and_process_program_results(event_id, program_id, limit=75) -> pd.DataFrame:
     """
     Given an event ID and program ID, fetch and process race results for a specific event and program.
     Returns a DataFrame with unique rows for each athlete_id, including split times and key result fields.
