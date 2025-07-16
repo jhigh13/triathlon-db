@@ -20,6 +20,22 @@ def fetch_athlete_id_search(athlete_name: str) -> int:
             raise ValueError(f"Athlete '{athlete_name}' not found.")
     else:
         raise Exception(f"Search API failed with status code {response.status_code}")
+    
+
+def fetch_athlete_country_search(athlete_name: str) -> str:
+    """
+    Fetch athlete country based on a user-provided name.
+    """
+    params = {"query": athlete_name}
+    response = requests.get(ATHLETE_SEARCH_URL, params=params, headers=HEADERS)
+    if response.status_code == 200:
+        data = response.json().get("data", [])
+        if data:
+            return data[0]["athlete_country_name"]
+        else:
+            raise ValueError(f"Athlete '{athlete_name}' not found.")
+    else:
+        raise Exception(f"Search API failed with status code {response.status_code}")
 
 def fetch_athlete_id_ranking(ranking_id: int) -> list:
     """
