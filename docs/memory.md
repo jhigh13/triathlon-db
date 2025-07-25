@@ -36,18 +36,21 @@
 - **Purpose**: Multi-page Streamlit application for triathlon analysis
 - **Features**: 
   - **Page Navigation**: H2H Analysis and Event Analysis pages
-  - **H2H Analysis**: Existing head-to-head athlete comparison functionality
-  - **Event Analysis**: NEW - Detailed event-specific race analysis with pack dynamics
+  - **H2H Analysis**: Head-to-head athlete comparison functionality with heatmap matrices
+  - **Event Analysis**: Detailed event-specific race analysis with pack dynamics
 - **Key Features**: 
   - **Dual Data Sources**: Database integration for standard events, Excel upload for detailed analysis
   - **Race Overview**: Metrics dashboard with finisher count, DNF rate, winning time
   - **Data Processing**: Excel file validation and processing for detailed timing data
-  - **Pack Dynamics**: Framework for pack formation analysis (Phase 2 implementation)
+  - **Pack Dynamics**: COMPLETE Phase 2 - pack formation analysis with interactive controls
+  - **H2H Matrices**: Interactive heatmaps for overall and segment-by-segment athlete comparisons
 - **Recent Changes**: 
   - **July 2025**: Restructured app to support multiple pages with sidebar navigation
   - **July 2025**: Added Event Analysis page with Excel upload functionality
   - **July 2025**: Implemented Phase 1 infrastructure for pack dynamics analysis
   - **July 2025**: Added comprehensive data validation and error handling
+  - **July 2025**: COMPLETED Phase 2 pack dynamics with gap thresholds, position tracking, pack composition
+  - **July 2025**: FIXED H2H analysis bug - reverted to working pandas-based approach from broken SQL approach
 
 ### Configuration & Database
 
