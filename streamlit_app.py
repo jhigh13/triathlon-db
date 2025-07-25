@@ -1428,7 +1428,8 @@ st.set_page_config(
 
 # ===== DATABASE CONNECTION =====
 # Get database URI from environment or Streamlit secrets
-DB_URI = os.getenv("DB_URI")
+DB_URI = os.getenv("DB_URI", 
+                   "postgresql://postgres.kzddtovwtnsfxccyicjd:6mBe-4ZKA_YWawR@aws-0-us-east-2.pooler.supabase.com:5432/postgres")
 if not DB_URI and hasattr(st, 'secrets'):
     try:
         DB_URI = st.secrets["DB_URI"]
