@@ -9,7 +9,7 @@ import seaborn as sns
 import os
 from dotenv import load_dotenv
 load_dotenv()
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 import openpyxl
 
@@ -1443,7 +1443,7 @@ try:
     engine = create_engine(DB_URI, echo=False)
     # Test the connection
     with engine.connect() as conn:
-        conn.execute("SELECT 1")
+        conn.execute(text("SELECT 1"))
 except Exception as e:
     st.error(f"Database connection failed: {e}")
     st.info("Please check your database connection settings.")
