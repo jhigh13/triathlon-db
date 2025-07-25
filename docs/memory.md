@@ -32,10 +32,22 @@
   - **June 2025**: Added position change tracking between checkpoints (negative values = gained positions)
   - **June 2025**: Added individual split rankings for each segment (swim, T1, bike, T2, run)
 
-#### `main.py`
-- **Purpose**: Command-line interface for all database operations
-- **Features**: Menu-driven options for full import, incremental updates, or single athlete import
-- **CLI Support**: Accepts command-line arguments for automated/scripted execution
+#### `streamlit_app.py`
+- **Purpose**: Multi-page Streamlit application for triathlon analysis
+- **Features**: 
+  - **Page Navigation**: H2H Analysis and Event Analysis pages
+  - **H2H Analysis**: Existing head-to-head athlete comparison functionality
+  - **Event Analysis**: NEW - Detailed event-specific race analysis with pack dynamics
+- **Key Features**: 
+  - **Dual Data Sources**: Database integration for standard events, Excel upload for detailed analysis
+  - **Race Overview**: Metrics dashboard with finisher count, DNF rate, winning time
+  - **Data Processing**: Excel file validation and processing for detailed timing data
+  - **Pack Dynamics**: Framework for pack formation analysis (Phase 2 implementation)
+- **Recent Changes**: 
+  - **July 2025**: Restructured app to support multiple pages with sidebar navigation
+  - **July 2025**: Added Event Analysis page with Excel upload functionality
+  - **July 2025**: Implemented Phase 1 infrastructure for pack dynamics analysis
+  - **July 2025**: Added comprehensive data validation and error handling
 
 ### Configuration & Database
 
@@ -101,6 +113,23 @@
   - Provides Power BI-ready Python script for dynamic queries
 - **Power BI Integration**: Complete setup with parameterized queries to avoid loading millions of rows
 - **Created**: June 2025 as robust solution for athlete comparison analytics
+
+#### `tri_analysis/pack_dynamics_analysis.ipynb`
+- **Purpose**: Triathlon pack dynamics analysis for race strategy and tactical insights
+- **Key Features**:
+  - Automated pack detection using time gap thresholds (default: 2 seconds)
+  - Multi-segment pack evolution tracking (swim, bike, run transitions)
+  - Strategic positioning analysis for drafting opportunities
+  - Interactive visualizations for coaches and athletes
+  - Gap analysis between consecutive athletes and pack formation patterns
+- **Analysis Concepts**:
+  - Pack timeline visualization showing group formation/dissolution
+  - Pack size distribution and time spread analysis
+  - Athlete movement patterns between different packs
+  - Strategic insights for race tactics and positioning
+- **Target Data**: Hamburg 2025 detailed results with potential for expansion to other races
+- **Applications**: Race strategy planning, training focus identification, performance analysis, competitive intelligence
+- **Created**: July 2025 for advanced tactical race analysis
 
 ### Testing & Quality Assurance
 
