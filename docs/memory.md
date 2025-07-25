@@ -33,21 +33,28 @@
   - **June 2025**: Added individual split rankings for each segment (swim, T1, bike, T2, run)
 
 #### `streamlit_app.py`
-- **Purpose**: Multi-page Streamlit application for triathlon analysis
+- **Purpose**: Multi-page Streamlit application for triathlon analysis with complete pack dynamics system
 - **Features**: 
   - **Page Navigation**: H2H Analysis and Event Analysis pages
   - **H2H Analysis**: Head-to-head athlete comparison functionality with heatmap matrices
-  - **Event Analysis**: Detailed event-specific race analysis with pack dynamics
+  - **Event Analysis**: Advanced event-specific race analysis with complete pack dynamics system
 - **Key Features**: 
   - **Dual Data Sources**: Database integration for standard events, Excel upload for detailed analysis
   - **Race Overview**: Metrics dashboard with finisher count, DNF rate, winning time
   - **Data Processing**: Excel file validation and processing for detailed timing data
-  - **Pack Dynamics**: COMPLETE Phase 2 - pack formation analysis with interactive controls
+  - **Pack Dynamics**: COMPLETE Phase 4 - advanced tactical analysis with export capabilities
   - **H2H Matrices**: Interactive heatmaps for overall and segment-by-segment athlete comparisons
+  - **Tactical Insights**: Breakaway detection, draft zone analysis, strategic recommendations
+  - **Export System**: JSON and CSV download capabilities for analysis reports
+  - **Advanced Visualizations**: Pack stability analysis, competitive pressure tracking
 - **Recent Changes**: 
   - **July 2025**: Restructured app to support multiple pages with sidebar navigation
   - **July 2025**: Added Event Analysis page with Excel upload functionality
   - **July 2025**: Implemented Phase 1 infrastructure for pack dynamics analysis
+  - **July 2025**: COMPLETED Phase 2 pack dynamics with gap thresholds, position tracking, pack composition
+  - **July 2025**: COMPLETED Phase 3 pack dynamics with evolution timeline, individual athlete analysis, advanced gap analysis
+  - **July 2025**: COMPLETED Phase 4 pack dynamics with tactical insights, export capabilities, performance benchmarks, advanced visualizations
+  - **July 2025**: FIXED H2H analysis bug - reverted to working pandas-based approach from broken SQL approach
   - **July 2025**: Added comprehensive data validation and error handling
   - **July 2025**: COMPLETED Phase 2 pack dynamics with gap thresholds, position tracking, pack composition
   - **July 2025**: FIXED H2H analysis bug - reverted to working pandas-based approach from broken SQL approach

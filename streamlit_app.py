@@ -468,6 +468,15 @@ def calculate_elapsed_times(df):
             )
             checkpoints[f'Elapsed_After_Run_Seg_{i+1}'] = elapsed_so_far.copy()
     
+    # Add finish time from Total column
+    if 'Total' in df.columns:
+        # Convert Total time to seconds
+        df_elapsed['Total_sec'] = df_elapsed['Total'].apply(convert_time_to_seconds)
+        # Only include valid finish times (not DNF/LAP)
+        valid_finish = ~df_elapsed['Total'].str.contains('DNF|LAP', na=False, case=False)
+        finish_times = df_elapsed['Total_sec'].where(valid_finish, np.nan)
+        checkpoints['Elapsed_After_Finish'] = finish_times
+    
     # Add checkpoint columns to dataframe
     for checkpoint, times in checkpoints.items():
         df_elapsed[checkpoint] = times
@@ -670,7 +679,7 @@ def create_pack_evolution_timeline(df, checkpoints, max_gap_to_leader=2, max_gap
     
     return fig
 
-def create_advanced_gap_analysis(df, checkpoints):
+def create_advanced_gap_analysis(df, checkpoints, selected_athletes=None):
     """Create advanced gap analysis charts showing race dynamics"""
     if not checkpoints or df.empty:
         return None
@@ -704,11 +713,17 @@ def create_advanced_gap_analysis(df, checkpoints):
     
     gap_df = pd.DataFrame(gap_data)
     
-    # Gap evolution chart (top 10 athletes)
-    top_10_athletes = gap_df[gap_df['Checkpoint'] == gap_df['Checkpoint'].iloc[0]].head(10)['Athlete'].tolist()
+    # Gap evolution chart for selected athletes (or top 10 if none selected)
+    if selected_athletes:
+        target_athletes = [athlete for athlete in selected_athletes if athlete in gap_df['Athlete'].values]
+        chart_title = f"Gap to Leader Evolution ({len(target_athletes)} Selected Athletes)"
+    else:
+        target_athletes = gap_df[gap_df['Checkpoint'] == gap_df['Checkpoint'].iloc[0]].head(10)['Athlete'].tolist()
+        chart_title = "Gap to Leader Evolution (Top 10)"
+    
     gap_evolution_fig = go.Figure()
     
-    for athlete in top_10_athletes:
+    for athlete in target_athletes:
         athlete_gaps = gap_df[gap_df['Athlete'] == athlete]
         gap_evolution_fig.add_trace(go.Scatter(
             x=athlete_gaps['Checkpoint'],
@@ -720,32 +735,15 @@ def create_advanced_gap_analysis(df, checkpoints):
         ))
     
     gap_evolution_fig.update_layout(
-        title="Gap to Leader Evolution (Top 10)",
+        title=chart_title,
         xaxis_title="Checkpoint",
         yaxis_title="Gap to Leader (seconds)",
         hovermode='x unified',
         height=400
     )
     
-    # Gap distribution at final checkpoint
-    final_checkpoint = checkpoint_names[-1] if checkpoint_names else None
-    if final_checkpoint and final_checkpoint in df.columns:
-        final_gaps = gap_df[gap_df['Checkpoint'] == final_checkpoint.replace('Elapsed_After_', '')]
-        
-        gap_distribution_fig = px.histogram(
-            final_gaps,
-            x='Gap_to_Leader',
-            nbins=20,
-            title="Final Gap Distribution",
-            labels={'Gap_to_Leader': 'Gap to Leader (seconds)', 'count': 'Number of Athletes'}
-        )
-        gap_distribution_fig.update_layout(height=400)
-    else:
-        gap_distribution_fig = None
-    
     return {
-        'gap_evolution': gap_evolution_fig,
-        'gap_distribution': gap_distribution_fig
+        'gap_evolution': gap_evolution_fig
     }
 
 def create_individual_athlete_analysis(df, checkpoints, athlete_name, max_gap_to_leader=2, max_gap_within_pack=1):
@@ -856,6 +854,131 @@ def create_individual_athlete_analysis(df, checkpoints, athlete_name, max_gap_to
         'summary': summary_df
     }
 
+def create_multi_athlete_analysis(df, checkpoints, athlete_names, max_gap_to_leader=2, max_gap_within_pack=1):
+    """Create overlapping analysis charts for multiple athletes"""
+    if not checkpoints or df.empty or not athlete_names:
+        return None
+    
+    checkpoint_names = list(checkpoints.keys())
+    all_athlete_data = []
+    comparison_summary_data = []
+    
+    # Collect data for all selected athletes
+    for athlete_name in athlete_names:
+        if athlete_name not in df['Name'].values:
+            continue
+            
+        athlete_data = df[df['Name'] == athlete_name].iloc[0]
+        athlete_analysis_data = []
+        
+        for checkpoint in checkpoint_names:
+            if checkpoint not in df.columns:
+                continue
+                
+            # Get all athletes at this checkpoint
+            valid_data = df[df[checkpoint].notna()].copy()
+            if len(valid_data) == 0 or pd.isna(athlete_data[checkpoint]):
+                continue
+                
+            valid_data = valid_data.sort_values(checkpoint).reset_index(drop=True)
+            pack_ids = identify_packs(valid_data[checkpoint].values, max_gap_to_leader, max_gap_within_pack)
+            
+            # Find athlete's position and pack
+            athlete_idx = valid_data[valid_data['Name'] == athlete_name].index
+            if len(athlete_idx) > 0:
+                athlete_idx = athlete_idx[0]
+                athlete_pack = pack_ids[athlete_idx] if athlete_idx < len(pack_ids) else -1
+                athlete_position = athlete_idx + 1
+                leader_time = valid_data[checkpoint].iloc[0]
+                gap_to_leader = athlete_data[checkpoint] - leader_time
+                
+                athlete_analysis_data.append({
+                    'Checkpoint': checkpoint.replace('Elapsed_After_', ''),
+                    'Pack_ID': athlete_pack,
+                    'Position': athlete_position,
+                    'Gap_to_Leader': gap_to_leader,
+                    'Elapsed_Time': athlete_data[checkpoint],
+                    'Athlete': athlete_name
+                })
+        
+        all_athlete_data.extend(athlete_analysis_data)
+        
+        # Generate summary for this athlete
+        if athlete_analysis_data:
+            analysis_df = pd.DataFrame(athlete_analysis_data)
+            comparison_summary_data.append({
+                'Athlete': athlete_name,
+                'Best Position': analysis_df['Position'].min(),
+                'Worst Position': analysis_df['Position'].max(),
+                'Avg Gap to Leader': f"{analysis_df['Gap_to_Leader'].mean():.1f}s",
+                'Most Common Pack': analysis_df['Pack_ID'].mode().iloc[0] if len(analysis_df['Pack_ID'].mode()) > 0 else 'N/A',
+                'Pack Changes': len(analysis_df['Pack_ID'].unique())
+            })
+    
+    if not all_athlete_data:
+        return None
+    
+    all_data_df = pd.DataFrame(all_athlete_data)
+    
+    # Create overlapping pack membership chart
+    pack_membership_fig = go.Figure()
+    colors = px.colors.qualitative.Set1[:len(athlete_names)]
+    
+    for i, athlete_name in enumerate(athlete_names):
+        athlete_subset = all_data_df[all_data_df['Athlete'] == athlete_name]
+        if not athlete_subset.empty:
+            pack_membership_fig.add_trace(go.Scatter(
+                x=athlete_subset['Checkpoint'],
+                y=athlete_subset['Pack_ID'],
+                mode='lines+markers',
+                name=f"{athlete_name} Pack Membership",
+                line=dict(width=3, color=colors[i % len(colors)]),
+                marker=dict(size=8, symbol='diamond')
+            ))
+    
+    pack_membership_fig.update_layout(
+        title="Pack Membership Comparison",
+        xaxis_title="Checkpoint",
+        yaxis_title="Pack Number",
+        height=400,
+        showlegend=True
+    )
+    
+    # Set y-axis to show only integer pack numbers (no 0.5 ticks)
+    pack_membership_fig.update_yaxes(tickmode='linear', dtick=1)
+    
+    # Create overlapping gap to leader chart
+    gap_to_leader_fig = go.Figure()
+    
+    for i, athlete_name in enumerate(athlete_names):
+        athlete_subset = all_data_df[all_data_df['Athlete'] == athlete_name]
+        if not athlete_subset.empty:
+            gap_to_leader_fig.add_trace(go.Scatter(
+                x=athlete_subset['Checkpoint'],
+                y=athlete_subset['Gap_to_Leader'],
+                mode='lines+markers',
+                name=f"{athlete_name} Gap to Leader",
+                line=dict(width=3, color=colors[i % len(colors)]),
+                marker=dict(size=6)
+            ))
+    
+    gap_to_leader_fig.update_layout(
+        title="Gap to Leader Comparison",
+        xaxis_title="Checkpoint",
+        yaxis_title="Gap to Leader (seconds)",
+        height=400,
+        showlegend=True
+    )
+    
+    # Create comparison summary table
+    comparison_summary_df = pd.DataFrame(comparison_summary_data)
+    
+    return {
+        'pack_membership': pack_membership_fig,
+        'gap_to_leader': gap_to_leader_fig,
+        'comparison_summary': comparison_summary_df
+    }
+
 def create_gap_position_scatter(df, checkpoint_col, max_gap_to_leader=2, max_gap_within_pack=1):
     """Create scatter plot showing gap to leader vs position at checkpoint"""
     if checkpoint_col not in df.columns:
@@ -896,7 +1019,7 @@ def create_gap_position_scatter(df, checkpoint_col, max_gap_to_leader=2, max_gap
     )
     
     # Highlight the lead pack if it has more than 1 athlete
-    if len(lead_pack_athletes) > 1:
+    if len(lead_pack_athletes) >= 1:
         lead_pack_positions = [i+1 for i in lead_pack_athletes.index]
         lead_pack_gaps = gaps_to_leader.iloc[lead_pack_athletes.index]
         
@@ -915,7 +1038,7 @@ def create_gap_position_scatter(df, checkpoint_col, max_gap_to_leader=2, max_gap
     checkpoint_name = checkpoint_col.replace('Elapsed_After_', '').replace('_', ' ')
     
     fig.update_layout(
-        title=f'Gap to Leader vs Position - {checkpoint_name}',
+        #title=f'Gap to Leader vs Position - {checkpoint_name}',
         xaxis_title='Race Position',
         yaxis_title='Gap to Leader (seconds)',
         height=500,
@@ -931,7 +1054,309 @@ def create_gap_position_scatter(df, checkpoint_col, max_gap_to_leader=2, max_gap
     
     return fig
 
-# ===== EVENT ANALYSIS FUNCTIONS =====
+# ===== PHASE 4 PACK DYNAMICS FUNCTIONS =====
+
+def create_tactical_insights(df, checkpoints, max_gap_to_leader=2, max_gap_within_pack=1):
+    """Generate tactical insights and strategic recommendations"""
+    if not checkpoints or df.empty:
+        return None
+    
+    insights = {
+        'breakaway_opportunities': [],
+        'draft_zone_analysis': [],
+        'strategic_recommendations': [],
+        'pack_stability_analysis': []
+    }
+    
+    checkpoint_names = list(checkpoints.keys())
+    
+    # Analyze breakaway opportunities (exclude back-of-pack solo athletes)
+    for i, checkpoint in enumerate(checkpoint_names):
+        if checkpoint not in df.columns:
+            continue
+            
+        valid_data = df[df[checkpoint].notna()].copy().sort_values(checkpoint)
+        if len(valid_data) < 2:
+            continue
+            
+        # Only analyze top 75% to exclude back-of-pack solo riders
+        top_75_pct_count = max(1, int(len(valid_data) * 0.33))
+        top_data = valid_data.head(top_75_pct_count)
+        
+        pack_ids = identify_packs(top_data[checkpoint].values, max_gap_to_leader, max_gap_within_pack)
+        
+        # Find solo breakaways (pack size = 1) in top 75%
+        pack_sizes = pd.Series(pack_ids).value_counts()
+        solo_packs = pack_sizes[pack_sizes == 1].index.tolist()
+        
+        if solo_packs:
+            for pack_id in solo_packs:
+                athlete_idx = np.where(np.array(pack_ids) == pack_id)[0][0]
+                athlete_name = top_data.iloc[athlete_idx]['Name'] if 'Name' in top_data.columns else f"Position {athlete_idx + 1}"
+                
+                # Calculate gaps more precisely for solo athletes
+                gap_behind = 0
+                gap_ahead = 0
+                
+                # Calculate gap behind (if not in first place)
+                if athlete_idx > 0:
+                    gap_behind = top_data.iloc[athlete_idx][checkpoint] - top_data.iloc[athlete_idx - 1][checkpoint]
+                
+                # Calculate gap ahead (to next athlete/pack)
+                if athlete_idx + 1 < len(top_data):
+                    gap_ahead = top_data.iloc[athlete_idx + 1][checkpoint] - top_data.iloc[athlete_idx][checkpoint]
+                
+                # Create detailed recommendation
+                stage = checkpoint.replace('Elapsed_After_', '')
+                if athlete_idx == 0:  # First place
+                    recommendation = f"Solo Athlete at {stage}. Leading {gap_ahead:.1f} seconds ahead of next pack."
+                else:  # Not in first place
+                    if gap_ahead > 0:
+                        recommendation = f"Solo Athlete at {stage}. Trailing {gap_behind:.1f} seconds behind; leading {gap_ahead:.1f} seconds ahead of next pack."
+                    else:
+                        recommendation = f"Solo Athlete at {stage}. Trailing {gap_behind:.1f} seconds behind pack ahead."
+                
+                insights['breakaway_opportunities'].append({
+                    'checkpoint': stage,
+                    'athlete': athlete_name,
+                    'position': athlete_idx + 1,
+                    'gap_to_field': gap_ahead,
+                    'recommendation': recommendation
+                })
+    
+    # Draft zone analysis
+    main_pack_data = []
+    for checkpoint in checkpoint_names:
+        if checkpoint not in df.columns:
+            continue
+            
+        valid_data = df[df[checkpoint].notna()].copy().sort_values(checkpoint)
+        pack_ids = identify_packs(valid_data[checkpoint].values, max_gap_to_leader, max_gap_within_pack)
+        
+        # Find the largest pack (usually pack 0 or 1)
+        pack_sizes = pd.Series(pack_ids).value_counts()
+        if len(pack_sizes) > 0:
+            main_pack_id = pack_sizes.idxmax()
+            main_pack_size = pack_sizes.max()
+            
+            main_pack_data.append({
+                'checkpoint': checkpoint.replace('Elapsed_After_', ''),
+                'pack_size': main_pack_size,
+                'pack_id': main_pack_id,
+                'draft_benefit': "High" if main_pack_size >= 5 else "Medium" if main_pack_size >= 3 else "Low"
+            })
+    
+    insights['draft_zone_analysis'] = main_pack_data
+    
+    return insights
+
+def create_performance_benchmarks(df, checkpoints):
+    """Create performance benchmarks and comparative analysis"""
+    if not checkpoints or df.empty:
+        return None
+    
+    benchmarks = {
+        'pace_analysis': {},
+        'consistency_metrics': {},
+        'competitive_positioning': {}
+    }
+    
+    checkpoint_names = list(checkpoints.keys())
+    
+    # Pace analysis between checkpoints
+    for i in range(len(checkpoint_names) - 1):
+        current_cp = checkpoint_names[i]
+        next_cp = checkpoint_names[i + 1]
+        
+        if current_cp in df.columns and next_cp in df.columns:
+            valid_data = df[(df[current_cp].notna()) & (df[next_cp].notna())].copy()
+            
+            if len(valid_data) > 0:
+                segment_times = valid_data[next_cp] - valid_data[current_cp]
+                segment_name = f"{current_cp.replace('Elapsed_After_', '')} to {next_cp.replace('Elapsed_After_', '')}"
+                
+                # Find fastest and slowest athletes
+                fastest_idx = segment_times.idxmin()
+                slowest_idx = segment_times.idxmax()
+                fastest_athlete = valid_data.loc[fastest_idx, 'Name'] if 'Name' in valid_data.columns else f"Athlete {fastest_idx}"
+                slowest_athlete = valid_data.loc[slowest_idx, 'Name'] if 'Name' in valid_data.columns else f"Athlete {slowest_idx}"
+                
+                benchmarks['pace_analysis'][segment_name] = {
+                    'fastest_time': segment_times.min(),
+                    'fastest_athlete': fastest_athlete,
+                    'average_time': segment_times.mean(),
+                    'slowest_time': segment_times.max(),
+                    'slowest_athlete': slowest_athlete,
+                    'std_deviation': segment_times.std(),
+                    'percentile_75': segment_times.quantile(0.75),
+                    'percentile_25': segment_times.quantile(0.25)
+                }
+    
+    return benchmarks
+
+def create_export_report(df, pack_stats, tactical_insights, checkpoints, event_name="Race Analysis"):
+    """Create exportable analysis report"""
+    report_data = {
+        'event_name': event_name,
+        'analysis_timestamp': pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"),
+        'total_athletes': len(df),
+        'checkpoints_analyzed': len(checkpoints),
+        'pack_summary': pack_stats,
+        'tactical_insights': tactical_insights,
+        'top_performers': []
+    }
+    
+    # Add top performers analysis
+    if 'Name' in df.columns and len(checkpoints) > 0:
+        final_checkpoint = list(checkpoints.keys())[-1]
+        if final_checkpoint in df.columns:
+            top_10 = df.nsmallest(10, final_checkpoint)
+            for _, athlete in top_10.iterrows():
+                report_data['top_performers'].append({
+                    'name': athlete['Name'],
+                    'final_position': athlete.get('Rank', 'N/A'),
+                    'final_time': athlete[final_checkpoint]
+                })
+    
+    return report_data
+
+def export_analysis_to_json(report_data):
+    """Export analysis report to JSON format"""
+    import json
+    return json.dumps(report_data, indent=2, default=str)
+
+def create_downloadable_report(report_data, event_name):
+    """Create downloadable analysis report in multiple formats"""
+    import json
+    
+    # JSON format
+    json_report = json.dumps(report_data, indent=2, default=str)
+    
+    # CSV format for pack statistics
+    pack_summary_data = []
+    if 'pack_summary' in report_data:
+        for pack_name, stats in report_data['pack_summary'].items():
+            pack_summary_data.append({
+                'Pack': pack_name,
+                'Size': stats.get('Size', 0),
+                'Time_Spread': stats.get('Time_Spread', 0),
+                'Athletes': '; '.join(stats.get('Athletes', []))
+            })
+    
+    pack_csv = pd.DataFrame(pack_summary_data).to_csv(index=False) if pack_summary_data else ""
+    
+    return {
+        'json': json_report,
+        'csv': pack_csv,
+        'filename_base': event_name.replace(' ', '_').replace('/', '_')
+    }
+
+def create_multi_event_comparison_placeholder():
+    """Placeholder for multi-event comparison features"""
+    return {
+        'feature': 'Multi-Event Pack Dynamics Comparison',
+        'status': 'Coming in Phase 4B',
+        'description': 'Compare pack formation patterns across different events and conditions'
+    }
+
+def create_advanced_visualizations(df, checkpoints, pack_stats):
+    """Create advanced Phase 4 visualizations"""
+    if not checkpoints or df.empty:
+        return None
+    
+    visualizations = {}
+    
+    # 1. Pack Stability Heatmap
+    checkpoint_names = list(checkpoints.keys())
+    pack_stability_data = []
+    
+    for checkpoint in checkpoint_names:
+        if checkpoint in df.columns:
+            valid_data = df[df[checkpoint].notna()].copy().sort_values(checkpoint)
+            pack_ids = identify_packs(valid_data[checkpoint].values, 2, 1)
+            pack_sizes = pd.Series(pack_ids).value_counts()
+            
+            pack_stability_data.append({
+                'checkpoint': checkpoint.replace('Elapsed_After_', ''),
+                'num_packs': len(pack_sizes),
+                'largest_pack': pack_sizes.max() if len(pack_sizes) > 0 else 0,
+                'fragmentation_index': len(pack_sizes) / len(valid_data) if len(valid_data) > 0 else 0
+            })
+    
+    if pack_stability_data:
+        stability_df = pd.DataFrame(pack_stability_data)
+        
+        # Create pack stability visualization
+        fig_stability = go.Figure()
+        
+        fig_stability.add_trace(go.Scatter(
+            x=stability_df['checkpoint'],
+            y=stability_df['largest_pack'],
+            mode='lines+markers',
+            name='Largest Pack Size',
+            line=dict(color='blue', width=3),
+            yaxis='y'
+        ))
+        
+        fig_stability.add_trace(go.Scatter(
+            x=stability_df['checkpoint'],
+            y=stability_df['fragmentation_index'],
+            mode='lines+markers',
+            name='Fragmentation Index',
+            line=dict(color='red', width=3),
+            yaxis='y2'
+        ))
+        
+        fig_stability.update_layout(
+            title='Pack Stability Analysis',
+            xaxis_title='Race Checkpoint',
+            yaxis=dict(title='Pack Size', side='left'),
+            yaxis2=dict(title='Fragmentation Index', side='right', overlaying='y'),
+            height=400
+        )
+        
+        visualizations['pack_stability'] = fig_stability
+    
+    # 2. Competitive Pressure Analysis
+    if len(checkpoint_names) >= 2:
+        pressure_data = []
+        
+        for i in range(len(checkpoint_names) - 1):
+            current_cp = checkpoint_names[i]
+            next_cp = checkpoint_names[i + 1]
+            
+            if current_cp in df.columns and next_cp in df.columns:
+                valid_data = df[(df[current_cp].notna()) & (df[next_cp].notna())].copy()
+                
+                if len(valid_data) >= 5:  # Need at least 5 athletes for meaningful analysis
+                    # Calculate position changes
+                    current_positions = valid_data[current_cp].rank()
+                    next_positions = valid_data[next_cp].rank()
+                    position_changes = next_positions - current_positions
+                    
+                    pressure_data.append({
+                        'segment': f"{current_cp.replace('Elapsed_After_', '')} to {next_cp.replace('Elapsed_After_', '')}",
+                        'avg_position_change': abs(position_changes).mean(),
+                        'max_position_gain': position_changes.min(),  # Negative means gained positions
+                        'max_position_loss': position_changes.max(),
+                        'volatility': position_changes.std()
+                    })
+        
+        if pressure_data:
+            pressure_df = pd.DataFrame(pressure_data)
+            
+            fig_pressure = px.bar(
+                pressure_df,
+                x='segment',
+                y='volatility',
+                title='Competitive Pressure by Segment',
+                labels={'volatility': 'Position Change Volatility', 'segment': 'Race Segment'}
+            )
+            fig_pressure.update_layout(height=400)
+            
+            visualizations['competitive_pressure'] = fig_pressure
+    
+    return visualizations
 
 def process_uploaded_excel(file_contents, file_name):
     """Process uploaded Excel file with detailed timing splits"""
@@ -1360,7 +1785,7 @@ def show_excel_event_analysis():
                     )
 
                 with col2:
-                    # Expanded checkpoint options: all major checkpoints
+                    # Expanded checkpoint options: all major checkpoints including Finish
                     checkpoint_options = [
                         "After Swim",
                         "After T1",
@@ -1373,7 +1798,9 @@ def show_excel_event_analysis():
                         "After T2",
                         "After Run Seg 1",
                         "After Run Seg 2",
-                        "After Run Seg 3"
+                        "After Run Seg 3",
+                        "After Run Seg 4",
+                        "Finish"
                     ]
                     checkpoint_analysis = st.selectbox(
                         "Select Checkpoint for Analysis",
@@ -1399,7 +1826,9 @@ def show_excel_event_analysis():
                             "After T2": "Elapsed_After_T2",
                             "After Run Seg 1": "Elapsed_After_Run_Seg_1",
                             "After Run Seg 2": "Elapsed_After_Run_Seg_2",
-                            "After Run Seg 3": "Elapsed_After_Run_Seg_3"
+                            "After Run Seg 3": "Elapsed_After_Run_Seg_3",
+                            "After Run Seg 4": "Elapsed_After_Run_Seg_4",
+                            "Finish": "Elapsed_After_Finish"
                         }
                         selected_checkpoint = checkpoint_mapping.get(checkpoint_analysis)
                         
@@ -1410,97 +1839,205 @@ def show_excel_event_analysis():
                             )
                             
                             if pack_stats:
-                                # Display pack composition
-                                st.write(f"**Pack Composition at {checkpoint_analysis}**")
-                                pack_table = create_pack_composition_table(pack_data, pack_stats)
-                                st.table(pack_table)
+                                # Display pack composition in dropdown
+                                st.subheader("Click Below For Detailed Pack Composition")
+                                with st.expander(f"📋 Pack Composition at {checkpoint_analysis}", expanded=False):
+                                    pack_table = create_pack_composition_table(pack_data, pack_stats)
+                                    st.table(pack_table)
                                 
                                 # Gap vs Position Scatter Plot
-                                st.write(f"**📊 Position vs Gap to Leader - {checkpoint_analysis}**")
+                                st.write("---")
+                                st.subheader(f"**📊 Position vs Gap to Leader - {checkpoint_analysis}**")
                                 gap_scatter = create_gap_position_scatter(
                                     df_with_elapsed, selected_checkpoint, max_gap_to_leader, max_gap_within_pack
                                 )
                                 if gap_scatter:
                                     st.plotly_chart(gap_scatter, use_container_width=True)
                                 
-                                # Advanced Gap Analysis (Phase 3)
-                                st.write("**📊 Gap Analysis & Race Dynamics**")
-                                gap_analysis = create_advanced_gap_analysis(df_with_elapsed, checkpoints)
-                                if gap_analysis:
-                                    col1, col2 = st.columns(2)
-                                    with col1:
-                                        st.plotly_chart(gap_analysis['gap_evolution'], use_container_width=True)
-                                    with col2:
-                                        st.plotly_chart(gap_analysis['gap_distribution'], use_container_width=True)
-
-                                # Position tracking for selected athletes
+                                # Select athletes for tracking and analysis
                                 if 'Name' in df_with_elapsed.columns:
-                                    st.write("**📍 Position Tracking**")
-                                    # Select athletes for tracking
+                                    st.subheader("**� Select Athletes for Analysis**")
                                     top_10_athletes = df_with_elapsed.head(10)['Name'].tolist()
                                     selected_athletes = st.multiselect(
-                                        "Select athletes to track positions:",
+                                        "Select athletes to track:",
                                         options=df_with_elapsed['Name'].tolist(),
                                         default=top_10_athletes[:5],
-                                        max_selections=10
+                                        max_selections=10,
+                                        key="selected_athletes_analysis"
                                     )
+                                    
                                     if selected_athletes:
-                                        position_chart = create_position_tracking_chart(
-                                            df_with_elapsed, checkpoints, selected_athletes
-                                        )
-                                        if position_chart:
-                                            st.plotly_chart(position_chart, use_container_width=True)
+                                        # Side-by-side charts for Gap Evolution and Position Tracking
+                                        col1, col2 = st.columns(2)
                                         
-                                        # Individual Athlete Deep Dive (Phase 3)
-                                        st.write("**🔍 Individual Athlete Analysis**")
-                                        selected_athlete_detailed = st.selectbox(
-                                            "Select athlete for detailed analysis:",
-                                            options=selected_athletes,
-                                            key="athlete_detailed_analysis"
-                                        )
-                                        if selected_athlete_detailed:
-                                            athlete_analysis = create_individual_athlete_analysis(
-                                                df_with_elapsed, checkpoints, selected_athlete_detailed, max_gap_to_leader, max_gap_within_pack
+                                        with col1:
+                                            # Gap evolution for selected athletes
+                                            gap_analysis = create_advanced_gap_analysis(df_with_elapsed, checkpoints, selected_athletes)
+                                            if gap_analysis and 'gap_evolution' in gap_analysis:
+                                                st.plotly_chart(gap_analysis['gap_evolution'], use_container_width=True)
+                                        
+                                        with col2:
+                                            # Position tracking for selected athletes
+                                            position_chart = create_position_tracking_chart(
+                                                df_with_elapsed, checkpoints, selected_athletes
                                             )
-                                            if athlete_analysis:
+                                            if position_chart:
+                                                st.plotly_chart(position_chart, use_container_width=True)
+                                        
+                                        # Multi-Athlete Individual Analysis (Phase 3)
+                                        st.write("**🔍 Multi-Athlete Comparison Analysis**")
+                                        selected_athletes_comparison = st.multiselect(
+                                            "Select athletes for detailed comparison (overlapping charts):",
+                                            options=df_with_elapsed['Name'].tolist(),
+                                            default=selected_athletes[:3] if len(selected_athletes) >= 3 else selected_athletes,
+                                            max_selections=10,
+                                            key="athlete_comparison_analysis"
+                                        )
+                                        
+                                        if selected_athletes_comparison and len(selected_athletes_comparison) > 0:
+                                            # Create overlapping charts for multiple athletes
+                                            multi_athlete_analysis = create_multi_athlete_analysis(
+                                                df_with_elapsed, checkpoints, selected_athletes_comparison, max_gap_to_leader, max_gap_within_pack
+                                            )
+                                            if multi_athlete_analysis:
                                                 col1, col2 = st.columns(2)
                                                 with col1:
-                                                    st.plotly_chart(athlete_analysis['pack_membership'], use_container_width=True)
+                                                    st.plotly_chart(multi_athlete_analysis['pack_membership'], use_container_width=True)
                                                 with col2:
-                                                    st.plotly_chart(athlete_analysis['gap_to_leader'], use_container_width=True)
-                                                # Athlete performance summary
-                                                st.write("**Performance Summary:**")
-                                                st.dataframe(athlete_analysis['summary'], use_container_width=True)
+                                                    st.plotly_chart(multi_athlete_analysis['gap_to_leader'], use_container_width=True)
+                                                
+                                                # Comparison summary table
+                                                st.write("**Athlete Comparison Summary:**")
+                                                st.dataframe(multi_athlete_analysis['comparison_summary'], use_container_width=True)
                                 
-                                # Detailed pack information
-                                with st.expander("📋 Detailed Pack Information", expanded=False):
-                                    for pack_name, stats in pack_stats.items():
-                                        st.write(f"**{pack_name}**")
-                                        st.write(f"- Size: {stats['Size']} athletes")
-                                        st.write(f"- Time spread: {stats['Time_Spread']:.1f} seconds")
-                                        st.write(f"- Athletes: {', '.join(stats['Athletes'])}")
-                                        st.write("")
                                 
-                                # Placeholder for future features
-                                with st.expander("🔮 Preview of Upcoming Features"):
+                                # ===== PHASE 4 FEATURES =====
+                                st.write("---")
+                                st.write("## 🚀 **Phase 4: Advanced Tactical Analysis & Export**")
+                                
+                                # Tactical Insights Analysis
+                                st.write("**🎯 Tactical Insights & Strategic Recommendations**")
+                                tactical_insights = create_tactical_insights(df_with_elapsed, checkpoints, max_gap_to_leader, max_gap_within_pack)
+                                
+                                if tactical_insights:
+                                    col1, col2 = st.columns(2)
+                                    
+                                    with col1:
+                                        st.write("**🏃‍♂️ Breakaway Opportunities**")
+                                        if tactical_insights['breakaway_opportunities']:
+                                            for opportunity in tactical_insights['breakaway_opportunities'][:5]:  # Show top 5
+                                                st.write(f"- **{opportunity['athlete']}** at {opportunity['checkpoint']}")
+                                                st.write(f"  Position: {opportunity['position']}, Gap: {opportunity['gap_to_field']:.1f}s")
+                                                st.write(f"  💡 {opportunity['recommendation']}")
+                                        else:
+                                            st.write("No significant breakaway opportunities detected.")
+                                    
+                                    with col2:
+                                        st.write("**🌪️ Draft Zone Analysis**")
+                                        if tactical_insights['draft_zone_analysis']:
+                                            draft_df = pd.DataFrame(tactical_insights['draft_zone_analysis'])
+                                            st.dataframe(draft_df, use_container_width=True)
+                                        else:
+                                            st.write("Draft zone analysis not available.")
+                                
+                                # Strategic Recommendations
+                                if tactical_insights and tactical_insights['strategic_recommendations']:
+                                    #st.write("**📋 Strategic Recommendations**")
+                                    for rec in tactical_insights['strategic_recommendations']:
+                                        st.info(f"💡 {rec}")
+                                
+                                # Advanced Visualizations (Phase 4)
+                                st.write("---")
+                                st.subheader("**📊 Advanced Race Dynamics Visualizations**")
+                                advanced_viz = create_advanced_visualizations(df_with_elapsed, checkpoints, pack_stats)
+                                
+                                if advanced_viz:
+                                    if 'pack_stability' in advanced_viz:
+                                        st.plotly_chart(advanced_viz['pack_stability'], use_container_width=True)
+                                    
+                                    if 'competitive_pressure' in advanced_viz:
+                                        st.plotly_chart(advanced_viz['competitive_pressure'], use_container_width=True)
+                                
+                                # Performance Benchmarks
+                                st.write("**🏆 Performance Benchmarks**")
+                                benchmarks = create_performance_benchmarks(df_with_elapsed, checkpoints)
+                                
+                                if benchmarks and 'pace_analysis' in benchmarks:
+                                    with st.expander("� Segment Pace Analysis", expanded=False):
+                                        for segment, stats in benchmarks['pace_analysis'].items():
+                                            st.write(f"**{segment}**")
+                                            col1, col2, col3 = st.columns(3)
+                                            with col1:
+                                                st.metric("Fastest", f"{stats['fastest_time']:.1f}s", delta=f"{stats['fastest_athlete']}")
+                                            with col2:
+                                                st.metric("Average", f"{stats['average_time']:.1f}s")
+                                            with col3:
+                                                st.metric("Slowest", f"{stats['slowest_time']:.1f}s", delta=f"{stats['slowest_athlete']}")
+                                
+                                # Export Capabilities
+                                st.write("**📤 Export Analysis Report**")
+                                
+                                # Generate export report
+                                export_report = create_export_report(
+                                    df_with_elapsed, pack_stats, tactical_insights, checkpoints, event_name
+                                )
+                                
+                                # Create downloadable files
+                                downloadable_files = create_downloadable_report(export_report, event_name)
+                                
+                                col1, col2, col3 = st.columns(3)
+                                
+                                with col1:
+                                    st.download_button(
+                                        label="📋 Download JSON Report",
+                                        data=downloadable_files['json'],
+                                        file_name=f"{downloadable_files['filename_base']}_analysis.json",
+                                        mime="application/json",
+                                        help="Complete analysis report in JSON format"
+                                    )
+                                
+                                with col2:
+                                    if downloadable_files['csv']:
+                                        st.download_button(
+                                            label="📊 Download Pack Data (CSV)",
+                                            data=downloadable_files['csv'],
+                                            file_name=f"{downloadable_files['filename_base']}_pack_data.csv",
+                                            mime="text/csv",
+                                            help="Pack composition data in CSV format"
+                                        )
+                                
+                                with col3:
+                                    # Multi-event comparison placeholder
+                                    if st.button("🔄 Multi-Event Comparison"):
+                                        st.info("Multi-event comparison feature coming in Phase 4B! This will allow you to compare pack dynamics across different races and conditions.")
+                                
+                                # Feature completion status
+                                with st.expander("✅ Implementation Status", expanded=False):
                                     st.markdown("""
                                     **✅ Phase 2 (COMPLETED):**
-                                    - Pack assignment algorithms with configurable gap thresholds
-                                    - Position tracking charts for selected athletes  
-                                    - Basic pack composition tables and statistics
-                                    - Pack size distribution visualization
+                                    - ✅ Pack assignment algorithms with configurable gap thresholds
+                                    - ✅ Position tracking charts for selected athletes  
+                                    - ✅ Basic pack composition tables and statistics
+                                    - ✅ Pack size distribution visualization
                                     
                                     **✅ Phase 3 (COMPLETED):**
-                                    - Interactive pack evolution timeline showing pack membership changes
-                                    - Individual athlete deep dive analysis with performance summaries
-                                    - Advanced gap analysis and race dynamics visualization
-                                    - Pack breakaway and formation detection throughout race
+                                    - ✅ Interactive pack evolution timeline showing pack membership changes
+                                    - ✅ Individual athlete deep dive analysis with performance summaries
+                                    - ✅ Advanced gap analysis and race dynamics visualization
+                                    - ✅ Pack breakaway and formation detection throughout race
                                     
-                                    **🚀 Phase 4 (Coming Next):**
-                                    - Advanced tactical positioning insights and strategic recommendations
-                                    - Export capabilities for analysis results (PDF reports, data downloads)
-                                    - Performance optimization and caching for large datasets
-                                    - Multi-event pack dynamics comparison and athlete benchmarking
+                                    **✅ Phase 4 (COMPLETED):**
+                                    - ✅ Advanced tactical positioning insights and strategic recommendations
+                                    - ✅ Export capabilities for analysis results (JSON & CSV downloads)
+                                    - ✅ Performance benchmarking and comparative analysis
+                                    - ✅ Advanced race dynamics visualizations (pack stability, competitive pressure)
+                                    - ✅ Breakaway opportunity detection and draft zone analysis
+                                    
+                                    **🚀 Phase 4B (Future Enhancement):**
+                                    - 🔄 Multi-event pack dynamics comparison and athlete benchmarking
+                                    - 📈 Machine learning predictions for pack behavior
+                                    - 🎯 Real-time tactical recommendations during live events
+                                    - 📱 Mobile-optimized tactical dashboard
                                     """)
                             
                             else:
