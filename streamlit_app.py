@@ -1429,10 +1429,25 @@ st.set_page_config(
 # ===== DATABASE CONNECTION =====
 # Get database URI from environment or Streamlit secrets
 DB_URI = os.getenv("DB_URI")
+if not DB_URI and hasattr(st, 'secrets'):
+    try:
+        DB_URI = st.secrets["DB_URI"]
+    except KeyError:
+        pass
+
 if not DB_URI:
     st.error("Database URI not set. Please configure DB_URI in your environment or Streamlit secrets.")
     st.stop()
-engine = create_engine(DB_URI, echo=False)
+
+try:
+    engine = create_engine(DB_URI, echo=False)
+    # Test the connection
+    with engine.connect() as conn:
+        conn.execute("SELECT 1")
+except Exception as e:
+    st.error(f"Database connection failed: {e}")
+    st.info("Please check your database connection settings.")
+    st.stop()
 
 # ===== MAIN APPLICATION =====
 
