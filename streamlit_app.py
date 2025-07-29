@@ -7,6 +7,7 @@ from plotly.subplots import make_subplots
 import matplotlib.pyplot as plt
 import seaborn as sns
 import os
+import json
 from dotenv import load_dotenv
 load_dotenv()
 from sqlalchemy import create_engine, text
@@ -1428,8 +1429,7 @@ st.set_page_config(
 
 # ===== DATABASE CONNECTION =====
 # Get database URI from environment or Streamlit secrets
-DB_URI = os.getenv("DB_URI", 
-                   "postgresql://postgres.kzddtovwtnsfxccyicjd:6mBe-4ZKA_YWawR@aws-0-us-east-2.pooler.supabase.com:5432/postgres")
+DB_URI = os.getenv("DB_URI")
 if not DB_URI and hasattr(st, 'secrets'):
     try:
         DB_URI = st.secrets["DB_URI"]
