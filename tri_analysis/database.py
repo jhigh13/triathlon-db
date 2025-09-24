@@ -69,6 +69,7 @@ def initialize_database():
         Column('event_id',           Integer, primary_key=True),
         Column('prog_name',         String),
         Column('prog_distance_category',String),
+        Column('is_para',           Boolean),
         Column('swim_laps',         Integer),
         Column('swim_distance',     Float),
         Column('bike_laps',         Integer),
@@ -229,6 +230,31 @@ def initialize_database():
     metadata.create_all(engine)
     # Ensure unique index for upsert ON CONFLICT target on race_results
     with engine.begin() as conn:
+        # Add is_para to events if missing (safe for existing databases)
+        conn.execute(
+            text(
+                f'ALTER TABLE "{EVENTS_TABLE_NAME}" ADD COLUMN IF NOT EXISTS is_para BOOLEAN'
+            )
+        )
+        # Backfill heuristic: mark events as para when program name or category indicates para
+        conn.execute(
+            text(
+                f"""
+                UPDATE "{EVENTS_TABLE_NAME}"
+                SET is_para = TRUE
+                WHERE (is_para IS DISTINCT FROM TRUE)
+                  AND (
+                        "prog_name" ILIKE 'PTWC%%'
+                     OR "prog_name" ILIKE 'PTS2%%'
+                     OR "prog_name" ILIKE 'PTS3%%'
+                     OR "prog_name" ILIKE 'PTS4%%'
+                     OR "prog_name" ILIKE 'PTS5%%'
+                     OR "prog_name" ILIKE 'PTVI%%'
+                     OR COALESCE("cat_name", '') ILIKE '%para%'
+                  )
+                """
+            )
+        )
         conn.execute(
             text(
                 f'CREATE UNIQUE INDEX IF NOT EXISTS idx_{RACE_RESULTS_TABLE_NAME}_conflict '

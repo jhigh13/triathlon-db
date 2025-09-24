@@ -392,14 +392,15 @@ def identify_packs(times, max_gap_to_leader=2, max_gap_within_pack=1):
 
     return pack_ids
 
+# ...existing code...
 def calculate_elapsed_times(df):
     """Calculate cumulative elapsed times with DNF handling"""
     df_elapsed = df.copy()
     
     # Convert all time columns to seconds
-    time_cols = ['S1', 'T1', 'B1T1', 'B1T2', 'BL1', 'B2T1', 'B2T2', 'BL2', 
-                 'B3T1', 'B3T2', 'BL3', 'B4T1', 'B4T2', 'BL4', 'B5T1', 'B5T2', 
-                 'BL5', 'B6T1', 'B6T2', 'BL6', 'T2', 'RT1', 'RL1', 'RT2', 'RL2']
+    time_cols = ['S1', 'S2', 'T1', 'B1T1', 'B1T2', 'BL1', 'B2T1', 'B2T2', 'BL2',
+                 'B3T1', 'B3T2', 'BL3', 'B4T1', 'B4T2', 'BL4', 'B5T1', 'B5T2',
+                 'BL5', 'B6T1', 'B6T2', 'BL6', 'T2', 'RT1', 'RL1', 'RT2', 'RL2', 'RT3', 'RT4']
     
     # Convert times to seconds
     for col in time_cols:
@@ -409,20 +410,39 @@ def calculate_elapsed_times(df):
     # Calculate key elapsed time checkpoints
     checkpoints = {}
     
-    # After swim
+    # After swim (S1 cumulative)
     if 'S1_sec' in df_elapsed.columns:
         checkpoints['Elapsed_After_Swim'] = df_elapsed['S1_sec'].copy()
     
-    # After T1
-    if 'T1_sec' in df_elapsed.columns and 'S1_sec' in df_elapsed.columns:
-        elapsed_after_t1 = df_elapsed['S1_sec'] + df_elapsed['T1_sec']
+    # After second swim (make cumulative: S1 + S2 when both exist)
+    if 'S2_sec' in df_elapsed.columns:
+        if 'S1_sec' in df_elapsed.columns:
+            elapsed_after_swim2 = df_elapsed['S1_sec'] + df_elapsed['S2_sec']
+            elapsed_after_swim2 = elapsed_after_swim2.where(
+                df_elapsed['S1_sec'].notna() & df_elapsed['S2_sec'].notna(),
+                np.nan
+            )
+            checkpoints['Elapsed_After_Swim2'] = elapsed_after_swim2
+        else:
+            # Fallback if only S2 exists
+            checkpoints['Elapsed_After_Swim2'] = df_elapsed['S2_sec'].copy()
+    
+    # After T1 (use cumulative swim — Swim2 if present, else Swim1)
+    base_swim = None
+    if 'Elapsed_After_Swim2' in checkpoints:
+        base_swim = checkpoints['Elapsed_After_Swim2']
+    elif 'Elapsed_After_Swim' in checkpoints:
+        base_swim = checkpoints['Elapsed_After_Swim']
+    
+    if 'T1_sec' in df_elapsed.columns and base_swim is not None:
+        elapsed_after_t1 = base_swim + df_elapsed['T1_sec']
         elapsed_after_t1 = elapsed_after_t1.where(
-            df_elapsed['S1_sec'].notna() & df_elapsed['T1_sec'].notna(),
+            base_swim.notna() & df_elapsed['T1_sec'].notna(),
             np.nan
         )
         checkpoints['Elapsed_After_T1'] = elapsed_after_t1
-    elif 'Elapsed_After_Swim' in checkpoints:
-        checkpoints['Elapsed_After_T1'] = checkpoints['Elapsed_After_Swim'].copy()
+    elif base_swim is not None:
+        checkpoints['Elapsed_After_T1'] = base_swim.copy()
     
     # Add bike laps (simplified for Hamburg data)
     elapsed_so_far = checkpoints.get('Elapsed_After_T1', checkpoints.get('Elapsed_After_Swim'))
@@ -457,8 +477,8 @@ def calculate_elapsed_times(df):
         elapsed_so_far = elapsed_after_t2
         checkpoints['Elapsed_After_T2'] = elapsed_so_far.copy()
     
-    # Add run segments
-    run_segments = ['RT1_sec', 'RL1_sec', 'RT2_sec', 'RL2_sec']
+    # Add run segments (support up to RT4, RL2)
+    run_segments = ['RT1_sec', 'RL1_sec', 'RT2_sec', 'RL2_sec', 'RT3_sec', 'RT4_sec']
     for i, seg in enumerate(run_segments):
         if seg in df_elapsed.columns and elapsed_so_far is not None:
             has_run_data = df_elapsed[seg].notna()
@@ -1401,7 +1421,7 @@ def create_race_overview_metrics(df):
     
     total_racers = len(df)
     if 'Total' in df.columns:
-        dnf_count = df['Total'].str.contains('DNF|LAP', na=False).sum()
+        dnf_count = df['Total'].str.contains('DNF|LAP|n.a', na=False).sum()
     dnf_rate = (dnf_count / len(df)) * 100 if len(df) > 0 else 0
     
     winning_time = df.loc[df['Rank'] == 1, 'Total'].iloc[0] if 'Total' in df.columns and not df[df['Rank'] == 1].empty else "N/A"
@@ -1675,7 +1695,260 @@ def show_event_analysis_page():
     if data_source == "Database (Standard Events)":
         show_database_event_analysis()
     else:
-        show_excel_event_analysis()
+        # Provide Single vs Multi-Event workflows
+        tab_single, tab_multi = st.tabs(["Single Event", "Multi-Event Comparison"])
+        with tab_single:
+            show_excel_event_analysis()
+        with tab_multi:
+            show_excel_multi_event_comparison()
+
+def show_excel_multi_event_comparison():
+    """Batch process multiple Excel files and compare fragmentation and USA athlete trends."""
+    st.subheader("🧪 Multi-Event Pack Fragmentation Comparison (Excel)")
+
+    # Analysis thresholds
+    colA, colB = st.columns(2)
+    with colA:
+        max_gap_to_leader = st.number_input("Max gap to leader (s)", min_value=0.0, max_value=10.0, value=2.0, step=0.5)
+    with colB:
+        max_gap_within_pack = st.number_input("Max gap within pack (s)", min_value=0.0, max_value=10.0, value=1.0, step=0.5)
+
+
+    # Gender selection
+    gender_options = ["Female/Women", "Male/Men"]
+    gender_map = {
+        "Female/Women": ["female", "women"],
+        "Male/Men": ["male", "men", "Male", "Men"]
+    }
+    selected_gender = st.radio("Select Gender for Analysis", gender_options, index=0)
+    gender_keywords = gender_map[selected_gender]
+
+    # Discover candidate Excel files
+    try:
+        from glob import glob as glob_glob
+        excel_paths = sorted(glob_glob(os.path.join("data", "Detailed results *.xlsx")))
+    except Exception:
+        excel_paths = []
+
+    if not excel_paths:
+        st.warning("No 'Detailed results *.xlsx' files found in the data/ folder.")
+        return
+
+    selected_files = st.multiselect("Select events to include", options=excel_paths, default=excel_paths)
+    if not selected_files:
+        st.info("Select at least one Excel file to analyze.")
+        return
+
+    # Default USA athletes
+    USA_DEFAULT = [
+        "John Reed", "Chase McQueen", "Morgan Pearson", "Seth Rider", "Darr Smith",
+        "Gwen Jorgensen", "Taylor Spivey", "Gina Sereno", "Erika Ackerlund", "Summer Rappaport"
+    ]
+
+    per_event_metrics = []
+    athlete_event_rows = []
+
+    with st.spinner("Processing selected events..."):
+        for path in selected_files:
+            event_name = os.path.splitext(os.path.basename(path))[0]
+            # Load Excel and find sheet matching gender
+            try:
+                xls = pd.ExcelFile(path)
+            except Exception as e:
+                st.error(f"Failed to open {path}: {e}")
+                continue
+
+            # Find sheet matching gender (case-insensitive, whole word match)
+            import re
+            sheet_to_use = None
+            for sheet in xls.sheet_names:
+                sheet_lower = sheet.lower()
+                for g in gender_keywords:
+                    # Use word boundary regex to match whole word only
+                    if re.search(rf'\b{re.escape(g.lower())}\b', sheet_lower):
+                        sheet_to_use = sheet
+                        break
+                if sheet_to_use:
+                    break
+            if not sheet_to_use:
+                st.warning(f"No sheet matching gender '{selected_gender}' found in {path}. Available sheets: {xls.sheet_names}")
+                continue
+
+            try:
+                df_raw = pd.read_excel(xls, sheet_name=sheet_to_use)
+            except Exception as e:
+                st.error(f"Failed to read sheet {sheet_to_use} in {path}: {e}")
+                continue
+
+            if not validate_excel_format(df_raw):
+                st.warning(f"Skipping {event_name} due to invalid format")
+                continue
+
+            # Clean
+            df_raw = df_raw.dropna(subset=['Name', 'Rank'])
+            df_raw['Rank'] = pd.to_numeric(df_raw['Rank'], errors='coerce')
+
+            # Compute elapsed checkpoints
+            df_elapsed, checkpoints = calculate_elapsed_times(df_raw)
+            if not checkpoints:
+                st.warning(f"No checkpoints could be derived for {event_name}")
+                continue
+
+            # Event-level fragmentation metrics
+            event_metrics = compute_event_fragmentation_metrics(
+                df_elapsed, checkpoints, max_gap_to_leader, max_gap_within_pack
+            )
+            event_metrics['event'] = event_name
+            event_metrics['sheet'] = sheet_to_use
+            per_event_metrics.append(event_metrics)
+
+            # Per-athlete summaries for trends
+            athlete_summ = summarize_athletes_for_event(
+                df_elapsed, checkpoints, max_gap_to_leader, max_gap_within_pack
+            )
+            if athlete_summ is not None and not athlete_summ.empty:
+                athlete_summ['event'] = event_name
+                athlete_event_rows.append(athlete_summ)
+
+    if not per_event_metrics:
+        st.warning("No event metrics computed.")
+        return
+
+    event_df = pd.DataFrame(per_event_metrics)
+    st.markdown("### Event Fragmentation Summary")
+    # Choose safe columns to show
+    safe_cols = [c for c in [
+        'event', 'sheet', 'num_checkpoints', 'avg_num_packs', 'avg_largest_pack', 'max_largest_pack',
+        'avg_fragmentation_index', 'pct_in_lead_pack_avg'
+    ] if c in event_df.columns]
+    st.dataframe(event_df[safe_cols].sort_values('event'), use_container_width=True)
+
+    # Bar chart for largest pack sizes
+    try:
+        fig_bar = go.Figure()
+        if 'avg_largest_pack' in event_df.columns:
+            fig_bar.add_trace(go.Bar(name='Avg Largest Pack', x=event_df['event'], y=event_df['avg_largest_pack']))
+        if 'max_largest_pack' in event_df.columns:
+            fig_bar.add_trace(go.Bar(name='Max Largest Pack', x=event_df['event'], y=event_df['max_largest_pack']))
+        fig_bar.update_layout(barmode='group', title='Largest Pack Size by Event', xaxis_title='Event', yaxis_title='Athletes')
+        st.plotly_chart(fig_bar, use_container_width=True)
+    except Exception:
+        pass
+
+    # USA athlete trends
+    if athlete_event_rows:
+        all_athlete_df = pd.concat(athlete_event_rows, ignore_index=True)
+        present_usa = sorted([n for n in USA_DEFAULT if n in all_athlete_df['Name'].unique()])
+        selected_usa = st.multiselect("Select USA athletes", options=sorted(all_athlete_df['Name'].unique()), default=present_usa)
+        if selected_usa:
+            usa_df = all_athlete_df[all_athlete_df['Name'].isin(selected_usa)].copy()
+            agg_cols = {
+                'final_rank': 'mean',
+                'pack_changes': 'mean',
+                'pct_time_in_lead_pack': 'mean',
+            }
+            trend_summary = usa_df.groupby('Name', as_index=False).agg(agg_cols)
+            trend_summary = trend_summary.rename(columns={
+                'final_rank': 'avg_final_rank',
+                'pack_changes': 'avg_pack_changes',
+                'pct_time_in_lead_pack': 'avg_pct_time_in_lead_pack',
+            })
+            st.markdown("### USA Athlete Trend Summary (across selected events)")
+            st.dataframe(trend_summary, use_container_width=True)
+
+            fig_trend = go.Figure()
+            for name in selected_usa:
+                sub = usa_df[usa_df['Name'] == name]
+                if not sub.empty:
+                    fig_trend.add_trace(go.Scatter(x=sub['event'], y=sub['final_rank'], mode='lines+markers', name=name))
+            fig_trend.update_layout(title='Final Rank by Event (lower is better)', xaxis_title='Event', yaxis_title='Final Rank', yaxis=dict(autorange='reversed'))
+            st.plotly_chart(fig_trend, use_container_width=True)
+        else:
+            st.info("Select at least one USA athlete to view trends.")
+
+def compute_event_fragmentation_metrics(df_elapsed: pd.DataFrame, checkpoints: dict, max_gap_to_leader: float, max_gap_within_pack: float) -> dict:
+    """Compute fragmentation metrics across checkpoints for one event."""
+    cp_names = [cp for cp in checkpoints.keys() if cp in df_elapsed.columns]
+    if not cp_names:
+        return {
+            'num_checkpoints': 0,
+            'avg_num_packs': np.nan,
+            'avg_largest_pack': np.nan,
+            'max_largest_pack': np.nan,
+            'avg_fragmentation_index': np.nan,
+            'pct_in_lead_pack_avg': np.nan,
+        }
+
+    num_packs_list, largest_pack_list, frag_index_list, pct_lead_list = [], [], [], []
+    for cp in cp_names:
+        valid = df_elapsed[df_elapsed[cp].notna()].copy().sort_values(cp)
+        if valid.empty:
+            continue
+        pack_ids = identify_packs(valid[cp].values, max_gap_to_leader, max_gap_within_pack)
+        pack_sizes = pd.Series(pack_ids).value_counts()
+        if pack_sizes.empty:
+            continue
+        num_packs_list.append(len(pack_sizes))
+        largest_pack_list.append(pack_sizes.max())
+        frag_index_list.append(len(pack_sizes) / len(valid))
+        pct_lead_list.append((pack_sizes.get(0, 0) / len(valid)) * 100)
+
+    return {
+        'num_checkpoints': len(num_packs_list),
+        'avg_num_packs': float(np.mean(num_packs_list)) if num_packs_list else np.nan,
+        'avg_largest_pack': float(np.mean(largest_pack_list)) if largest_pack_list else np.nan,
+        'max_largest_pack': int(np.max(largest_pack_list)) if largest_pack_list else np.nan,
+        'avg_fragmentation_index': float(np.mean(frag_index_list)) if frag_index_list else np.nan,
+        'pct_in_lead_pack_avg': float(np.mean(pct_lead_list)) if pct_lead_list else np.nan,
+    }
+
+def summarize_athletes_for_event(df_elapsed: pd.DataFrame, checkpoints: dict, max_gap_to_leader: float, max_gap_within_pack: float) -> pd.DataFrame:
+    """Compute per-athlete pack changes, % time in lead pack, and final rank for one event."""
+    cp_names = [cp for cp in checkpoints.keys() if cp in df_elapsed.columns]
+    if not cp_names:
+        return pd.DataFrame()
+
+    # Precompute pack ids per checkpoint for efficiency
+    packs_by_cp = {}
+    for cp in cp_names:
+        valid = df_elapsed[df_elapsed[cp].notna()].copy().sort_values(cp)
+        if valid.empty:
+            continue
+        pack_ids = identify_packs(valid[cp].values, max_gap_to_leader, max_gap_within_pack)
+        packs_by_cp[cp] = (valid, pack_ids)
+
+    rows = []
+    for idx, row in df_elapsed.iterrows():
+        name = row.get('Name')
+        if not name:
+            continue
+        pack_series, lead_hits, valid_points = [], 0, 0
+        cp_names = checkpoints.keys()  # Ensure cp_names is defined
+        for cp in cp_names:
+            if cp not in packs_by_cp or pd.isna(row.get(cp, np.nan)):
+                continue
+            valid, pack_ids = packs_by_cp[cp]
+            # find positional index for this athlete; prefer index match, fallback to Name
+            if idx in valid.index:
+                pos_idx = list(valid.index).index(idx)
+            else:
+                matches = valid[valid.get('Name') == name]
+                if matches.empty:
+                    continue
+                pos_idx = list(valid.index).index(matches.index[0])
+            pid = pack_ids[pos_idx] if pos_idx < len(pack_ids) else -1
+            pack_series.append(pid)
+            valid_points += 1
+            if pid == 0:
+                lead_hits += 1
+        if not valid_points:
+            continue
+        pack_changes = int(np.sum(np.array(pack_series[1:]) != np.array(pack_series[:-1]))) if len(pack_series) > 1 else 0
+        pct_time_in_lead_pack = (lead_hits / valid_points) * 100
+        final_rank = row.get('Rank', np.nan)
+        rows.append({'Name': name, 'final_rank': final_rank, 'pack_changes': pack_changes, 'pct_time_in_lead_pack': pct_time_in_lead_pack})
+
+    return pd.DataFrame(rows)
 
 def show_database_event_analysis():
     """Database-based event analysis with standard race data"""
@@ -1779,6 +2052,7 @@ def show_excel_event_analysis():
                 
                 st.dataframe(display_data, use_container_width=True)
                 
+                
                 # Pack Dynamics Analysis (if detailed timing available)
                 st.subheader("🏃‍♂️ Pack Dynamics Analysis")
                 
@@ -1801,53 +2075,33 @@ def show_excel_event_analysis():
                     )
 
                 with col2:
-                    # Expanded checkpoint options: all major checkpoints including Finish
-                    checkpoint_options = [
-                        "After Swim",
-                        "After T1",
-                        "After Bike Lap 1",
-                        "After Bike Lap 2",
-                        "After Bike Lap 3",
-                        "After Bike Lap 4",
-                        "After Bike Lap 5",
-                        "After Bike Lap 6",
-                        "After T2",
-                        "After Run Seg 1",
-                        "After Run Seg 2",
-                        "After Run Seg 3",
-                        "After Run Seg 4",
-                        "Finish"
-                    ]
-                    checkpoint_analysis = st.selectbox(
-                        "Select Checkpoint for Analysis",
-                        options=checkpoint_options,
-                        index=0
-                    )
+                    st.caption("Checkpoint selection appears after elapsed times are computed.")
                 
                 # Calculate elapsed times and analyze packs
                 try:
                     df_with_elapsed, checkpoints = calculate_elapsed_times(race_data)
                     
                     if checkpoints:
-                        # Map user selection to checkpoint column
-                        checkpoint_mapping = {
-                            "After Swim": "Elapsed_After_Swim",
-                            "After T1": "Elapsed_After_T1",
-                            "After Bike Lap 1": "Elapsed_After_Bike_Lap_1",
-                            "After Bike Lap 2": "Elapsed_After_Bike_Lap_2",
-                            "After Bike Lap 3": "Elapsed_After_Bike_Lap_3",
-                            "After Bike Lap 4": "Elapsed_After_Bike_Lap_4",
-                            "After Bike Lap 5": "Elapsed_After_Bike_Lap_5",
-                            "After Bike Lap 6": "Elapsed_After_Bike_Lap_6",
-                            "After T2": "Elapsed_After_T2",
-                            "After Run Seg 1": "Elapsed_After_Run_Seg_1",
-                            "After Run Seg 2": "Elapsed_After_Run_Seg_2",
-                            "After Run Seg 3": "Elapsed_After_Run_Seg_3",
-                            "After Run Seg 4": "Elapsed_After_Run_Seg_4",
-                            "Finish": "Elapsed_After_Finish"
-                        }
-                        selected_checkpoint = checkpoint_mapping.get(checkpoint_analysis)
+                        # Build checkpoint options dynamically from computed checkpoints
+                        def _cp_label(key: str) -> str:
+                            name = key.replace('Elapsed_After_', '')
+                            name = name.replace('_', ' ')
+                            name = name.replace('Swim2', 'Swim 2')
+                            return "Finish" if name == "Finish" else f"After {name}"
                         
+                        available_keys = [cp for cp in checkpoints.keys() if cp in df_with_elapsed.columns]
+                        checkpoint_options = [_cp_label(k) for k in available_keys]
+                        cp_map = dict(zip(checkpoint_options, available_keys))
+
+                        # Render dropdown (default to first checkpoint)
+                        selected_label = st.selectbox(
+                            "Select Checkpoint for Analysis",
+                            options=checkpoint_options,
+                            index=0
+                        )
+                        selected_checkpoint = cp_map[selected_label]
+                        checkpoint_analysis = selected_label
+# ...existing code...
                         if selected_checkpoint and selected_checkpoint in df_with_elapsed.columns:
                             # Analyze packs at selected checkpoint
                             pack_data, pack_stats = analyze_packs_at_checkpoint(

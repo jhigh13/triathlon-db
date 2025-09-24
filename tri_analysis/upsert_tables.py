@@ -64,6 +64,7 @@ def upsert_events(df, engine):
         [
             "prog_name",
             "prog_distance_category",
+            "is_para",
             "swim_laps",
             "swim_distance",
             "bike_laps",

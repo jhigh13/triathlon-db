@@ -99,10 +99,13 @@ def fetch_events_ids(start_date, end_date, per_page=500, spec_ids=SPEC_IDS, cate
         "start_date": start_date,
         "order": "asc",
         "page": 1,
-        "category_id": category_ids,
-        "specification_id": spec_ids,
         "end_date": end_date
     }
+    # Only include filters when provided (allows ALL/empty to mean no filter)
+    if category_ids and str(category_ids).upper() not in {"ALL", ""}:
+        params["category_id"] = category_ids
+    if spec_ids and str(spec_ids).upper() not in {"ALL", ""}:
+        params["specification_id"] = spec_ids
     while True:
         resp = requests.get(EVENT_LISTING_URL, headers=HEADERS, params=params)
         resp.raise_for_status()
@@ -118,13 +121,24 @@ def fetch_events_ids(start_date, end_date, per_page=500, spec_ids=SPEC_IDS, cate
 
 def fetch_program_ids(event_id) -> list:
     """
-    Get program IDs for a given event for the following categories:
-    Elite Men, Elite Women, U23 Men, U23 Women, Junior Men, Junior Women, Mixed Relay.
+    Get program IDs for a given event. Includes:
+    - Elite pipeline: Elite Men/Women, U23 Men/Women, Junior Men/Women, Mixed Relay
+    - Para pipeline: PTWC, PTS2–PTS5, PTVI classes and related guide/handler programs
     """
+    # Existing elite programs
     target_names = {
         "Elite Men", "Elite Women", "U23 Men", "U23 Women",
         "Junior Men", "Junior Women", "Mixed Relay"
     }
+    # Para exact program names provided and commonly seen
+    para_exact_names = {
+        # Men
+        "PTWC Men", "Personal Handler PTWC M", "PTS2 Men", "PTS3 Men", "PTS4 Men", "PTS5 Men", "PTVI Men", "Male Guides",
+        # Women
+        "PTWC Women", "Personal Handler PTWC F", "PTS2 Women", "PTS3 Women", "PTS4 Women", "PTS5 Women", "PTVI Women", "Female Guides",
+    }
+    # Para class prefixes to be robust to minor naming variations
+    para_prefixes = ("PTWC", "PTS2", "PTS3", "PTS4", "PTS5", "PTVI")
     params = {"is_race": "true"}
     resp = requests.get(PROGRAM_LISTING_URL.format(event_id=event_id), headers=HEADERS, params=params)
     resp.raise_for_status()
@@ -135,7 +149,17 @@ def fetch_program_ids(event_id) -> list:
     if not isinstance(data, list):
         #print(f"Warning: Unexpected program data type for event_id={event_id}: {type(data)} value: {data}")
         return []
-    prog_ids = [p.get("prog_id") for p in data if p and p.get("prog_name") in target_names]
+    prog_ids = []
+    for p in data:
+        if not p:
+            continue
+        name = p.get("prog_name") or ""
+        if (
+            name in target_names
+            or name in para_exact_names
+            or name.startswith(para_prefixes)
+        ):
+            prog_ids.append(p.get("prog_id"))
     return prog_ids if prog_ids else []
 
 def process_program_data(event_id, program_id) -> pd.DataFrame:
@@ -155,6 +179,18 @@ def process_program_data(event_id, program_id) -> pd.DataFrame:
         "prog_name": data.get("prog_name"),
         "prog_distance_category": data.get("prog_distance_category"),
     }
+
+    # Derive is_para from program name (robust to variations)
+    prog_name = (row.get("prog_name") or "").upper()
+    row["is_para"] = (
+        prog_name.startswith("PTWC")
+        or prog_name.startswith("PTS2")
+        or prog_name.startswith("PTS3")
+        or prog_name.startswith("PTS4")
+        or prog_name.startswith("PTS5")
+        or prog_name.startswith("PTVI")
+        or " PARA" in prog_name
+    )
 
     # prog_distances: extract laps and distance for Swim, Bike, Run
     seg_map = {"Swim": ("Swim_laps", "Swim_distance"),

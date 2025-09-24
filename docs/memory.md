@@ -100,6 +100,19 @@
 - **Status**: In development for race outcome and time predictions
 - **ML Stack**: LightGBM, XGBoost, scikit-learn integration
 
+#### `proj_pod/pp_podiums.ipynb`
+- **Purpose**: Notebook to tally and visualize Project Podium athlete podiums vs Canada, Mexico, and Other USA across selected events.
+- **Outputs**: Saves raw and cleaned results plus charts to `proj_pod/` (`raw_results.csv`, `cleaned_results.csv`, `podium_counts_overall.csv`, `podium_counts_by_event.csv`, `podium_overall.png`, `podium_by_event.png`).
+- **Config**: Uses `proj_pod/.env` (example provided) with `DATABASE_URL`/`DB_URI` and optional table/column overrides.
+- **Seed Files**: `proj_pod/project_podium_athletes.csv`, `proj_pod/events.csv`, `proj_pod/queries.sql`.
+ - **New (Aug 2025)**:
+   - Added all-events query and tallies for wins and podiums across Elite Men program (includes non-continental-cup events) — saves `pp_all_results.csv` and `pp_wins_podiums_totals.csv`.
+   - Added Plotly visualization `pp_wins_podiums.html` (+ optional PNG) for wins/podiums per athlete.
+   - Added PowerPoint export `Project_Podium_Report.pptx` with:
+     - Per-event slides where a Project Podium athlete podiumed (Athlete, Pos, Program)
+     - Totals slide (wins/podiums per athlete) and chart image if available
+     - Continental Cup comparison slides using existing charts (`podium_overall.png`, `podium_by_event.png`)
+
 #### `docs/WTO_Report.pbix`
 - **Purpose**: Power BI dashboard for triathlon analytics
 - **Features**: Podium analysis, split times, performance trends

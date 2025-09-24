@@ -14,13 +14,14 @@ def adjust_outlier(series, threshold=2):
 
 # Load in all race results and calculate position metrics. Save to the position_metrics table.
 def calculate_position_metrics():
-    try:
+    '''try:
         with open('latest_events.txt') as f:
             event_ids = [int(line.strip()) for line in f if line.strip().isdigit()]
     except Exception as e:
         print("Could not load latest_events.txt, calculating for all events.")
-        event_ids = None
+        event_ids = None'''
 
+    event_ids = None  # For now, calculate for all events
     df = pd.read_sql_table('race_results', get_engine(), schema='public')
     if event_ids:
         df = df[df['event_id'].isin(event_ids)]
@@ -60,7 +61,7 @@ def calculate_position_metrics():
     df['runsecs'] = df['runtime'].apply(parse_time_to_secs)
     
     # Apply outlier check per group for each split segment
-    for col in ['swimsecs', 't1secs', 'bikesecs', 't2secs', 'runsecs']:
+    for col in ['swimsecs', 't1secs', 'bikesecs', 't2secs', 'runsecs', 'elapsedswim', 'elapsedt1', 'elapsedbike', 'elapsedt2', 'elapsedrun']:
         if col in ['t1secs', 't2secs']:  # T1 and T2 are transitions, not splits
             threshold = 3
         else:

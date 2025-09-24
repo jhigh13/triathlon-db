@@ -1,7 +1,7 @@
 # config/config.py
 from dotenv import load_dotenv
 import os
-load_dotenv()
+load_dotenv(override=True)
 
 API_KEY = os.getenv("TRI_API_KEY")
 HEADERS = {"apikey": API_KEY}
@@ -24,12 +24,12 @@ PROGRAM_DETAILS_URL   = f"{BASE_URL}/events/{{event_id}}/programs/{{program_id}}
 PROGRAM_RESULTS_URL = f"{BASE_URL}/events/{{event_id}}/programs/{{program_id}}/results"
 
 # Database
-DB_URI = os.environ.get(
+DB_URI_OLD = os.environ.get(
     "DB_URI",
     "postgresql://postgres.kzddtovwtnsfxccyicjd:6mBe-4ZKA_YWawR@aws-0-us-east-2.pooler.supabase.com:5432/postgres"
 )
 
-DB_URI_OLD = os.environ.get(
+DB_URI = os.environ.get(
     "DB_URI",
     "postgresql+psycopg2://postgres:Bc020406!@localhost:5432/triathlon_results"
 )
@@ -42,5 +42,14 @@ RANKINGS_RESULTS_TABLE_NAME  = os.getenv('RANKINGS_RESULTS_TABLE_NAME', 'ranking
 METRICS_TABLE_NAME        = os.getenv('METRICS_TABLE_NAME', 'metrics')
 
 # ID for filtering events
-CATEGORY_IDS = "340|341|342|623|343|352|347|640|624|351|348|349" #Add Para afterwards
+CATEGORY_IDS = "340|341|342|623|343|352|347|640|624|351|348|349|623|449|448|350" #Add Para afterwards
 SPEC_IDS = "356|357"
+# ID for filtering events (allow env overrides so we can run para-only backfills)
+CATEGORY_IDS = os.getenv(
+    "CATEGORY_IDS",
+    "340|341|342|623|343|352|347|640|624|351|348|349|623|449|448|350"  # Elite/U23/Junior/MR defaults; extend with para via env
+)
+SPEC_IDS = os.getenv(
+    "SPEC_IDS",
+    "356|357"  # default specifications; extend/override via env for para
+)

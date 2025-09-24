@@ -19,7 +19,7 @@ from tri_analysis.api_handling import (
     fetch_and_process_program_results,
 )
 from tri_analysis.upsert_tables import upsert_athlete, upsert_events, upsert_race_results
-load_dotenv()
+load_dotenv(override=True)
 
 def is_valid_df(df):
     return isinstance(df, pd.DataFrame) and not df.empty and not df.isna().all(axis=None)
@@ -58,9 +58,9 @@ def main():
         print("Dropped existing tables")
     initialize_database()
 
-        
-    start_date = datetime.date(2025, 6, 16).strftime("%Y-%m-%d")
-    end_date = datetime.date(2025, 7, 14).strftime("%Y-%m-%d")
+    # Allow overriding the date window via environment variables for backfills (e.g., para-only last 4 years)
+    start_date = os.environ.get("START_DATE") or datetime.date(2025, 7, 15).strftime("%Y-%m-%d")
+    end_date = os.environ.get("END_DATE") or datetime.date(2025, 8, 11).strftime("%Y-%m-%d")
 
     # Initialize as an empty list to collect DataFrames from each process_program_data call
     event_df = []
