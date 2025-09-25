@@ -49,13 +49,14 @@ def fetch_and_validate_athlete_info(athlete_id):
 def main(): 
 # Get database engine, drop existing tables, and initialize the database
     engine = get_engine()
-    with engine.begin() as conn:
+    '''with engine.begin() as conn:
+        # Recreate all core tables to guarantee correct column types and avoid legacy narrow types
         #conn.execute(text(f'DROP TABLE IF EXISTS "{RACE_RESULTS_TABLE_NAME}" CASCADE'))
         #conn.execute(text(f'DROP TABLE IF EXISTS "{ATHLETE_TABLE_NAME}" CASCADE'))
         #conn.execute(text(f'DROP TABLE IF EXISTS "{EVENTS_TABLE_NAME}" CASCADE'))
         #conn.execute(text(f'DROP TABLE IF EXISTS "{RANKINGS_RESULTS_TABLE_NAME}" CASCADE'))
-        conn.execute(text(f'DROP TABLE IF EXISTS "{METRICS_TABLE_NAME}" CASCADE'))
-        print("Dropped existing tables")
+        #conn.execute(text(f'DROP TABLE IF EXISTS "{METRICS_TABLE_NAME}" CASCADE'))
+        print("Dropped existing tables")'''
     initialize_database()
 
     # Allow overriding the date window via environment variables for backfills (e.g., para-only last 4 years)
@@ -144,6 +145,32 @@ def main():
     # Write race_results_df
     if not race_results_df.empty:
         race_results_df.columns = [c.lower() for c in race_results_df.columns]
+        # Normalize NaN to None for nullable columns to satisfy SQL types
+        nullable_cols = [
+            "finish_position", "position_sort", "start_num", "position",
+            "swimtime", "t1time", "biketime", "t2time", "runtime", "total_time",
+        ]
+        for col in nullable_cols:
+            if col in race_results_df.columns:
+                race_results_df[col] = race_results_df[col].where(~race_results_df[col].isna(), None)
+
+        # Ensure finish_position and position_sort are strings (or None) to match DB schema
+        def _to_str_or_none(x):
+            if x is None:
+                return None
+            try:
+                if pd.isna(x):
+                    return None
+            except Exception:
+                pass
+            return str(x)
+        for col in ["finish_position", "position_sort"]:
+            if col in race_results_df.columns:
+                race_results_df[col] = race_results_df[col].apply(_to_str_or_none)
+
+        # start_num can be mixed; keep as string to match DB schema and avoid int overflows
+        if "start_num" in race_results_df.columns:
+            race_results_df["start_num"] = race_results_df["start_num"].apply(lambda x: None if x is None or (isinstance(x, float) and pd.isna(x)) else str(x))
         upsert_race_results(race_results_df, engine)
         print(f"Wrote {len(race_results_df)} rows to {RACE_RESULTS_TABLE_NAME}")
 

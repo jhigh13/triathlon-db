@@ -121,6 +121,10 @@ def initialize_database():
         Column('t2time',          String),
         Column('runtime',         String),
         Column('position',        String),
+        # New structured fields for finish vs non-finish handling and sorting
+        Column('finish_status',   String),   # e.g., FINISH, DNF, DNS, DSQ, LAP
+        Column('finish_position', String),  # numeric position when finished
+        Column('position_sort',   String),  # numeric sort key (finishers first by place, then DNFs/DNSs)
         Column('total_time',      String, primary_key=True),
         Column('start_num',       String),
         # Primary key constraint for upsert conflict target (NOT deferrable)
@@ -255,12 +259,56 @@ def initialize_database():
                 """
             )
         )
+        # Add finish-related columns to race_results if missing (safe migrations)
+        #conn.execute(text(f'ALTER TABLE "{RACE_RESULTS_TABLE_NAME}" ADD COLUMN IF NOT EXISTS finish_status VARCHAR'))
+        #conn.execute(text(f'ALTER TABLE "{RACE_RESULTS_TABLE_NAME}" ADD COLUMN IF NOT EXISTS finish_position INTEGER'))
+        #conn.execute(text(f'ALTER TABLE "{RACE_RESULTS_TABLE_NAME}" ADD COLUMN IF NOT EXISTS position_sort INTEGER'))
+        # Backfill finish_status and finish_position from existing position values (store as strings)
+        conn.execute(
+            text(
+                f"""
+                UPDATE "{RACE_RESULTS_TABLE_NAME}"
+                SET finish_position = CASE
+                        WHEN position ~ '^[0-9]+$' THEN position
+                        ELSE NULL
+                    END,
+                    finish_status = CASE
+                        WHEN position ~ '^[0-9]+$' THEN 'FINISH'
+                        ELSE UPPER(TRIM(position))
+                    END
+                WHERE finish_status IS NULL OR finish_position IS NULL
+                """
+            )
+        )
+        # Backfill position_sort as strings: finishers use finish_position; non-finishers use sentinel strings
+        conn.execute(
+            text(
+                f"""
+                UPDATE "{RACE_RESULTS_TABLE_NAME}"
+                SET position_sort = COALESCE(
+                    finish_position,
+                    CASE finish_status
+                        WHEN 'DNF' THEN '1000001'
+                        WHEN 'DNS' THEN '1000002'
+                        WHEN 'DSQ' THEN '1000003'
+                        WHEN 'LAP' THEN '1000004'
+                        ELSE '1000009'
+                    END
+                )
+                WHERE position_sort IS NULL
+                """
+            )
+        )
         conn.execute(
             text(
                 f'CREATE UNIQUE INDEX IF NOT EXISTS idx_{RACE_RESULTS_TABLE_NAME}_conflict '
                 f'ON "{RACE_RESULTS_TABLE_NAME}" (athlete_id, "prog_id", "total_time")'
             )
         )
+        # Ensure critical integer columns are wide enough (avoid smallint overflows)
+        # Note: ALTER TYPE to same type is a no-op; this is safe to run repeatedly.
+        #conn.execute(text(f'ALTER TABLE "{RACE_RESULTS_TABLE_NAME}" ALTER COLUMN finish_position TYPE INTEGER'))
+        #conn.execute(text(f'ALTER TABLE "{RACE_RESULTS_TABLE_NAME}" ALTER COLUMN position_sort TYPE INTEGER'))
     print("Database tables and conflict index ensured.")
 
 if __name__ == "__main__":

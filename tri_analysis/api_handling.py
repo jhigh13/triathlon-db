@@ -200,7 +200,8 @@ def process_program_data(event_id, program_id) -> pd.DataFrame:
         laps_key, dist_key = seg_map[seg]
         laps = None
         dist = None
-        for d in data.get("prog_distances", []):
+        # Some events return prog_distances as null; treat as empty list
+        for d in (data.get("prog_distances") or []):
             if d.get("segment") == seg:
                 laps = d.get("laps")
                 dist = d.get("distance")
@@ -209,7 +210,7 @@ def process_program_data(event_id, program_id) -> pd.DataFrame:
         row[dist_key] = dist
 
     # Event info
-    event = data.get("event", {})
+    event = data.get("event") or {}
     row["event_name"] = event.get("event_title")
     row["event_venue"] = event.get("event_venue")
     row["event_date"] = event.get("event_date")
@@ -218,11 +219,11 @@ def process_program_data(event_id, program_id) -> pd.DataFrame:
     row["event_longitude"] = event.get("event_longitude")
 
     # event_categories: concatenate all cat_name values
-    event_categories = event.get("event_categories", [])
+    event_categories = event.get("event_categories") or []
     row["cat_name"] = ", ".join([cat.get("cat_name") for cat in event_categories if cat.get("cat_name")])
 
     # meta: add all meta fields except head_referee and competition_jury
-    meta = data.get("meta", {})
+    meta = data.get("meta") or {}
     for k, v in meta.items():
         if k not in ("head_referee", "competition_jury"):
             row[k] = v
@@ -248,6 +249,25 @@ def fetch_and_process_program_results(event_id, program_id, limit=75) -> pd.Data
     rows = []
     for r in results:
         splits = r.get("splits", [])
+        # Derive finish fields from the raw position value
+        pos_raw = r.get("position")
+        pos_str = (str(pos_raw).strip() if pos_raw is not None else None)
+        if pos_str and pos_str.isdigit():
+            # For finishers, store numeric place as strings to match DB schema
+            finish_position = pos_str
+            finish_status = "FINISH"
+            position_sort = pos_str
+        else:
+            # For non-finishers, store sentinel sort keys as strings
+            finish_position = None
+            finish_status = (pos_str.upper() if pos_str else None)
+            code_map = {
+                "DNF": "1000001",
+                "DNS": "1000002",
+                "DSQ": "1000003",
+                "LAP": "1000004",
+            }
+            position_sort = code_map.get(finish_status, "1000009")
         row = {
             "event_id": event_id,
             "prog_id": program_id,
@@ -259,6 +279,9 @@ def fetch_and_process_program_results(event_id, program_id, limit=75) -> pd.Data
             "T2Time": splits[3] if len(splits) > 3 else None,
             "RunTime": splits[4] if len(splits) > 4 else None,
             "position": r.get("position"),
+            "finish_status": finish_status,
+            "finish_position": finish_position,
+            "position_sort": position_sort,
             "total_time": r.get("total_time"),
             "start_num": r.get("start_num"),
         }

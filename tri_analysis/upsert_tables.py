@@ -1,4 +1,5 @@
 from sqlalchemy import text
+from sqlalchemy.exc import DataError
 import pandas as pd
 from database import get_engine
 
@@ -32,8 +33,26 @@ def upsert_dataframe(df, table_name, conflict_cols, update_cols, engine=None):
         ON CONFLICT ({conflict_target}) DO UPDATE SET
             {update_stmt}
     """
-    with engine.begin() as conn:
-        conn.execute(text(sql), df.to_dict(orient="records"))
+    records = df.to_dict(orient="records")
+    try:
+        with engine.begin() as conn:
+            conn.execute(text(sql), records)
+    except DataError as e:
+        msg = str(e).lower()
+        if "out of range" in msg or "numericvalueoutofrange" in msg:
+            # Fallback: try row-by-row with a fresh transaction to identify offenders
+            print(f"Bulk upsert failed for {table_name} with out of range; scanning rows to locate offending record(s)...")
+            for idx, rec in enumerate(records):
+                try:
+                    with get_engine().begin() as conn2:
+                        conn2.execute(text(sql), [rec])
+                except DataError as erow:
+                    print(f"Offending row index {idx} in {table_name}: {rec}")
+                    raise
+            # If nothing raised inside loop, re-raise original
+            raise
+        else:
+            raise
 
 def upsert_athlete(df, engine):
     """Upsert athlete information into the database."""
@@ -103,6 +122,9 @@ def upsert_race_results(df, engine):
             "t2time",
             "runtime",
             "position",
+            "finish_status",
+            "finish_position",
+            "position_sort",
             "start_num"
         ],
         engine
