@@ -1479,13 +1479,245 @@ def main():
     st.sidebar.title("🏊‍♂️ Triathlon Analysis")
     page = st.sidebar.selectbox(
         "Choose Analysis Type", 
-        ["H2H Analysis", "Event Analysis"]
+        ["H2H Analysis", "Event Analysis", "WTCS US Performance"]
     )
     
     if page == "H2H Analysis":
         show_h2h_page()
     elif page == "Event Analysis":
         show_event_analysis_page()
+    elif page == "WTCS US Performance":
+        show_wtcs_us_performance_page()
+
+from tri_analysis.wtcs_performance import (
+    WTCSFilters, fetch_wtcs_us_dataset, aggregate_checkpoint_metrics, select_best_worst_races,
+    list_wtcs_event_names, melt_checkpoint_positions, wtcs_diagnostics, coerce_finish_position
+)
+
+@st.cache_data(ttl=600)
+def _cached_wtcs_dataset(filters_dict):
+    filters = WTCSFilters(**filters_dict)
+    return fetch_wtcs_us_dataset(engine, filters)
+
+def show_wtcs_us_performance_page():
+    """Skeleton page for WTCS U.S. athlete performance analysis."""
+    st.title("WTCS U.S. Athlete Performance (Skeleton)")
+    st.caption("Early version – metrics and visuals to be expanded.")
+
+    with st.sidebar:
+        st.markdown("### Filters")
+        gender = st.selectbox("Gender", ["All", "Male", "Female"], index=0)
+        para_mode = st.selectbox(
+            "Event Type",
+            ["All", "Championship Only", "Para Only"],
+            help="Filter between WTCS Championship (non-para) and Para Series races"
+        )
+        country_mode = st.radio(
+            "Athlete Country",
+            ["USA Only", "All Countries"],
+            help="Filters by athlete home country (from athlete table), not event location"
+        )
+        min_events = st.number_input("Min Events Highlight", min_value=1, value=2, step=1)
+        date_range = st.date_input(
+            "Date Range",
+            value=[],
+            help="Optionally constrain event_date; leave empty for all"
+        )
+        # Athlete filter (loaded lazily after dataset fetch; placeholder now)
+        st.markdown("_Athlete selector appears after data loads_")
+        if len(date_range) == 2:
+            start_date, end_date = date_range
+        else:
+            start_date = end_date = None
+        apply_btn = st.button("Apply Filters")
+
+    para_filter = None
+    if para_mode == "Championship Only":
+        para_filter = False
+    elif para_mode == "Para Only":
+        para_filter = True
+
+    country_codes = ["USA", "United States", "United States of America"] if country_mode == "USA Only" else None
+
+    filters = WTCSFilters(
+        start_date=start_date.isoformat() if start_date else None,
+        end_date=end_date.isoformat() if end_date else None,
+        gender=None if gender == "All" else gender,
+        para_filter=para_filter,
+        country_codes=country_codes,
+        min_events=min_events,
+    )
+
+    if apply_btn or True:  # load on first view
+        # Show which events are being captured for transparency
+        matched_events = list_wtcs_event_names(engine, filters)
+        # If para filter not applied, highlight mixture by adding derived flag
+        if not matched_events.empty:
+            # Attempt to infer para if is_para not selected; we didn’t fetch is_para in listing earlier — extend query outcome soon if needed
+            # Display as-is for now
+            pass
+        with st.expander(f"Matched WTCS Events ({len(matched_events)})"):
+            st.dataframe(matched_events)
+        df = _cached_wtcs_dataset(filters.__dict__)
+        if df.empty:
+            st.warning("No WTCS athlete records for these filters.")
+            diags = wtcs_diagnostics(engine, filters)
+            with st.expander("Diagnostics"):
+                st.json(diags)
+                st.write("Try setting Gender = All and Athlete Country = All Countries to broaden scope.")
+                # Show distinct genders ignoring gender filter for context
+                broaden_filters = dict(filters.__dict__)
+                broaden_filters['gender'] = None
+                broaden_df = _cached_wtcs_dataset(broaden_filters)
+                if not broaden_df.empty and 'gender' in broaden_df.columns:
+                    st.write({"distinct_genders_all": sorted(broaden_df['gender'].dropna().astype(str).unique())})
+                # Auto fallback suggestion
+                if filters.gender and filters.gender.lower() != 'all' and not broaden_df.empty:
+                    st.info("Data exists if gender filter removed — consider switching Gender to 'All'.")
+            return
+        # Single athlete selection (full_name for readability)
+        athlete_names = sorted(df["full_name"].unique())
+        default_athlete = athlete_names[0] if athlete_names else None
+        selected_athlete = st.selectbox("Select Athlete", athlete_names, index=0 if athlete_names else None)
+        df = df[df["full_name"] == selected_athlete].copy()
+
+        # Optional debug view (post-filter)
+        debug_mode = st.checkbox("Debug: Show first 15 raw rows (selected athlete)", value=False)
+        if debug_mode:
+            st.dataframe(df.head(15))
+        # Distinct country diagnostic
+        if 'country' in df.columns:
+            with st.expander("Athlete Countries in Current Dataset"):
+                st.write(sorted(df['country'].dropna().unique()))
+
+        summary = aggregate_checkpoint_metrics(df, filters)
+        st.subheader("Athlete Summary (Averages)")
+        if not summary.empty:
+            # Expect exactly one row now; drop athlete_id, rename full_name
+            summary = summary.drop(columns=[c for c in ["athlete_id"] if c in summary.columns])
+            summary.rename(columns={"full_name": "Athlete"}, inplace=True)
+            numeric_cols = [c for c in summary.columns if c.startswith("avg_")]
+            display_df = summary.copy()
+            display_df[numeric_cols] = display_df[numeric_cols].round(2)
+            st.dataframe(display_df, use_container_width=True)
+        else:
+            st.write("Summary empty – verify data.")
+
+        st.subheader("Best / Worst Race (Placeholder)")
+        bw = select_best_worst_races(df)
+        if not bw.empty:
+            bw = bw[bw["athlete_id"] == df["athlete_id"].iloc[0]]  # single athlete row
+            bw = bw.drop(columns=["athlete_id"])  # hide id
+            st.dataframe(bw, use_container_width=True)
+        else:
+            st.write("No finish data to determine best/worst (possibly all DNFs).")
+
+        # ===== Charts Section =====
+        st.subheader("Charts")
+        df_chart = df.copy()
+
+        # 1. Finish Position by Event (Seaborn/Matplotlib implementation)
+        st.markdown("**Finish Position by Event** (lower is better; left-to-right = chronological)")
+        finish_line = coerce_finish_position(df_chart)
+        finish_line = finish_line.dropna(subset=["numeric_finish_position"]).copy()
+        if finish_line.empty:
+            st.info("No numeric finish positions (all DNFs or missing data).")
+        else:
+            import matplotlib.pyplot as plt
+            import seaborn as sns
+            finish_line.sort_values(["event_date","event_name"], inplace=True)
+            finish_line["event_short"] = finish_line["event_name"].str.replace(r"^\d{4} World Triathlon Championship Series ", "", regex=True)
+            finish_line["order"] = range(1, len(finish_line)+1)
+            worst = int(finish_line["numeric_finish_position"].max())
+            fig, ax = plt.subplots(figsize=(10, 4))
+            sns.lineplot(data=finish_line, x="order", y="numeric_finish_position", marker="o", ax=ax, color="#1f77b4")
+            # Optional point labels if not too many events
+            if len(finish_line) <= 14:
+                for _, r in finish_line.iterrows():
+                    ax.text(r["order"], r["numeric_finish_position"], int(r["numeric_finish_position"]), ha="center", va="bottom", fontsize=8)
+            # Invert y-axis so 1 at top
+            ax.invert_yaxis()
+            # Podium shading
+            ax.axhspan(1-0.5, 3+0.5, color="#ffd700", alpha=0.15)
+            # Tick selection (every 2 up to 30, else every 5) always including 1 & worst
+            if worst > 30:
+                ticks = [1] + [t for t in range(5, worst+1, 5)]
+                if worst not in ticks:
+                    ticks.append(worst)
+            else:
+                ticks = [1] + [t for t in range(2, worst+1, 2)]
+                if worst not in ticks:
+                    ticks.append(worst)
+            ticks = sorted(set(ticks))
+            ax.set_yticks(ticks)
+            ax.set_ylabel("Finish Position")
+            ax.set_xlabel("Event (chronological)")
+            ax.set_xticks(finish_line["order"])  # numeric positions
+            ax.set_xticklabels(finish_line["event_short"], rotation=35, ha="right")
+            ax.grid(axis="y", linestyle="--", alpha=0.4)
+            sns.despine(left=False, bottom=False)
+            st.pyplot(fig, clear_figure=True)
+
+        # 2. Checkpoint Positions Over Time (optional detail)
+        st.markdown("**Checkpoint Positions Over Time** (optional detail; lower is better)")
+        long_positions = melt_checkpoint_positions(df_chart)
+        checkpoints_available = ["Swim","T1","Bike","T2","Run","Finish"]
+        selected_checkpoints = st.multiselect("Checkpoints", checkpoints_available, default=["Swim","Bike","Run","Finish"], key="chkpts")
+        plot_positions = long_positions[long_positions["checkpoint"].isin(selected_checkpoints)]
+        if plot_positions.empty:
+            st.warning("No data for selected checkpoints.")
+        else:
+            pos_fig = px.line(
+                plot_positions.sort_values("event_date"),
+                x="event_date", y="position", color="full_name", line_group="full_name",
+                markers=True, symbol="checkpoint", hover_data=["checkpoint","event_name"],
+            )
+            pos_fig.update_yaxes(autorange="reversed", title="Race Position")
+            st.plotly_chart(pos_fig, use_container_width=True)
+
+        # 3. Swim vs Finish scatter
+        st.markdown("**Swim Position vs Final Finish**")
+        scatter_df = long_positions.pivot_table(
+            index=["full_name","event_id","event_date"],
+            columns="checkpoint", values="position", aggfunc="first"
+        ).reset_index()
+        if {c for c in ["Swim","Finish"]}.issubset(scatter_df.columns):
+            sc_fig = px.scatter(
+                scatter_df,
+                x="Swim", y="Finish", color="full_name", hover_name="full_name",
+                hover_data={"event_date": True}, trendline="ols"
+            )
+            sc_fig.update_yaxes(autorange="reversed")
+            sc_fig.update_xaxes(autorange="reversed")
+            st.plotly_chart(sc_fig, use_container_width=True)
+        else:
+            st.info("Insufficient data for Swim vs Finish plot.")
+
+        # 4. Segment position deltas bar (average)
+        st.markdown("**Average Position Change per Segment** (negative = positions gained)")
+        delta_cols = {
+            "swim_to_t1_pos_change": "Swim→T1",
+            "t1_to_bike_pos_change": "T1→Bike",
+            "bike_to_t2_pos_change": "Bike→T2",
+            "t2_to_run_pos_change": "T2→Run",
+        }
+        delta_summary = (
+            df_chart[list(delta_cols.keys())]
+            .mean()
+            .rename(index=delta_cols)
+            .reset_index(name="Avg_Pos_Change")
+            .rename(columns={"index":"Segment"})
+        )
+        bar_fig = px.bar(
+            delta_summary, x="Segment", y="Avg_Pos_Change", color_discrete_sequence=["#1f77b4"],
+            text="Avg_Pos_Change"
+        )
+        bar_fig.update_traces(texttemplate="%{text:.2f}", textposition="outside")
+        st.plotly_chart(bar_fig, use_container_width=True)
+
+        with st.expander("Raw Dataset (selected athlete) – debug"):
+            display_cols = [c for c in df.columns if c != "athlete_id"]
+            st.dataframe(df[display_cols].head(200))
 
 def show_h2h_page():
     """Head-to-Head Analysis Page"""
@@ -1645,18 +1877,20 @@ def show_h2h_page():
             st.error(f"Database error during H2H analysis: {e}")
             st.stop()
 
-        if not df.empty:
+        if df.empty:
+            st.warning("No H2H data found for the selected athletes and events.")
+        else:
             # Create tabs for different analysis types
             tabs = st.tabs(["Overall", "Swim", "T1", "Bike", "T2", "Run"])
-            
+
             with tabs[0]:
                 mat, annot = build_overall_matrix(df)
                 if mat.empty or mat.shape[0] == 0 or mat.shape[1] == 0:
                     st.warning("No valid H2H matrix could be generated for this selection.")
                 else:
                     plot_heatmap(mat, annot, "Overall H2H Record & Time Gaps")
-            
-            # Segments
+
+            # Segment tabs
             segments = ["swim", "t1", "bike", "t2", "run"]
             for i, seg in enumerate(segments, start=1):
                 with tabs[i]:
@@ -1666,17 +1900,14 @@ def show_h2h_page():
                     else:
                         plot_heatmap(mat, annot, f"{seg.capitalize()} Segment H2H Record & Time Gaps")
 
-            # --- Show missing athletes at the bottom of the page ---
+            # Missing athletes info
             athletes_in_results = set(df['athlete_name_a'].unique()).union(set(df['athlete_name_b'].unique()))
             missing_athletes = [a for a in st.session_state.selected_athletes if a not in athletes_in_results]
             if missing_athletes:
                 st.markdown("---")
-                st.info(
-                    "The following athlete(s) were not found in the H2H results (they did not race in the selected event(s)):")
+                st.info("The following athlete(s) were not found in the H2H results (they did not race in the selected event(s)):")
                 for athlete in missing_athletes:
                     st.write(f"- {athlete}")
-        else:
-            st.warning("No H2H data found for the selected athletes and events.")
     else:
         st.write("Please select at least one athlete and event selection mode from the sidebar.")
 

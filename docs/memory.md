@@ -174,6 +174,39 @@
 - **Features**: PostgreSQL service, Python environment setup
 - **Benefits**: Consistent development and production environments
 
+### New (Sept 2025)
+
+#### `tri_analysis/wtcs_performance.py`
+- **Purpose**: Helper functions for World Triathlon Championship Series (WTCS) U.S. athlete performance aggregation.
+- **Functions**:
+  - `fetch_wtcs_us_dataset` – joins race_results, position_metrics, events, athlete; filters by event_name pattern ("World Triathlon Championship Series") and USA country code.
+  - (Sept 2025 update) Broadened filtering to accept both "World Triathlon Championship Series" and legacy "World Triathlon Series" plus a generic conjunction (World Triathlon + Series) to guard against naming variance.
+  - (Sept 2025 update) Added `para_filter` (None=all, True=para only, False=championship only) applied to events.is_para.
+  - (Sept 2025 update) Added chart shaping helpers: `coerce_finish_position`, `melt_checkpoint_positions` for Streamlit visualization layer.
+  - (Sept 2025 update) Expanded country filtering logic: multiple U.S. aliases (USA, United States, United States of America) with optional override via UI.
+  - (Sept 2025 update) Simplified Streamlit WTCS page: replaced free-text country input with USA Only / All Countries toggle; country filter only applied when USA Only selected.
+  - (Sept 2025 update) Added gender normalization (Male/Female and M/F both accepted) plus diagnostics panel (matched events count, rows after filters, distinct genders/countries) when no results.
+  - (Sept 2025 update) Hardened gender filter: case-insensitive LOWER(a.gender) matching; added debug checkbox and fallback diagnostics to reveal distinct genders if filtered result empty.
+  - `aggregate_checkpoint_metrics` – computes per-athlete average positions, gaps, ranks, and position deltas with race counts & min-event flag.
+    - (Sept 2025 update) Added defensive numeric coercion for aggregation targets (finish_position, positions, gaps, ranks, deltas) converting non-numeric tokens like 'DNF' to NaN to avoid pandas TypeError during mean aggregation.
+  - `select_best_worst_races` – placeholder logic selecting best (lowest finish) and worst (highest finish) event ids per athlete.
+  - (Sept 2025 update) Streamlit integration refactored to single-athlete view: UI now forces selection of one athlete; aggregation table and charts scoped to that athlete only; athlete_id hidden from all displays for readability.
+  - (Sept 2025 update) Added primary chart: chronological Finish Position line (event-order, reversed y-axis) plus secondary checkpoint positions chart; improves quick assessment of result trajectory.
+  - (Sept 2025 update) Enforced finish position chart y-axis always starting at 1 (top). Implemented manual reversed range and phantom data point insertion when athlete has no 1st-place finishes to guarantee label visibility.
+  - (Sept 2025 update) Replaced Plotly finish position chart with Seaborn/Matplotlib line: inverted y-axis, dynamic tick thinning (every 2 or 5), podium shading (1–3), improved label readability.
+
+#### `tri_analysis/future_tri_events.py`
+- Purpose: Fetch upcoming continental cups, world cups, WTCS, and para series events and compute nomination dates (Tuesday 30 days prior).
+- How it works:
+  - Calls World Triathlon event listing API from today to +1 year, filtered by CATEGORY_IDS (env override supported) using HEADERS from config.
+  - Computes nomination_date for each event as Tuesday on/after (event_date - 30 days).
+  - Prints a table to stdout and writes CSV to `tri_analysis/outputs/future_tri_events.csv`.
+- Default categories covered: 340, 341, 342, 623, 352, 624, 348, 349, 449, 350.
+- **Notes**: Initial skeleton powering new Streamlit page. Future expansion: pack classification persistence, lead/chase participation rates, PDF export staging.
+
+#### `streamlit_app.py` (Sept 2025 addition)
+- Added new navigation option "WTCS US Performance" with skeleton page rendering summary table and best/worst race IDs using new helper module functions.
+
 ## Database Schema Summary
 
 ### Tables

@@ -11,7 +11,7 @@ BASE_URL = "https://api.triathlon.org/v1"
 # Athlete endpoints
 ATHLETE_SEARCH_URL   = f"{BASE_URL}/search/athletes"
 ATHLETE_RESULTS_URL  = f"{BASE_URL}/athletes/{{athlete_id}}/results"
-ATHLETE_DATA_URL     = f"{BASE_URL}/athletes/{{athlete_id}}?ouput=basic"
+ATHLETE_DATA_URL     = f"{BASE_URL}/athletes/{{athlete_id}}?output=basic"
 
 # Ranking endpoint
 RANKING_URL          = f"{BASE_URL}/rankings/{{ranking_id}}?limit={NUMBER_OF_ATHLETES}"

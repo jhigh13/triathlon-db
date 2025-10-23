@@ -70,11 +70,11 @@ def initialize_database():
         Column('prog_name',         String),
         Column('prog_distance_category',String),
         Column('is_para',           Boolean),
-        Column('swim_laps',         Integer),
+    Column('swim_laps',         Float),
         Column('swim_distance',     Float),
-        Column('bike_laps',         Integer),
+    Column('bike_laps',         Float),
         Column('bike_distance',     Float),
-        Column('run_laps',          Integer),
+    Column('run_laps',          Float),
         Column('run_distance',      Float),
         Column('event_name',        String),
         Column('event_venue',       String),
@@ -83,11 +83,11 @@ def initialize_database():
         Column('event_latitude',    Float),
         Column('event_longitude',   Float),
         Column('cat_name',          String),
-        Column('temperature_water', Float),
-        Column('temperature_air',   Float),
-        Column('humidity',          Float),
-        Column('wbgt',              Float),
-        Column('wind',              Float),
+        Column('temperature_water', String),
+        Column('temperature_air',   String),
+        Column('humidity',          String),
+        Column('wbgt',              String),
+        Column('wind',              String),
         Column('weather',           String),
         Column('wetsuit',           String),
         PrimaryKeyConstraint('event_id', 'prog_id', name='pk_events')
@@ -179,7 +179,7 @@ def initialize_database():
         Column('t2rank',       Integer),
         Column('runrank',      Integer),
     )
-       
+    
     # Staging table for historical rankings (no constraints)
     Table(
         'staging_rankings', metadata,
@@ -192,7 +192,7 @@ def initialize_database():
         Column('year',            Integer, nullable=False),  # year of the ranking
         Column('retrieved_at',    Date,    nullable=False)
     )
-
+    
     # Head-to-Head summary table for Power BI integration
     Table(
         'h2h_summary', metadata,
@@ -230,6 +230,73 @@ def initialize_database():
         Column('last_updated', Date, nullable=False),
         Column('min_matches_filter', Integer, nullable=False)
     )
+    
+    # Apply lightweight migrations to align existing DB schema with updated types
+    try:
+        with engine.begin() as conn:
+            # Convert weather metrics from numeric to text if needed
+            conn.execute(text("""
+                DO $$
+                BEGIN
+                    IF EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name = :table AND column_name = 'temperature_water' AND data_type <> 'text'
+                    ) THEN
+                        EXECUTE 'ALTER TABLE ' || quote_ident(:table) || ' ALTER COLUMN temperature_water TYPE VARCHAR USING temperature_water::text';
+                    END IF;
+                    IF EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name = :table AND column_name = 'temperature_air' AND data_type <> 'text'
+                    ) THEN
+                        EXECUTE 'ALTER TABLE ' || quote_ident(:table) || ' ALTER COLUMN temperature_air TYPE VARCHAR USING temperature_air::text';
+                    END IF;
+                    IF EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name = :table AND column_name = 'humidity' AND data_type <> 'text'
+                    ) THEN
+                        EXECUTE 'ALTER TABLE ' || quote_ident(:table) || ' ALTER COLUMN humidity TYPE VARCHAR USING humidity::text';
+                    END IF;
+                    IF EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name = :table AND column_name = 'wbgt' AND data_type <> 'text'
+                    ) THEN
+                        EXECUTE 'ALTER TABLE ' || quote_ident(:table) || ' ALTER COLUMN wbgt TYPE VARCHAR USING wbgt::text';
+                    END IF;
+                    IF EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name = :table AND column_name = 'wind' AND data_type <> 'text'
+                    ) THEN
+                        EXECUTE 'ALTER TABLE ' || quote_ident(:table) || ' ALTER COLUMN wind TYPE VARCHAR USING wind::text';
+                    END IF;
+                END$$;
+            """), {"table": EVENTS_TABLE_NAME})
+            # Widen lap columns to double precision (FLOAT) to allow NaN and avoid integer range issues
+            conn.execute(text("""
+                DO $$
+                BEGIN
+                    IF EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name = :table AND column_name = 'swim_laps' AND data_type <> 'double precision'
+                    ) THEN
+                        EXECUTE 'ALTER TABLE ' || quote_ident(:table) || ' ALTER COLUMN swim_laps TYPE DOUBLE PRECISION';
+                    END IF;
+                    IF EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name = :table AND column_name = 'bike_laps' AND data_type <> 'double precision'
+                    ) THEN
+                        EXECUTE 'ALTER TABLE ' || quote_ident(:table) || ' ALTER COLUMN bike_laps TYPE DOUBLE PRECISION';
+                    END IF;
+                    IF EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name = :table AND column_name = 'run_laps' AND data_type <> 'double precision'
+                    ) THEN
+                        EXECUTE 'ALTER TABLE ' || quote_ident(:table) || ' ALTER COLUMN run_laps TYPE DOUBLE PRECISION';
+                    END IF;
+                END$$;
+            """), {"table": EVENTS_TABLE_NAME})
+    except Exception:
+        # Non-fatal; schema may already match
+        pass
 
     metadata.create_all(engine)
     # Ensure unique index for upsert ON CONFLICT target on race_results

@@ -129,15 +129,76 @@ def main():
     # Write event_df
     if not event_df.empty:
         event_df.columns = [c.lower() for c in event_df.columns]
-        # Replace empty strings with None in numeric columns
-        numeric_cols = [
-            "prog_id", "event_id", "swim_laps", "swim_distance", "bike_laps", "bike_distance",
-            "run_laps", "run_distance", "event_latitude", "event_longitude",
-            "temperature_water", "temperature_air", "humidity", "wbgt", "wind"
+        # Normalize: numeric columns should not receive empty strings; convert blanks/NaN to None
+        # Treat lap columns as floats (to allow NaN) along with other float columns
+        float_cols = [
+            "swim_laps", "bike_laps", "run_laps",
+            "swim_distance", "bike_distance", "run_distance",
+            "event_latitude", "event_longitude"
         ]
-        for col in numeric_cols:
+
+        def _clean_int(v):
+            if v is None:
+                return None
+            try:
+                if pd.isna(v):
+                    return None
+            except Exception:
+                pass
+            if isinstance(v, str):
+                s = v.strip()
+                if s == "":
+                    return None
+                if s.isdigit():
+                    return int(s)
+                # non-numeric string -> treat as NULL
+                return None
+            if isinstance(v, float):
+                try:
+                    if pd.isna(v):
+                        return None
+                except Exception:
+                    pass
+                return int(v)
+            if isinstance(v, int):
+                return v
+            return None
+
+        def _clean_float(v):
+            if v is None:
+                return None
+            try:
+                if pd.isna(v):
+                    return None
+            except Exception:
+                pass
+            if isinstance(v, str):
+                s = v.strip()
+                if s == "":
+                    return None
+                try:
+                    return float(s)
+                except Exception:
+                    return None
+            if isinstance(v, (int, float)):
+                try:
+                    f = float(v)
+                    if pd.isna(f):
+                        return None
+                    return f
+                except Exception:
+                    return None
+            return None
+
+        for col in float_cols:
             if col in event_df.columns:
-                event_df[col] = event_df[col].replace("", None)
+                event_df[col] = event_df[col].apply(_clean_float)
+
+        # Weather metrics now stored as strings; coerce to string or None
+        weather_cols = ["temperature_water", "temperature_air", "humidity", "wbgt", "wind"]
+        for col in weather_cols:
+            if col in event_df.columns:
+                event_df[col] = event_df[col].apply(lambda v: None if (v is None or (isinstance(v, float) and pd.isna(v))) else str(v))
         upsert_events(event_df, engine)
         print(f"Wrote {len(event_df)} rows to {EVENTS_TABLE_NAME}")
         event_df['event_id'].drop_duplicates().to_csv('latest_events.txt', index=False, header=False)
