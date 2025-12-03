@@ -113,6 +113,13 @@
      - Totals slide (wins/podiums per athlete) and chart image if available
      - Continental Cup comparison slides using existing charts (`podium_overall.png`, `podium_by_event.png`)
 
+#### `notebooks/option_b_non_wtcs_analysis.ipynb`
+- **Purpose**: Option B exploratory view of 2023–2025 race results excluding WTCS categories (keeps DNFs) to spotlight USA team averages and Sullivan Middaugh bike-pack overlaps.
+- **Key Points**:
+  - Pulls race_results + events + athlete + position_metrics via SQLAlchemy with adjustable date window and WTCS keyword override.
+  - Produces USA seasonal averages, event-level scatter (finish vs DNF rate), and pack case-study tables/plots driven by pack gap logic (2s leader / 1s intra-pack).
+  - Serves as quick-launch notebook for storytelling/visuals prior to promoting insights into Streamlit or Power BI.
+
 #### `docs/WTO_Report.pbix`
 - **Purpose**: Power BI dashboard for triathlon analytics
 - **Features**: Podium analysis, split times, performance trends
@@ -228,3 +235,6 @@
 5. **Error Handling**: Enhanced logging and graceful failure recovery
 
 - June 2025: Updated .gitignore to include `.venv/` for ignoring Python virtual environment directory.
+ 
+## December 2025 Update
+- Metrics exclusion rule: Added global exclusion in `tri_analysis/metrics.py` so rows with any zero split (`swimsecs`, `t1secs`, `bikesecs`, `t2secs`, or `runsecs`) are excluded from minima and ranking calculations. Prevents 00:00:00 splits from creating artificial minimum thresholds across segments.

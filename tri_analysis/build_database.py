@@ -61,7 +61,7 @@ def main():
 
     # Allow overriding the date window via environment variables for backfills (e.g., para-only last 4 years)
     start_date = os.environ.get("START_DATE") or datetime.date(2025, 7, 15).strftime("%Y-%m-%d")
-    end_date = os.environ.get("END_DATE") or datetime.date(2025, 8, 11).strftime("%Y-%m-%d")
+    end_date = os.environ.get("END_DATE") or datetime.date(2025, 11, 23).strftime("%Y-%m-%d")
 
     # Initialize as an empty list to collect DataFrames from each process_program_data call
     event_df = []

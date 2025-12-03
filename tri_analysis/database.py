@@ -123,8 +123,8 @@ def initialize_database():
         Column('position',        String),
         # New structured fields for finish vs non-finish handling and sorting
         Column('finish_status',   String),   # e.g., FINISH, DNF, DNS, DSQ, LAP
-        Column('finish_position', String),  # numeric position when finished
-        Column('position_sort',   String),  # numeric sort key (finishers first by place, then DNFs/DNSs)
+        Column('finish_position', Integer),  # numeric position when finished
+        Column('position_sort',   Integer),  # numeric sort key (finishers first by place, then DNFs/DNSs)
         Column('total_time',      String, primary_key=True),
         Column('start_num',       String),
         # Primary key constraint for upsert conflict target (NOT deferrable)
@@ -327,16 +327,16 @@ def initialize_database():
             )
         )
         # Add finish-related columns to race_results if missing (safe migrations)
-        #conn.execute(text(f'ALTER TABLE "{RACE_RESULTS_TABLE_NAME}" ADD COLUMN IF NOT EXISTS finish_status VARCHAR'))
-        #conn.execute(text(f'ALTER TABLE "{RACE_RESULTS_TABLE_NAME}" ADD COLUMN IF NOT EXISTS finish_position INTEGER'))
-        #conn.execute(text(f'ALTER TABLE "{RACE_RESULTS_TABLE_NAME}" ADD COLUMN IF NOT EXISTS position_sort INTEGER'))
-        # Backfill finish_status and finish_position from existing position values (store as strings)
+        conn.execute(text(f'ALTER TABLE "{RACE_RESULTS_TABLE_NAME}" ADD COLUMN IF NOT EXISTS finish_status VARCHAR'))
+        conn.execute(text(f'ALTER TABLE "{RACE_RESULTS_TABLE_NAME}" ADD COLUMN IF NOT EXISTS finish_position INTEGER'))
+        conn.execute(text(f'ALTER TABLE "{RACE_RESULTS_TABLE_NAME}" ADD COLUMN IF NOT EXISTS position_sort INTEGER'))
+        # Backfill finish_status and finish_position from existing position values (cast numeric positions)
         conn.execute(
             text(
                 f"""
                 UPDATE "{RACE_RESULTS_TABLE_NAME}"
                 SET finish_position = CASE
-                        WHEN position ~ '^[0-9]+$' THEN position
+                        WHEN position ~ '^[0-9]+$' THEN position::integer
                         ELSE NULL
                     END,
                     finish_status = CASE
@@ -347,7 +347,7 @@ def initialize_database():
                 """
             )
         )
-        # Backfill position_sort as strings: finishers use finish_position; non-finishers use sentinel strings
+        # Backfill position_sort: finishers use finish_position; non-finishers use integer sentinels (higher = worse)
         conn.execute(
             text(
                 f"""
@@ -355,17 +355,37 @@ def initialize_database():
                 SET position_sort = COALESCE(
                     finish_position,
                     CASE finish_status
-                        WHEN 'DNF' THEN '1000001'
-                        WHEN 'DNS' THEN '1000002'
-                        WHEN 'DSQ' THEN '1000003'
-                        WHEN 'LAP' THEN '1000004'
-                        ELSE '1000009'
+                        WHEN 'DNF' THEN 1000001
+                        WHEN 'DNS' THEN 1000002
+                        WHEN 'DSQ' THEN 1000003
+                        WHEN 'LAP' THEN 1000004
+                        ELSE 1000009
                     END
                 )
                 WHERE position_sort IS NULL
                 """
             )
         )
+        # Ensure finish_position and position_sort are stored as INTEGER in case older schemas used VARCHAR
+        conn.execute(text(
+            """
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = :table AND column_name = 'finish_position' AND data_type <> 'integer'
+                ) THEN
+                    EXECUTE 'ALTER TABLE ' || quote_ident(:table) || ' ALTER COLUMN finish_position TYPE INTEGER USING NULLIF(TRIM(finish_position), '''')::integer';
+                END IF;
+                IF EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = :table AND column_name = 'position_sort' AND data_type <> 'integer'
+                ) THEN
+                    EXECUTE 'ALTER TABLE ' || quote_ident(:table) || ' ALTER COLUMN position_sort TYPE INTEGER USING NULLIF(TRIM(position_sort), '''')::integer';
+                END IF;
+            END$$;
+            """
+        ), {"table": RACE_RESULTS_TABLE_NAME})
         conn.execute(
             text(
                 f'CREATE UNIQUE INDEX IF NOT EXISTS idx_{RACE_RESULTS_TABLE_NAME}_conflict '

@@ -14,9 +14,11 @@ def adjust_outlier(series, threshold=2):
 
 # Load in all race results and calculate position metrics. Save to the position_metrics table.
 def calculate_position_metrics():
-    '''try:
+    '''
+    try:
         with open('latest_events.txt') as f:
             event_ids = [int(line.strip()) for line in f if line.strip().isdigit()]
+            print(f"Calculating metrics for events: {event_ids}")
     except Exception as e:
         print("Could not load latest_events.txt, calculating for all events.")
         event_ids = None'''
@@ -60,6 +62,9 @@ def calculate_position_metrics():
     df['t2secs'] = df['t2time'].apply(parse_time_to_secs)
     df['runsecs'] = df['runtime'].apply(parse_time_to_secs)
     
+    # Global exclusion: if any split is zero, exclude from minima/ranking calculations
+    valid_all_splits = (df['swimsecs'] > 0) & (df['t1secs'] > 0) & (df['bikesecs'] > 0) & (df['t2secs'] > 0) & (df['runsecs'] > 0)
+    
     # Apply outlier check per group for each split segment
     for col in ['swimsecs', 't1secs', 'bikesecs', 't2secs', 'runsecs', 'elapsedswim', 'elapsedt1', 'elapsedbike', 'elapsedt2', 'elapsedrun']:
         if col in ['t1secs', 't2secs']:  # T1 and T2 are transitions, not splits
@@ -69,27 +74,27 @@ def calculate_position_metrics():
         df[col] = df.groupby(['event_id','prog_id'])[col].transform(lambda s: adjust_outlier(s, threshold))
 
     # Compute seconds behind leader per event_id + prog_id
-    min_swim = df[df['swimsecs'] > 0].groupby(['event_id','prog_id'])['elapsedswim'].transform('min').fillna(0)
+    min_swim = df[valid_all_splits].groupby(['event_id','prog_id'])['elapsedswim'].transform('min').fillna(0)
     df['behindswim'] = df['elapsedswim'] - min_swim
-    min_t1 = df[df['t1secs'] > 0].groupby(['event_id','prog_id'])['elapsedt1'].transform('min').fillna(0)
+    min_t1 = df[valid_all_splits].groupby(['event_id','prog_id'])['elapsedt1'].transform('min').fillna(0)
     df['behindt1'] = df['elapsedt1'] - min_t1
-    min_bike = df[df['bikesecs'] > 0].groupby(['event_id','prog_id'])['elapsedbike'].transform('min').fillna(0)
+    min_bike = df[valid_all_splits].groupby(['event_id','prog_id'])['elapsedbike'].transform('min').fillna(0)
     df['behindbike'] = df['elapsedbike'] - min_bike
-    min_t2 = df[df['t2secs'] > 0].groupby(['event_id','prog_id'])['elapsedt2'].transform('min').fillna(0)
+    min_t2 = df[valid_all_splits].groupby(['event_id','prog_id'])['elapsedt2'].transform('min').fillna(0)
     df['behindt2'] = df['elapsedt2'] - min_t2
-    min_run = df[df['runsecs'] > 0].groupby(['event_id','prog_id'])['elapsedrun'].transform('min').fillna(0)
+    min_run = df[valid_all_splits].groupby(['event_id','prog_id'])['elapsedrun'].transform('min').fillna(0)
     df['behindrun'] = df['elapsedrun'] - min_run
 
     # Calculate positions at each checkpoint (only for athletes with non-zero times)
-    mask_swim = df['swimsecs'] > 0
+    mask_swim = (df['swimsecs'] > 0) & valid_all_splits
     df.loc[mask_swim, 'position_at_swim'] = df.loc[mask_swim].groupby(['event_id', 'prog_id'])['elapsedswim'].rank(method='min')
-    mask_t1 = df['t1secs'] > 0
+    mask_t1 = (df['t1secs'] > 0) & valid_all_splits
     df.loc[mask_t1, 'position_at_t1'] = df.loc[mask_t1].groupby(['event_id', 'prog_id'])['elapsedt1'].rank(method='min')
-    mask_bike = df['bikesecs'] > 0
+    mask_bike = (df['bikesecs'] > 0) & valid_all_splits
     df.loc[mask_bike, 'position_at_bike'] = df.loc[mask_bike].groupby(['event_id', 'prog_id'])['elapsedbike'].rank(method='min')
-    mask_t2 = df['t2secs'] > 0
+    mask_t2 = (df['t2secs'] > 0) & valid_all_splits
     df.loc[mask_t2, 'position_at_t2'] = df.loc[mask_t2].groupby(['event_id', 'prog_id'])['elapsedt2'].rank(method='min')
-    mask_run = df['runsecs'] > 0
+    mask_run = (df['runsecs'] > 0) & valid_all_splits
     df.loc[mask_run, 'position_at_run'] = df.loc[mask_run].groupby(['event_id', 'prog_id'])['elapsedrun'].rank(method='min')
 
     # Calculate position changes between checkpoints (negative = gained positions)
@@ -101,15 +106,15 @@ def calculate_position_metrics():
     # Calculate individual split rankings (rank by split time, not cumulative time)
     print("Calculating individual split rankings...")
 
-    mask_swim_rank = df['swimsecs'] > 0
+    mask_swim_rank = (df['swimsecs'] > 0) & valid_all_splits
     df.loc[mask_swim_rank, 'swimrank'] = df.loc[mask_swim_rank].groupby(['event_id', 'prog_id'])['swimsecs'].rank(method='min')
-    mask_t1_rank = df['t1secs'] > 0
+    mask_t1_rank = (df['t1secs'] > 0) & valid_all_splits
     df.loc[mask_t1_rank, 't1rank'] = df.loc[mask_t1_rank].groupby(['event_id', 'prog_id'])['t1secs'].rank(method='min')
-    mask_bike_rank = df['bikesecs'] > 0
+    mask_bike_rank = (df['bikesecs'] > 0) & valid_all_splits
     df.loc[mask_bike_rank, 'bikerank'] = df.loc[mask_bike_rank].groupby(['event_id', 'prog_id'])['bikesecs'].rank(method='min')
-    mask_t2_rank = df['t2secs'] > 0
+    mask_t2_rank = (df['t2secs'] > 0) & valid_all_splits
     df.loc[mask_t2_rank, 't2rank'] = df.loc[mask_t2_rank].groupby(['event_id', 'prog_id'])['t2secs'].rank(method='min')
-    mask_run_rank = df['runsecs'] > 0
+    mask_run_rank = (df['runsecs'] > 0) & valid_all_splits
     df.loc[mask_run_rank, 'runrank'] = df.loc[mask_run_rank].groupby(['event_id', 'prog_id'])['runsecs'].rank(method='min')
 
     position_cols = [

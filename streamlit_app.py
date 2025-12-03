@@ -1626,7 +1626,14 @@ def show_wtcs_us_performance_page():
             import matplotlib.pyplot as plt
             import seaborn as sns
             finish_line.sort_values(["event_date","event_name"], inplace=True)
-            finish_line["event_short"] = finish_line["event_name"].str.replace(r"^\d{4} World Triathlon Championship Series ", "", regex=True)
+            # Normalize event labels to show just the host city (handle Series and Finals variants)
+            finish_line["event_short"] = (
+                finish_line["event_name"]
+                .str.replace(r"^\s*\d{4}\s+World\s+Triathlon\s+Championship\s+Series\s+", "", regex=True)
+                .str.replace(r"^\s*\d{4}\s+World\s+Triathlon\s+Series\s+", "", regex=True)
+                .str.replace(r"^\s*\d{4}\s+World\s+Triathlon\s+Championship\s+Finals\s+", "", regex=True)
+                .str.replace(r"^\s*\d{4}\s+World\s+Triathlon\s+Finals\s+", "", regex=True)
+            )
             finish_line["order"] = range(1, len(finish_line)+1)
             worst = int(finish_line["numeric_finish_position"].max())
             fig, ax = plt.subplots(figsize=(10, 4))

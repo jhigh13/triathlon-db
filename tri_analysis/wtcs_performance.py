@@ -31,8 +31,11 @@ import pandas as pd
 from sqlalchemy import text, Engine
 
 WTCS_NAME_PATTERNS = [
-    "World Triathlon Championship Series",  # Full naming (some seasons)
-    "World Triathlon Series"                # Shorter variant (legacy or alternate feed)
+    "World Triathlon Championship Series",   # Full naming (some seasons)
+    "World Triathlon Series",                # Shorter variant (legacy or alternate feed)
+    "World Triathlon Championship Finals",   # Season finals naming
+    "World Triathlon Finals",                # Alternate finals naming
+    "WTCS Finals"                             # Abbreviated finals naming
 ]
 USA_COUNTRY_ALIASES = ["USA", "United States", "United States of America"]
 
@@ -72,7 +75,9 @@ def fetch_wtcs_us_dataset(engine: Engine, filters: WTCSFilters) -> pd.DataFrame:
     # Broad fallback (World Triathlon + Series) catches variants like "2025 World Triathlon Series Hamburg"
     params["broad_world"] = "%World Triathlon%"
     params["broad_series"] = "%Series%"
-    broad_clause = "(e.event_name ILIKE :broad_world AND e.event_name ILIKE :broad_series)"
+    params["broad_finals"] = "%Finals%"
+    # Accept either Series or Finals with World Triathlon in name
+    broad_clause = "(e.event_name ILIKE :broad_world AND (e.event_name ILIKE :broad_series OR e.event_name ILIKE :broad_finals))"
     name_clause = "( " + broad_clause + " OR " + " OR ".join(pattern_conditions) + " )"
 
     conditions = [name_clause]
@@ -83,10 +88,14 @@ def fetch_wtcs_us_dataset(engine: Engine, filters: WTCSFilters) -> pd.DataFrame:
             params[key] = cval
             country_placeholders.append(f":{key}")
         conditions.append(f"a.country IN (" + ",".join(country_placeholders) + ")")
+    # Para filtering: fall back to name-based heuristic when schema lacks is_para
+    # If para_filter True → include events with 'Para' in name; False → exclude them; None → no filter
     if filters.para_filter is True:
-        conditions.append("e.is_para = TRUE")
+        conditions.append("e.event_name ILIKE :para_pat")
+        params["para_pat"] = "%Para%"
     elif filters.para_filter is False:
-        conditions.append("(e.is_para = FALSE OR e.is_para IS NULL)")
+        conditions.append("e.event_name NOT ILIKE :para_pat")
+        params["para_pat"] = "%Para%"
     if filters.start_date:
         conditions.append("e.event_date >= :start_date")
         params["start_date"] = filters.start_date
@@ -144,6 +153,7 @@ def list_wtcs_event_names(engine: Engine, filters: WTCSFilters) -> pd.DataFrame:
     params = {
         "broad_world": "%World Triathlon%",
         "broad_series": "%Series%",
+        "broad_finals": "%Finals%",
     }
     for idx, pat in enumerate(WTCS_NAME_PATTERNS):
         params[f"pat_{idx}"] = f"%{pat}%"
@@ -154,12 +164,16 @@ def list_wtcs_event_names(engine: Engine, filters: WTCSFilters) -> pd.DataFrame:
     if filters.end_date:
         date_filters.append("event_date <= :end_date")
         params["end_date"] = filters.end_date
-    name_clause = "( (event_name ILIKE :broad_world AND event_name ILIKE :broad_series) OR " + " OR ".join([f"event_name ILIKE :pat_{i}" for i in range(len(WTCS_NAME_PATTERNS))]) + " )"
+    # Accept either Series or Finals combined with World Triathlon, or any explicit patterns
+    name_clause = "( (event_name ILIKE :broad_world AND (event_name ILIKE :broad_series OR event_name ILIKE :broad_finals)) OR " + " OR ".join([f"event_name ILIKE :pat_{i}" for i in range(len(WTCS_NAME_PATTERNS))]) + " )"
     where_parts = [name_clause]
+    # Para filtering fallback (no is_para column): use event_name heuristic
     if filters.para_filter is True:
-        where_parts.append("is_para = TRUE")
+        where_parts.append("event_name ILIKE :para_pat")
+        params["para_pat"] = "%Para%"
     elif filters.para_filter is False:
-        where_parts.append("(is_para = FALSE OR is_para IS NULL)")
+        where_parts.append("event_name NOT ILIKE :para_pat")
+        params["para_pat"] = "%Para%"
     if date_filters:
         where_parts.extend(date_filters)
     where_sql = " AND ".join(where_parts)
@@ -346,20 +360,26 @@ def melt_checkpoint_positions(df: pd.DataFrame) -> pd.DataFrame:
         "position_at_run": "Run",
     }
     records = base.melt(
-        id_vars=["athlete_id", "full_name", "event_date", "event_id", "prog_id", "numeric_finish_position"],
+        id_vars=["athlete_id", "full_name", "event_date", "event_name", "event_id", "prog_id", "numeric_finish_position"],
         value_vars=list(pos_cols.keys()),
         var_name="checkpoint_col",
         value_name="position"
     )
     records["checkpoint"] = records["checkpoint_col"].map(pos_cols)
-    # Append finish as separate rows
-    finish_rows = records.drop_duplicates(subset=["athlete_id", "event_id", "prog_id"])[[
-        "athlete_id", "full_name", "event_date", "event_id", "prog_id", "numeric_finish_position"
-    ]].copy()
+    # Build explicit, unique column set
+    cols = ["athlete_id", "full_name", "event_date", "event_name", "event_id", "prog_id", "checkpoint", "position"]
+    records_sel = records[cols].copy()
+
+    # Append finish as separate rows; derive once per (athlete,event,prog)
+    finish_rows = (
+        base.drop_duplicates(subset=["athlete_id", "event_id", "prog_id"]) [[
+            "athlete_id", "full_name", "event_date", "event_name", "event_id", "prog_id", "numeric_finish_position"
+        ]].rename(columns={"numeric_finish_position": "position"})
+    )
     finish_rows["checkpoint"] = "Finish"
-    finish_rows.rename(columns={"numeric_finish_position": "position"}, inplace=True)
-    finish_rows = finish_rows[records.columns.intersection(finish_rows.columns).tolist() + ["checkpoint", "position"]]
-    long_df = pd.concat([records[["athlete_id","full_name","event_date","event_id","prog_id","checkpoint","position"]], finish_rows[["athlete_id","full_name","event_date","event_id","prog_id","checkpoint","position"]]])
+    finish_sel = finish_rows[["athlete_id", "full_name", "event_date", "event_name", "event_id", "prog_id", "checkpoint", "position"]].copy()
+
+    long_df = pd.concat([records_sel, finish_sel], ignore_index=True)
     long_df.dropna(subset=["position"], inplace=True)
     return long_df
 
