@@ -6,16 +6,26 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if project_root not in sys.path:
     sys.path.append(project_root)
 
-from config import (
-    ATHLETE_TABLE_NAME,
-    EVENTS_TABLE_NAME,
-    RACE_RESULTS_TABLE_NAME,
-    DB_URI as DEFAULT_DB_URI
-)
+try:
+    # Preferred: package-qualified import
+    from tri_analysis.config import (
+        ATHLETE_TABLE_NAME,
+        EVENTS_TABLE_NAME,
+        RACE_RESULTS_TABLE_NAME,
+        DB_URI as DEFAULT_DB_URI,
+    )
+except ImportError:  # pragma: no cover
+    # Back-compat for older entrypoints executed with altered sys.path
+    from config import (  # type: ignore
+        ATHLETE_TABLE_NAME,
+        EVENTS_TABLE_NAME,
+        RACE_RESULTS_TABLE_NAME,
+        DB_URI as DEFAULT_DB_URI,
+    )
 
 from sqlalchemy import (
     create_engine, MetaData, Table, Column,
-    Integer, String, Date, Boolean, PrimaryKeyConstraint, Float, BigInteger, text
+    Integer, String, Date, Boolean, PrimaryKeyConstraint, Float, BigInteger, DateTime, text
 )
 
 def create_test_tables():
@@ -178,6 +188,25 @@ def initialize_database():
         Column('bikerank',     Integer),
         Column('t2rank',       Integer),
         Column('runrank',      Integer),
+    )
+
+    # WTCS pack membership (precomputed, deterministic; full field per event_id+prog_id)
+    Table(
+        'wtcs_pack_membership', metadata,
+        Column('event_id', Integer, nullable=False),
+        Column('prog_id', Integer, nullable=False),
+        Column('athlete_id', Integer, nullable=False),
+        Column('checkpoint', String, nullable=False),  # 'swim'|'bike'|'run'
+        Column('elapsed_sec', BigInteger, nullable=False),
+        Column('pos_at_checkpoint', Integer, nullable=False),
+        Column('gap_to_prev_sec', Integer, nullable=True),
+        Column('gap_to_leader_sec', Integer, nullable=False),
+        Column('pack_id', Integer, nullable=False),
+        Column('pack_size', Integer, nullable=False),
+        Column('max_gap_to_prev_sec', Integer, nullable=False),
+        Column('algo_version', String, nullable=False),
+        Column('computed_at', DateTime, nullable=False),
+        PrimaryKeyConstraint('event_id', 'prog_id', 'athlete_id', 'checkpoint', name='pk_wtcs_pack_membership')
     )
     
     # Staging table for historical rankings (no constraints)
@@ -392,6 +421,16 @@ def initialize_database():
                 f'ON "{RACE_RESULTS_TABLE_NAME}" (athlete_id, "prog_id", "total_time")'
             )
         )
+
+        # Helpful indexes for WTCS pack membership lookups
+        conn.execute(text(
+            'CREATE INDEX IF NOT EXISTS idx_wtcs_pack_membership_event_prog_checkpoint '
+            'ON wtcs_pack_membership (event_id, prog_id, checkpoint)'
+        ))
+        conn.execute(text(
+            'CREATE INDEX IF NOT EXISTS idx_wtcs_pack_membership_athlete_checkpoint '
+            'ON wtcs_pack_membership (athlete_id, checkpoint)'
+        ))
         # Ensure critical integer columns are wide enough (avoid smallint overflows)
         # Note: ALTER TYPE to same type is a no-op; this is safe to run repeatedly.
         #conn.execute(text(f'ALTER TABLE "{RACE_RESULTS_TABLE_NAME}" ALTER COLUMN finish_position TYPE INTEGER'))

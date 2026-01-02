@@ -24,15 +24,19 @@ PROGRAM_DETAILS_URL   = f"{BASE_URL}/events/{{event_id}}/programs/{{program_id}}
 PROGRAM_RESULTS_URL = f"{BASE_URL}/events/{{event_id}}/programs/{{program_id}}/results"
 
 # Database
-DB_URI_OLD = os.environ.get(
+'''
+DB_URI = os.environ.get(
     "DB_URI",
-    "postgresql://postgres.kzddtovwtnsfxccyicjd:6mBe-4ZKA_YWawR@aws-0-us-east-2.pooler.supabase.com:5432/postgres"
+    "postgresql://postgres.kzddtovwtnsfxccyicjd:tG4IfJmrRcNOFXJo@aws-0-us-east-2.pooler.supabase.com:6543/postgres"
 )
+'''
+
 
 DB_URI = os.environ.get(
     "DB_URI",
     "postgresql+psycopg2://postgres:Bc020406!@localhost:5432/triathlon_results"
 )
+
 
 # Table name overrides (via env vars for testing)
 ATHLETE_TABLE_NAME       = os.getenv('ATHLETE_TABLE_NAME', 'athlete')

@@ -184,8 +184,6 @@
 ### New (Sept 2025)
 
 #### `tri_analysis/wtcs_performance.py`
-- **Purpose**: Helper functions for World Triathlon Championship Series (WTCS) U.S. athlete performance aggregation.
-- **Functions**:
   - `fetch_wtcs_us_dataset` – joins race_results, position_metrics, events, athlete; filters by event_name pattern ("World Triathlon Championship Series") and USA country code.
   - (Sept 2025 update) Broadened filtering to accept both "World Triathlon Championship Series" and legacy "World Triathlon Series" plus a generic conjunction (World Triathlon + Series) to guard against naming variance.
   - (Sept 2025 update) Added `para_filter` (None=all, True=para only, False=championship only) applied to events.is_para.
@@ -200,8 +198,42 @@
   - (Sept 2025 update) Streamlit integration refactored to single-athlete view: UI now forces selection of one athlete; aggregation table and charts scoped to that athlete only; athlete_id hidden from all displays for readability.
   - (Sept 2025 update) Added primary chart: chronological Finish Position line (event-order, reversed y-axis) plus secondary checkpoint positions chart; improves quick assessment of result trajectory.
   - (Sept 2025 update) Enforced finish position chart y-axis always starting at 1 (top). Implemented manual reversed range and phantom data point insertion when athlete has no 1st-place finishes to guarantee label visibility.
+
+### New (Dec 2025)
+
+#### `tri_analysis/wtcs_pack_metrics.py`
+- **Purpose**: Precompute and persist full-field WTCS pack membership to keep Streamlit fast.
+- **Definition**: Field is `(event_id, prog_id)`; checkpoints are swim/bike/run; pack assignment uses chain rule where a new pack starts when `gap_to_prev_sec > 2`.
+- **Output Table**: `wtcs_pack_membership` (one row per athlete per checkpoint per event/program, only when elapsed checkpoint time is present).
+- **Usage**: Run `python -m tri_analysis.wtcs_pack_metrics` to compute for all WTCS event/program pairs already in `events` / `position_metrics`.
+
+#### `tri_analysis/wtcs_radar.py`
+- **Purpose**: WTCS end-of-season “report card” radar scores for Swim/Bike/Run/Transitions.
+- **Scoring**: Computes per-race percentiles vs the full WTCS field within `(event_id, prog_id)`; field percentiles are computed from `race_results` + `position_metrics` (does not require `athlete` rows for all non-USA athletes). Aggregates over season.
+- **Output**: 1..10 values where 10 is strength and 1 is weakness; requires ≥3 WTCS races per category or leaves that category blank.
+
+#### `tri_analysis/export_wtcs_radar.py`
+- **Purpose**: CLI exporter for WTCS radar charts (SVG/PNG) for easy insertion into PowerPoint.
+- **Usage**: Run `python -m tri_analysis.export_wtcs_radar --year YYYY --athlete-name "Full Name" --format svg` (or `--athlete-id`).
   - (Sept 2025 update) Replaced Plotly finish position chart with Seaborn/Matplotlib line: inverted y-axis, dynamic tick thinning (every 2 or 5), podium shading (1–3), improved label readability.
 
+
+### New (Dec 2025)
+
+#### `docs/para_standards_plan.md`
+- **Purpose**: Implementation plan for para-category performance standards using Paris 2024 medalists as the benchmark set.
+- **Key Points**: Auto-derives top-3 medalists from the Paris 2024 benchmark race for the selected para `prog_name`; filters to major para events; outputs trend charts by discipline.
+
+#### `tri_analysis/time_utils.py`
+- **Purpose**: Shared time parsing and pace conversion helpers (string times → seconds, seconds → formatted, sec/100m and sec/km pace helpers).
+- **Key Points**: Returns `None` for invalid/missing times (avoids biasing metrics by treating missing as zero).
+
+#### `tri_analysis/para_standards.py`
+- **Purpose**: Standalone CLI report generator to compare a selected USA athlete vs Paris medalists for a para category since 2021.
+- **Key Points**: Finds Paris benchmark event via `events` (major games + `is_para`), extracts medalists from `race_results`, filters history to major para events, outputs HTML+PNG charts and a CSV dataset.
+
+#### `tests/test_para_standards.py`
+- **Purpose**: Unit tests for time parsing and pace conversion helpers used by para standards reporting.
 #### `tri_analysis/future_tri_events.py`
 - Purpose: Fetch upcoming continental cups, world cups, WTCS, and para series events and compute nomination dates (Tuesday 30 days prior).
 - How it works:
@@ -238,3 +270,8 @@
  
 ## December 2025 Update
 - Metrics exclusion rule: Added global exclusion in `tri_analysis/metrics.py` so rows with any zero split (`swimsecs`, `t1secs`, `bikesecs`, `t2secs`, or `runsecs`) are excluded from minima and ranking calculations. Prevents 00:00:00 splits from creating artificial minimum thresholds across segments.
+
+### New Utility (Dec 2025)
+- `tri_analysis/stats_queries.py`: CLI script to print USA medal details/counts and country coverage stats directly from the database using `DB_URI` (env override). Provides medal detail table, medal tallies by category/host country, per-athlete country counts, and distinct country totals. Run with `python -m tri_analysis.stats_queries`.
+
+- `tri_analysis/metrics.py`: Computes `position_metrics` and now supports `--latest-events` to only recompute metrics for event IDs in `latest_events.txt`; writes using an event-scoped refresh (delete those events’ metrics, then append) so prior events remain.

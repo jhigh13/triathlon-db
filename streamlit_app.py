@@ -392,7 +392,7 @@ def identify_packs(times, max_gap_to_leader=2, max_gap_within_pack=1):
 
     return pack_ids
 
-# ...existing code...
+# Elapsed time to break into packs at checkpoints
 def calculate_elapsed_times(df):
     """Calculate cumulative elapsed times with DNF handling"""
     df_elapsed = df.copy()
@@ -1493,6 +1493,13 @@ from tri_analysis.wtcs_performance import (
     WTCSFilters, fetch_wtcs_us_dataset, aggregate_checkpoint_metrics, select_best_worst_races,
     list_wtcs_event_names, melt_checkpoint_positions, wtcs_diagnostics, coerce_finish_position
 )
+from tri_analysis.wtcs_radar import compute_wtcs_radar_profile
+from tri_analysis.wtcs_radar import (
+    compute_wtcs_radar_swim_breakdown,
+    compute_wtcs_radar_bike_breakdown,
+    compute_wtcs_radar_run_breakdown,
+    compute_wtcs_radar_transitions_breakdown,
+)
 
 @st.cache_data(ttl=600)
 def _cached_wtcs_dataset(filters_dict):
@@ -1581,14 +1588,151 @@ def show_wtcs_us_performance_page():
         selected_athlete = st.selectbox("Select Athlete", athlete_names, index=0 if athlete_names else None)
         df = df[df["full_name"] == selected_athlete].copy()
 
-        # Optional debug view (post-filter)
-        debug_mode = st.checkbox("Debug: Show first 15 raw rows (selected athlete)", value=False)
-        if debug_mode:
-            st.dataframe(df.head(15))
-        # Distinct country diagnostic
-        if 'country' in df.columns:
-            with st.expander("Athlete Countries in Current Dataset"):
-                st.write(sorted(df['country'].dropna().unique()))
+        # ===== WTCS Radar (vs Field) =====
+        st.subheader("Radar (WTCS vs Field)")
+        st.caption("10 = strength, 1 = weakness. Requires at least 3 WTCS races per category; missing categories are left blank.")
+        try:
+            athlete_id = int(df["athlete_id"].dropna().iloc[0])
+            # Compare to full WTCS field; mirror date window + para filter, but ignore country.
+            radar = compute_wtcs_radar_profile(
+                engine,
+                athlete_id=athlete_id,
+                season_start=filters.start_date,
+                season_end=filters.end_date,
+                para_filter=filters.para_filter,
+            )
+
+            radar_df = pd.DataFrame(
+                [
+                    {"category": "Swim", "value": radar.swim, "n": radar.n_swim},
+                    {"category": "Bike", "value": radar.bike, "n": radar.n_bike},
+                    {"category": "Run", "value": radar.run, "n": radar.n_run},
+                    {"category": "Transitions", "value": radar.transitions, "n": radar.n_transitions},
+                ]
+            )
+            st.dataframe(radar_df, use_container_width=True)
+
+            # Plotly radar (blank categories stay blank)
+            radar_plot = radar_df.copy()
+            radar_plot["value"] = pd.to_numeric(radar_plot["value"], errors="coerce")
+            fig = px.line_polar(
+                radar_plot,
+                r="value",
+                theta="category",
+                line_close=True,
+            )
+            fig.update_traces(
+                connectgaps=False,
+                fill="toself",
+                fillcolor="rgba(31, 119, 180, 0.22)",
+                line=dict(color="rgba(31, 119, 180, 0.95)", width=3),
+                marker=dict(size=7, color="rgba(31, 119, 180, 1.0)"),
+            )
+            fig.update_layout(
+                polar=dict(
+                    radialaxis=dict(range=[1, 10], tickmode="array", tickvals=[1, 3, 5, 7, 9, 10], showline=True),
+                    angularaxis=dict(direction="clockwise"),
+                ),
+                showlegend=False,
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+            with st.expander("Radar Debug (Per-race breakdown)"):
+                st.caption(
+                    "Each table shows per-race inputs vs the full WTCS field (same event_id/prog_id), including field sizes used for percentiles."
+                )
+
+                def _round_cols(df_in: pd.DataFrame, cols_to_round: list[str]) -> pd.DataFrame:
+                    df_out = df_in.copy()
+                    for c in cols_to_round:
+                        if c in df_out.columns:
+                            df_out[c] = pd.to_numeric(df_out[c], errors="coerce").round(3)
+                    return df_out
+
+                st.markdown("**Swim**")
+                swim_df = compute_wtcs_radar_swim_breakdown(
+                    engine,
+                    athlete_id=athlete_id,
+                    season_start=filters.start_date,
+                    season_end=filters.end_date,
+                    para_filter=filters.para_filter,
+                )
+                if swim_df.empty:
+                    st.write("No swim breakdown rows available.")
+                else:
+                    swim_df = _round_cols(swim_df, ["swimrank_pct", "behindswim_pct", "swim_score", "swim_strength", "behindswim"])
+                    st.dataframe(swim_df, use_container_width=True)
+
+                st.markdown("**Bike**")
+                bike_df = compute_wtcs_radar_bike_breakdown(
+                    engine,
+                    athlete_id=athlete_id,
+                    season_start=filters.start_date,
+                    season_end=filters.end_date,
+                    para_filter=filters.para_filter,
+                )
+                if bike_df.empty:
+                    st.write("No bike breakdown rows available.")
+                else:
+                    bike_df = _round_cols(
+                        bike_df,
+                        [
+                            "bikerank_pct",
+                            "behindbike_pct",
+                            "bike_gap_delta",
+                            "bike_gap_delta_pct",
+                            "bike_pos_delta",
+                            "bike_pos_delta_pct",
+                            "bike_score",
+                            "bike_strength",
+                            "behindbike",
+                        ],
+                    )
+                    st.dataframe(bike_df, use_container_width=True)
+
+                st.markdown("**Run**")
+                run_df = compute_wtcs_radar_run_breakdown(
+                    engine,
+                    athlete_id=athlete_id,
+                    season_start=filters.start_date,
+                    season_end=filters.end_date,
+                    para_filter=filters.para_filter,
+                )
+                if run_df.empty:
+                    st.write("No run breakdown rows available.")
+                else:
+                    run_df = _round_cols(run_df, ["runrank_pct", "behindrun_pct", "run_score", "run_strength", "behindrun"])
+                    st.dataframe(run_df, use_container_width=True)
+
+                st.markdown("**Transitions**")
+                trans_df = compute_wtcs_radar_transitions_breakdown(
+                    engine,
+                    athlete_id=athlete_id,
+                    season_start=filters.start_date,
+                    season_end=filters.end_date,
+                    para_filter=filters.para_filter,
+                )
+                if trans_df.empty:
+                    st.write("No transitions breakdown rows available.")
+                else:
+                    trans_df = _round_cols(
+                        trans_df,
+                        [
+                            "t1rank_pct",
+                            "t2rank_pct",
+                            "t1_loss",
+                            "t1_loss_pct",
+                            "t2_loss",
+                            "t2_loss_pct",
+                            "transitions_score",
+                            "transitions_strength",
+                            "behindt1",
+                            "behindt2",
+                        ],
+                    )
+                    st.dataframe(trans_df, use_container_width=True)
+        except Exception as e:
+            st.info(f"Radar unavailable for this athlete/filters: {e}")
 
         summary = aggregate_checkpoint_metrics(df, filters)
         st.subheader("Athlete Summary (Averages)")
@@ -1603,45 +1747,51 @@ def show_wtcs_us_performance_page():
         else:
             st.write("Summary empty – verify data.")
 
-        st.subheader("Best / Worst Race (Placeholder)")
-        bw = select_best_worst_races(df)
-        if not bw.empty:
-            bw = bw[bw["athlete_id"] == df["athlete_id"].iloc[0]]  # single athlete row
-            bw = bw.drop(columns=["athlete_id"])  # hide id
-            st.dataframe(bw, use_container_width=True)
-        else:
-            st.write("No finish data to determine best/worst (possibly all DNFs).")
 
         # ===== Charts Section =====
         st.subheader("Charts")
         df_chart = df.copy()
 
+        # Build a consistent per-event view for the selected athlete
+        df_event = coerce_finish_position(df_chart)
+        df_event = df_event.sort_values(["event_date", "event_name"]).copy()
+
+        # Normalize event labels to show just the host city (handle Series and Finals variants)
+        df_event["event_short"] = (
+            df_event["event_name"]
+            .astype(str)
+            .str.replace(r"^\s*\d{4}\s+World\s+Triathlon\s+Championship\s+Series\s+", "", regex=True)
+            .str.replace(r"^\s*\d{4}\s+World\s+Triathlon\s+Series\s+", "", regex=True)
+            .str.replace(r"^\s*\d{4}\s+World\s+Triathlon\s+Championship\s+Finals\s+", "", regex=True)
+            .str.replace(r"^\s*\d{4}\s+World\s+Triathlon\s+Finals\s+", "", regex=True)
+        )
+        df_event["order"] = range(1, len(df_event) + 1)
+        event_order = df_event["event_short"].tolist()
+
         # 1. Finish Position by Event (Seaborn/Matplotlib implementation)
         st.markdown("**Finish Position by Event** (lower is better; left-to-right = chronological)")
-        finish_line = coerce_finish_position(df_chart)
-        finish_line = finish_line.dropna(subset=["numeric_finish_position"]).copy()
-        if finish_line.empty:
+        finish_line = df_event.copy()
+
+        finishers = finish_line.dropna(subset=["numeric_finish_position"]).copy()
+        if finishers.empty:
             st.info("No numeric finish positions (all DNFs or missing data).")
         else:
-            import matplotlib.pyplot as plt
-            import seaborn as sns
-            finish_line.sort_values(["event_date","event_name"], inplace=True)
-            # Normalize event labels to show just the host city (handle Series and Finals variants)
-            finish_line["event_short"] = (
-                finish_line["event_name"]
-                .str.replace(r"^\s*\d{4}\s+World\s+Triathlon\s+Championship\s+Series\s+", "", regex=True)
-                .str.replace(r"^\s*\d{4}\s+World\s+Triathlon\s+Series\s+", "", regex=True)
-                .str.replace(r"^\s*\d{4}\s+World\s+Triathlon\s+Championship\s+Finals\s+", "", regex=True)
-                .str.replace(r"^\s*\d{4}\s+World\s+Triathlon\s+Finals\s+", "", regex=True)
-            )
-            finish_line["order"] = range(1, len(finish_line)+1)
-            worst = int(finish_line["numeric_finish_position"].max())
+            worst = int(finishers["numeric_finish_position"].max())
             fig, ax = plt.subplots(figsize=(10, 4))
-            sns.lineplot(data=finish_line, x="order", y="numeric_finish_position", marker="o", ax=ax, color="#1f77b4")
+            sns.lineplot(data=finishers, x="order", y="numeric_finish_position", marker="o", ax=ax, color="#1f77b4")
+
+            # Include DNFs / non-finishers as points at the bottom of the chart
+            non_finish = finish_line[finish_line["numeric_finish_position"].isna()].copy()
+            if not non_finish.empty:
+                dnf_y = worst + 2
+                ax.scatter(non_finish["order"], [dnf_y] * len(non_finish), marker="x", color="#d62728", label="DNF")
             # Optional point labels if not too many events
             if len(finish_line) <= 14:
-                for _, r in finish_line.iterrows():
+                for _, r in finishers.iterrows():
                     ax.text(r["order"], r["numeric_finish_position"], int(r["numeric_finish_position"]), ha="center", va="bottom", fontsize=8)
+                if not non_finish.empty:
+                    for _, r in non_finish.iterrows():
+                        ax.text(r["order"], dnf_y, "DNF", ha="center", va="bottom", fontsize=8, color="#d62728")
             # Invert y-axis so 1 at top
             ax.invert_yaxis()
             # Podium shading
@@ -1655,29 +1805,44 @@ def show_wtcs_us_performance_page():
                 ticks = [1] + [t for t in range(2, worst+1, 2)]
                 if worst not in ticks:
                     ticks.append(worst)
+            if not non_finish.empty:
+                ticks.append(dnf_y)
             ticks = sorted(set(ticks))
             ax.set_yticks(ticks)
+            if not non_finish.empty:
+                ax.set_yticklabels(["DNF" if int(t) == int(dnf_y) else str(int(t)) for t in ticks])
             ax.set_ylabel("Finish Position")
             ax.set_xlabel("Event (chronological)")
             ax.set_xticks(finish_line["order"])  # numeric positions
             ax.set_xticklabels(finish_line["event_short"], rotation=35, ha="right")
             ax.grid(axis="y", linestyle="--", alpha=0.4)
             sns.despine(left=False, bottom=False)
+            if not non_finish.empty:
+                ax.legend(loc="upper right", frameon=False)
             st.pyplot(fig, clear_figure=True)
 
         # 2. Checkpoint Positions Over Time (optional detail)
         st.markdown("**Checkpoint Positions Over Time** (optional detail; lower is better)")
-        long_positions = melt_checkpoint_positions(df_chart)
-        checkpoints_available = ["Swim","T1","Bike","T2","Run","Finish"]
-        selected_checkpoints = st.multiselect("Checkpoints", checkpoints_available, default=["Swim","Bike","Run","Finish"], key="chkpts")
-        plot_positions = long_positions[long_positions["checkpoint"].isin(selected_checkpoints)]
+        long_positions = melt_checkpoint_positions(df_event)
+        # Add ordered event label for categorical x-axis
+        _event_map = df_event[["event_id", "prog_id", "event_short", "order"]].drop_duplicates(subset=["event_id", "prog_id"])
+        long_positions = long_positions.merge(_event_map, on=["event_id", "prog_id"], how="left")
+        # Keep this simple and coach-friendly: Swim / Bike / Run only.
+        plot_positions = long_positions[long_positions["checkpoint"].isin(["Swim", "Bike", "Run"])].copy()
         if plot_positions.empty:
             st.warning("No data for selected checkpoints.")
         else:
             pos_fig = px.line(
-                plot_positions.sort_values("event_date"),
-                x="event_date", y="position", color="full_name", line_group="full_name",
-                markers=True, symbol="checkpoint", hover_data=["checkpoint","event_name"],
+                plot_positions.sort_values("order"),
+                x="event_short",
+                y="position",
+                # Color by checkpoint so Swim/Bike/Run are visually distinct.
+                color="checkpoint",
+                # Keep separate lines per athlete within each checkpoint color.
+                line_group="full_name",
+                markers=True,
+                hover_data=["full_name", "checkpoint", "event_name"],
+                category_orders={"event_short": event_order},
             )
             pos_fig.update_yaxes(autorange="reversed", title="Race Position")
             st.plotly_chart(pos_fig, use_container_width=True)
@@ -1685,14 +1850,20 @@ def show_wtcs_us_performance_page():
         # 3. Swim vs Finish scatter
         st.markdown("**Swim Position vs Final Finish**")
         scatter_df = long_positions.pivot_table(
-            index=["full_name","event_id","event_date"],
+            index=["full_name", "event_id", "event_name"],
             columns="checkpoint", values="position", aggfunc="first"
         ).reset_index()
         if {c for c in ["Swim","Finish"]}.issubset(scatter_df.columns):
+            # Plotly's OLS trendline requires statsmodels; gracefully disable if not installed.
+            try:
+                import statsmodels.api as _sm  # noqa: F401
+                _trendline = "ols"
+            except Exception:
+                _trendline = None
             sc_fig = px.scatter(
                 scatter_df,
                 x="Swim", y="Finish", color="full_name", hover_name="full_name",
-                hover_data={"event_date": True}, trendline="ols"
+                hover_data={"event_name": True}, trendline=_trendline
             )
             sc_fig.update_yaxes(autorange="reversed")
             sc_fig.update_xaxes(autorange="reversed")
@@ -1725,6 +1896,222 @@ def show_wtcs_us_performance_page():
         with st.expander("Raw Dataset (selected athlete) – debug"):
             display_cols = [c for c in df.columns if c != "athlete_id"]
             st.dataframe(df[display_cols].head(200))
+
+        # ===== Coach-Focused Additions =====
+
+        st.subheader("Season Report Card")
+        report_cols = [
+            "event_name",
+            "finish_status",
+            "numeric_finish_position",
+            "position_at_swim",
+            "position_at_bike",
+            "position_at_run",
+            "behindswim",
+            "behindbike",
+            "behindrun",
+            "swim_to_t1_pos_change",
+            "t1_to_bike_pos_change",
+            "bike_to_t2_pos_change",
+            "t2_to_run_pos_change",
+        ]
+        report_view = df_event.copy()
+        # Ensure columns exist (older DBs may have nulls)
+        for c in report_cols:
+            if c not in report_view.columns:
+                report_view[c] = pd.NA
+        report_view = report_view[report_cols].copy()
+
+        # Baseline vs season median (simple, coach-friendly)
+        med_finish = report_view["numeric_finish_position"].median(skipna=True)
+        med_gap_finish = report_view["behindrun"].median(skipna=True)
+        report_view["finish_vs_med"] = report_view["numeric_finish_position"] - med_finish if pd.notna(med_finish) else pd.NA
+        report_view["gap_finish_vs_med_sec"] = report_view["behindrun"] - med_gap_finish if pd.notna(med_gap_finish) else pd.NA
+        st.dataframe(report_view, use_container_width=True)
+
+        st.subheader("Time & Gap Trends")
+        st.caption("Gaps are seconds behind the leader at each checkpoint (lower is better).")
+        gap_long = df_event[["event_short", "event_name", "behindswim", "behindbike", "behindrun"]].copy()
+        gap_long = gap_long.melt(
+            id_vars=["event_short", "event_name"],
+            value_vars=["behindswim", "behindbike", "behindrun"],
+            var_name="checkpoint",
+            value_name="gap_sec",
+        )
+        gap_map = {
+            "behindswim": "Swim",
+            "behindbike": "Bike",
+            "behindrun": "Finish",
+        }
+        gap_long["checkpoint"] = gap_long["checkpoint"].map(gap_map)
+        gap_long.dropna(subset=["gap_sec"], inplace=True)
+        if gap_long.empty:
+            st.info("No gap data available yet (position_metrics may be missing for these races).")
+        else:
+            gap_fig = px.line(
+                gap_long,
+                x="event_short",
+                y="gap_sec",
+                color="checkpoint",
+                markers=True,
+                hover_data=["event_name"],
+                category_orders={"event_short": event_order},
+            )
+            gap_fig.update_yaxes(title="Gap to Leader (sec)")
+            st.plotly_chart(gap_fig, use_container_width=True)
+
+        st.markdown("**Gap Change by Segment** (negative = gained time vs field leader)")
+        seg = df_event[["event_short", "event_name", "behindswim", "behindt1", "behindbike", "behindt2", "behindrun"]].copy()
+        for c in ["behindswim", "behindt1", "behindbike", "behindt2", "behindrun"]:
+            seg[c] = pd.to_numeric(seg[c], errors="coerce")
+        seg["Swim→T1"] = seg["behindt1"] - seg["behindswim"]
+        seg["T1→Bike"] = seg["behindbike"] - seg["behindt1"]
+        seg["Bike→T2"] = seg["behindt2"] - seg["behindbike"]
+        seg["T2→Finish"] = seg["behindrun"] - seg["behindt2"]
+        seg_plot = seg.melt(
+            id_vars=["event_short", "event_name"],
+            value_vars=["Swim→T1", "T1→Bike", "Bike→T2", "T2→Finish"],
+            var_name="segment",
+            value_name="delta_gap_sec",
+        )
+        seg_plot.dropna(subset=["delta_gap_sec"], inplace=True)
+        if not seg_plot.empty:
+            seg_fig = px.bar(
+                seg_plot,
+                x="event_short",
+                y="delta_gap_sec",
+                color="segment",
+                barmode="group",
+                hover_data=["event_name"],
+                category_orders={"event_short": event_order},
+            )
+            seg_fig.update_yaxes(title="Δ Gap (sec)")
+            st.plotly_chart(seg_fig, use_container_width=True)
+
+        st.subheader("Pack Attachment (Stored Packs)")
+        st.caption(
+            "Precomputed WTCS full-field packs (chain rule, max gap-to-prev = 2s) at swim/bike/run. "
+            "Computed per (event_id, prog_id) for athletes with valid elapsed checkpoint times."
+        )
+
+        have_pack_cols = all(
+            c in df_event.columns
+            for c in [
+                "pack_id_swim",
+                "pack_size_swim",
+                "pack_id_bike",
+                "pack_size_bike",
+                "pack_id_run",
+                "pack_size_run",
+            ]
+        )
+
+        if not have_pack_cols:
+            st.info(
+                "Stored pack columns not found for this WTCS dataset. "
+                "Run the WTCS pack precompute to populate `wtcs_pack_membership`."
+            )
+        else:
+            pack_df = df_event[
+                [
+                    "event_date",
+                    "event_name",
+                    "event_short",
+                    "pack_id_swim",
+                    "pack_size_swim",
+                    "pack_id_bike",
+                    "pack_size_bike",
+                    "pack_id_run",
+                    "pack_size_run",
+                    "behindt2",
+                    "behindrun",
+                ]
+            ].copy()
+
+            for c in [
+                "pack_id_swim",
+                "pack_size_swim",
+                "pack_id_bike",
+                "pack_size_bike",
+                "pack_id_run",
+                "pack_size_run",
+                "behindt2",
+                "behindrun",
+            ]:
+                pack_df[c] = pd.to_numeric(pack_df[c], errors="coerce")
+
+            pack_df["lead_pack_swim"] = pack_df["pack_id_swim"].apply(lambda v: pd.NA if pd.isna(v) else v == 0).astype("boolean")
+            pack_df["lead_pack_bike"] = pack_df["pack_id_bike"].apply(lambda v: pd.NA if pd.isna(v) else v == 0).astype("boolean")
+            pack_df["lead_pack_run"] = pack_df["pack_id_run"].apply(lambda v: pd.NA if pd.isna(v) else v == 0).astype("boolean")
+
+            mask_bike = pack_df["lead_pack_swim"].notna() & pack_df["lead_pack_bike"].notna()
+            dropped_on_bike = ((pack_df.loc[mask_bike, "lead_pack_swim"]) & (~pack_df.loc[mask_bike, "lead_pack_bike"])).sum()
+            pack_df["run_clawback_sec"] = pack_df["behindrun"] - pack_df["behindt2"]
+
+            valid_races = pack_df[["lead_pack_swim", "lead_pack_bike", "lead_pack_run"]].notna().any(axis=1).sum()
+            if valid_races == 0:
+                st.info("Not enough stored pack data to compute pack attachment.")
+            else:
+                kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+                kpi1.metric("Lead pack after swim", f"{pack_df['lead_pack_swim'].mean()*100:.0f}%")
+                kpi2.metric("Lead pack after bike", f"{pack_df['lead_pack_bike'].mean()*100:.0f}%")
+                kpi3.metric("Lead pack after run", f"{pack_df['lead_pack_run'].mean()*100:.0f}%")
+                claw = pack_df["run_clawback_sec"].mean(skipna=True)
+                kpi4.metric("Avg run gap change (sec)", f"{claw:.1f}" if pd.notna(claw) else "N/A")
+
+                st.dataframe(
+                    pack_df[
+                        [
+                            "event_short",
+                            "event_name",
+                            "pack_id_swim",
+                            "pack_size_swim",
+                            "pack_id_bike",
+                            "pack_size_bike",
+                            "pack_id_run",
+                            "pack_size_run",
+                            "lead_pack_swim",
+                            "lead_pack_bike",
+                            "lead_pack_run",
+                            "run_clawback_sec",
+                        ]
+                    ],
+                    use_container_width=True,
+                )
+
+        st.subheader("Drivers (What correlates with finishing?)")
+        st.caption("Correlation is descriptive (not causal). Use to guide focus areas.")
+        driver = df_event.copy()
+        # Ensure numeric finish
+        driver = driver.dropna(subset=["numeric_finish_position"]).copy()
+        for c in ["swimrank", "bikerank", "runrank", "t1rank", "t2rank", "position_at_swim", "position_at_bike", "position_at_run"]:
+            if c in driver.columns:
+                driver[c] = pd.to_numeric(driver[c], errors="coerce")
+
+        cand = [c for c in ["swimrank", "bikerank", "runrank", "t1rank", "t2rank", "position_at_swim", "position_at_bike", "position_at_run"] if c in driver.columns]
+        corr_rows = []
+        for c in cand:
+            sub = driver[["numeric_finish_position", c]].dropna()
+            if len(sub) >= 3:
+                corr_rows.append({"metric": c, "corr_with_finish": sub["numeric_finish_position"].corr(sub[c])})
+        if corr_rows:
+            corr_df = pd.DataFrame(corr_rows).sort_values("corr_with_finish", key=lambda s: s.abs(), ascending=False)
+            st.dataframe(corr_df, use_container_width=True)
+
+        # Simple driver scatters
+        scatter_metrics = [m for m in ["runrank", "bikerank", "swimrank"] if m in driver.columns]
+        if scatter_metrics:
+            m = st.selectbox("Scatter metric", scatter_metrics, index=0)
+            sc2 = px.scatter(
+                driver,
+                x=m,
+                y="numeric_finish_position",
+                hover_data=["event_date", "event_name"],
+                trendline="ols",
+            )
+            sc2.update_yaxes(autorange="reversed", title="Finish Position")
+            sc2.update_xaxes(autorange="reversed")
+            st.plotly_chart(sc2, use_container_width=True)
 
 def show_h2h_page():
     """Head-to-Head Analysis Page"""
@@ -2339,7 +2726,7 @@ def show_excel_event_analysis():
                         )
                         selected_checkpoint = cp_map[selected_label]
                         checkpoint_analysis = selected_label
-# ...existing code...
+
                         if selected_checkpoint and selected_checkpoint in df_with_elapsed.columns:
                             # Analyze packs at selected checkpoint
                             pack_data, pack_stats = analyze_packs_at_checkpoint(

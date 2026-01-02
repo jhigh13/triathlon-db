@@ -40,6 +40,20 @@ WTCS_NAME_PATTERNS = [
 USA_COUNTRY_ALIASES = ["USA", "United States", "United States of America"]
 
 
+def _table_exists(engine: Engine, table_name: str) -> bool:
+    query = text(
+        """
+        SELECT 1
+        FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = :t
+        LIMIT 1
+        """
+    )
+    with engine.connect() as conn:
+        row = conn.execute(query, {"t": table_name}).fetchone()
+    return row is not None
+
+
 @dataclass
 class WTCSFilters:
     start_date: Optional[str] = None  # ISO date strings
@@ -119,6 +133,37 @@ def fetch_wtcs_us_dataset(engine: Engine, filters: WTCSFilters) -> pd.DataFrame:
 
     where_clause = " AND ".join(conditions)
 
+    include_packs = _table_exists(engine, "wtcs_pack_membership")
+
+    pack_select = ""
+    pack_joins = ""
+    if include_packs:
+        pack_select = """,
+            wpm_swim.pack_id AS pack_id_swim,
+            wpm_swim.pack_size AS pack_size_swim,
+            wpm_bike.pack_id AS pack_id_bike,
+            wpm_bike.pack_size AS pack_size_bike,
+            wpm_run.pack_id AS pack_id_run,
+            wpm_run.pack_size AS pack_size_run
+        """
+        pack_joins = """
+        LEFT JOIN wtcs_pack_membership wpm_swim
+            ON wpm_swim.event_id = rr.event_id
+           AND wpm_swim.prog_id = rr.prog_id
+           AND wpm_swim.athlete_id = rr.athlete_id
+           AND wpm_swim.checkpoint = 'swim'
+        LEFT JOIN wtcs_pack_membership wpm_bike
+            ON wpm_bike.event_id = rr.event_id
+           AND wpm_bike.prog_id = rr.prog_id
+           AND wpm_bike.athlete_id = rr.athlete_id
+           AND wpm_bike.checkpoint = 'bike'
+        LEFT JOIN wtcs_pack_membership wpm_run
+            ON wpm_run.event_id = rr.event_id
+           AND wpm_run.prog_id = rr.prog_id
+           AND wpm_run.athlete_id = rr.athlete_id
+           AND wpm_run.checkpoint = 'run'
+        """
+
     # Select only needed columns to keep memory low
     query = text(f"""
         SELECT
@@ -130,15 +175,20 @@ def fetch_wtcs_us_dataset(engine: Engine, filters: WTCSFilters) -> pd.DataFrame:
             rr.prog_id,
             e.event_date,
             e.event_name,
-            rr.position as finish_position,
+            rr.finish_status,
+            rr.finish_position,
+            rr.position as finish_position_raw,
             pm.position_at_swim, pm.position_at_t1, pm.position_at_bike, pm.position_at_t2, pm.position_at_run,
             pm.behindswim, pm.behindt1, pm.behindbike, pm.behindt2, pm.behindrun,
             pm.swim_to_t1_pos_change, pm.t1_to_bike_pos_change, pm.bike_to_t2_pos_change, pm.t2_to_run_pos_change,
-            pm.swimrank, pm.t1rank, pm.bikerank, pm.t2rank, pm.runrank
+            pm.swimrank, pm.t1rank, pm.bikerank, pm.t2rank, pm.runrank,
+            pm.elapsedswim, pm.elapsedt1, pm.elapsedbike, pm.elapsedt2, pm.elapsedrun
+            {pack_select}
         FROM race_results rr
         JOIN athlete a ON rr.athlete_id = a.athlete_id
         JOIN events e ON rr.event_id = e.event_id AND rr.prog_id = e.prog_id
         LEFT JOIN position_metrics pm ON pm.event_id = rr.event_id AND pm.prog_id = rr.prog_id AND pm.athlete_id = rr.athlete_id
+        {pack_joins}
         WHERE {where_clause}
     """)
 
@@ -334,14 +384,44 @@ __all__ = [
 
 
 def coerce_finish_position(df: pd.DataFrame) -> pd.DataFrame:
-    """Return copy of df with numeric_finish_position column (NaN for non-numeric)."""
+    """Return copy of df with numeric_finish_position column.
+
+    Preference order:
+      1) `finish_position` (int) if present
+      2) parse digits from `finish_position_raw` (string; may contain DNF/DNS/etc)
+      3) parse digits from legacy `finish_position` if it's string
+    """
     out = df.copy()
-    def _c(v):
+
+    def _to_int(v):
         try:
-            return int(str(v))
+            if v is None or (isinstance(v, float) and pd.isna(v)):
+                return pd.NA
+            return int(v)
         except Exception:
             return pd.NA
-    out["numeric_finish_position"] = out["finish_position"].apply(_c)
+
+    def _parse_digits(v):
+        try:
+            if v is None or (isinstance(v, float) and pd.isna(v)):
+                return pd.NA
+            s = str(v)
+            digits = "".join(ch for ch in s if ch.isdigit())
+            return int(digits) if digits else pd.NA
+        except Exception:
+            return pd.NA
+
+    if "finish_position" in out.columns:
+        out["numeric_finish_position"] = out["finish_position"].apply(_to_int)
+    else:
+        out["numeric_finish_position"] = pd.NA
+
+    if out["numeric_finish_position"].isna().all():
+        if "finish_position_raw" in out.columns:
+            out["numeric_finish_position"] = out["finish_position_raw"].apply(_parse_digits)
+        elif "finish_position" in out.columns:
+            out["numeric_finish_position"] = out["finish_position"].apply(_parse_digits)
+
     return out
 
 

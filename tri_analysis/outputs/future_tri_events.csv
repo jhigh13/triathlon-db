@@ -1,34 +1,95 @@
 event_id,event_name,event_date,event_venue,event_country,event_categories,nomination_date
-194317,2025 Africa Triathlon Cup Kilifi,2025-10-12,Kilifi,Kenya,Continental Cup,2025-09-09
-194950,2025 Asia Triathlon Para Championships and Para Cup Chiba City,2025-10-12,Inage Seaside Park,Japan,"Continental Championships, Continental Para Cup",2025-09-09
-194905,2025 Europe Triathlon Cup Tenerife - Santa Cruz,2025-10-12,Tenerife - Santa Cruz,Spain,Continental Cup,2025-09-09
-188995,2025 World Triathlon Age-Group Aquabike Championships Wollongong,2025-10-15,Wollongong,Australia,"World Championships, Age-Group Event",2025-09-09
-188994,2025 World Triathlon Age-Group Championships Wollongong,2025-10-15,Wollongong,Australia,"World Championships, Age-Group Event",2025-09-09
-188992,2025 World Triathlon Championship Finals Wollongong,2025-10-15,Wollongong,Australia,"World Championships, World Championship Finals, World Championship Series",2025-09-09
-188993,2025 World Triathlon Para Championships Wollongong,2025-10-15,Wollongong,Australia,World Championships,2025-09-09
-194997,2025 Asia Triathlon Cup Chongqing,2025-10-18,Changshou District,China,Continental Cup,2025-09-16
-194737,2025 Asia Triathlon Cup Kota Kinabalu,2025-10-23,Kota Kinabalu,Malaysia,Continental Cup,2025-09-23
-195058,2025 Americas Triathlon Cup Iquique,2025-10-25,Playa Cavancha,Chile,Continental Cup,2025-09-23
-195059,2025 Americas Triathlon Junior Cup Iquique,2025-10-25,PLaya Cavancha,Chile,Continental Junior Cup,2025-09-23
-194273,2025 Europe Triathlon Cup Alanya,2025-10-25,Alanya,Türkiye,Continental Cup,2025-09-23
-194965,2025 Europe Triathlon Junior Cup Alanya,2025-10-25,,Türkiye,Continental Junior Cup,2025-09-23
-194200,2025 World Triathlon Cup Brasil (location tbc),2025-10-25,,Brazil,World Cup,2025-09-23
-194930,2025 World Triathlon Para Cup Alanya,2025-10-26,Alanya,Türkiye,World Para Cup,2025-09-23
-194738,2025 Asia Triathlon Junior and U23 Championships Aqaba,2025-10-30,Aqaba,Jordan,Continental Championships,2025-09-30
-194865,2025 Americas Triathlon Cup Vina del Mar,2025-11-02,Viña del Mar,Chile,Continental Cup,2025-09-30
-194206,2025 World Triathlon Cup Vina del Mar,2025-11-02,Vina del Mar,Chile,World Cup,2025-09-30
-195076,2025 World Triathlon Para Cup San Pedro de la Paz,2025-11-08,"Laguna Grande, San Pedro de la Paz",Chile,World Para Cup,2025-10-07
-194209,2025 World Triathlon Cup Miyazaki,2025-11-09,Miyazaki,Japan,World Cup,2025-10-07
-195007,2025 World Triathlon Cup San Pedro de la Paz,2025-11-09,"Laguna Grande, San Pedro de La Paz",Chile,World Cup,2025-10-07
-195093,2025 World Triathlon Cup Florianopolis,2025-11-15,,Brazil,World Cup,2025-10-14
-194207,2025 World Triathlon Cup Tongyeong,2025-11-15,Tongyeong,"Korea, South",World Cup,2025-10-14
-194875,2025 Americas Triathlon Cup Manta,2025-11-23,,Ecuador,Continental Cup,2025-10-21
 194736,2025 Asia Triathlon Youth and U15 Championships Jeddah,2025-12-05,Jeddah,Saudi Arabia,Continental Championships,2025-11-04
-195061,2025 Americas Triathlon Cup and Iberoamerican Championships Maldonado,2025-12-06,,Uruguay,"Regional Championships, Continental Cup",2025-11-04
+195061,2025 Americas Triathlon Cup and Iberoamerican Championships Maldonado,2025-12-06,Barra de Maldonado,Uruguay,"Regional Championships, Continental Cup",2025-11-04
+195094,2025 World Triathlon Women’s Cup Dubai,2025-12-07,Dubai Islands,United Arab Emirates,Continental Cup,2025-11-04
 194739,2025 Asia Triathlon Sprint Duathlon Championships Kish Island,2025-12-21,Kish Island,Iran,Continental Championships,2025-11-18
-160815,1999 test event,2026-05-01,Hudayriyat Island,Serbia,Continental Cup,2026-03-31
+195280,2026 Asia Triathlon Cup Putrajaya,2026-02-07,,Malaysia,Continental Cup,2026-01-06
+195281,2026 Asia Triathlon Junior Cup Putrajaya,2026-02-08,,Malaysia,Continental Junior Cup,2026-01-06
+195205,2026 Africa Triathlon Duathlon Cup El Galala,2026-02-13,,Egypt,Continental Cup,2026-01-13
+195202,2026 Africa Triathlon Cup El Galala,2026-02-14,,Egypt,Continental Cup,2026-01-13
+195203,2026 Africa Triathlon Junior Championships El Galala,2026-02-14,,Egypt,Continental Championships,2026-01-13
+195238,2026 Africa Triathlon Aquathlon Cup El Galala,2026-02-15,El Galala,Egypt,Continental Cup,2026-01-13
+195204,2026 Africa Triathlon Para Cup El Galala,2026-02-15,,Egypt,Continental Cup,2026-01-13
+195251,2026 Americas Triathlon Cup La Habana,2026-02-21,,Cuba,Continental Cup,2026-01-20
+195342,2026 Oceania Triathlon Sprint Championships Napier,2026-03-01,,New Zealand,Continental Championships,2026-01-27
+195343,2026 Oceania Triathlon Mixed Relay Championships Napier,2026-03-02,,New Zealand,Continental Championships,2026-01-27
+195253,2026 Americas Triathlon Cup La Paz,2026-03-07,,Mexico,Continental Cup,2026-02-03
+195206,2026 Africa Triathlon Cup Ebotse,2026-03-08,,South Africa,Continental Cup,2026-02-03
+195207,2026 Africa Triathlon Junior Cup Ebotse,2026-03-08,,South Africa,Continental Junior Cup,2026-02-03
+195131,2026 World Triathlon Para Series Devonport,2026-03-13,,Australia,World Para Series,2026-02-10
+195208,2026 Africa Triathlon Cup Troutbeck,2026-03-14,,Zimbabwe,Continental Cup,2026-02-10
+195209,2026 Africa Triathlon Junior Cup Troutbeck,2026-03-14,,Zimbabwe,Continental Junior Cup,2026-02-10
+195344,2026 Oceania Triathlon Championships Devonport,2026-03-14,,Australia,Continental Championships,2026-02-10
+195345,2026 Oceania Triathlon Junior Sprint Championships Devonport,2026-03-14,,Australia,Continental Championships,2026-02-10
+195255,2026 Americas Triathlon Cup Caioba,2026-03-15,,Brazil,Continental Cup,2026-02-10
+195211,2026 Africa Triathlon Junior Cup Swakopmund,2026-03-21,,Namibia,Continental Junior Cup,2026-02-17
+195210,2026 Africa Triathlon Premium Cup Swakopmund,2026-03-21,,Namibia,Continental Cup,2026-02-17
+195282,2026 Asia Triathlon Cup Tainan,2026-03-21,,Chinese Taipei,Continental Cup,2026-02-17
+195256,2026 Americas Triathlon Cup Gulfport,2026-03-27,,United States,Continental Cup,2026-02-24
+195143,2026 World Triathlon Championship Series Abu Dhabi,2026-03-27,Abu Dhabi,United Arab Emirates,World Championship Series,2026-02-24
+195134,2026 World Triathlon Para Cup Abu Dhabi,2026-03-27,,United Arab Emirates,World Para Cup,2026-02-24
+195268,2026 Americas Triathlon Cup Santa Fe,2026-03-28,,Argentina,Continental Cup,2026-02-24
+195283,2026 Asia Triathlon Junior & U23 Championships Hong Kong,2026-03-28,,"Hong Kong, China",Continental Championships,2026-02-24
+195170,2026 Europe Triathlon Cup Quarteira,2026-03-28,,Portugal,Continental Cup,2026-02-24
+195213,2026 Africa Triathlon Junior Cup Nelson Mandela Bay,2026-03-29,,South Africa,Continental Junior Cup,2026-02-24
+195212,2026 Africa Triathlon Premium Cup Nelson Mandela Bay,2026-03-29,,South Africa,Continental Cup,2026-02-24
+195171,2026 Europe Triathlon Junior Cup Quarteira,2026-03-29,,Portugal,Continental Junior Cup,2026-02-24
+195348,2026 Oceania Triathlon Continental Cup Auckland,2026-03-29,,New Zealand,Continental Championships,2026-02-24
+195347,2026 Oceania Triathlon Para Championships Auckland,2026-03-29,,New Zealand,Continental Championships,2026-02-24
+195284,2026 Asia Triathlon Cup Dexing,2026-04-11,,China,Continental Cup,2026-03-10
+195215,2026 Africa Triathlon Junior Cup Blue Bay,2026-04-12,,Mauritius,Continental Junior Cup,2026-03-10
+195239,2026 Africa Triathlon Para Championships Blue Bay,2026-04-12,,Mauritius,Continental Championships,2026-03-10
+195214,2026 Africa Triathlon Sprint Age-Group Championships Blue Bay,2026-04-12,,Mauritius,"Continental Championships, Age-Group Event",2026-03-10
+195241,2026 Africa Triathlon Sprint Championships Blue Bay,2026-04-12,,Mauritius,Continental Championships,2026-03-10
+195172,2026 Europe Triathlon Cup Montegordo,2026-04-12,,Portugal,Continental Cup,2026-03-10
+195340,2026 Europe Triathlon Powerman Middle Distance Duathlon Championships Alsdorf,2026-04-12,,Germany,Continental Championships,2026-03-10
+195285,2026 Asia Triathlon Cup Dhaka,2026-04-17,Jolshiri,Bangladesh,Continental Cup,2026-03-17
+195349,2026 Oceania Triathlon SuperSprint Championships Runaway Bay,2026-04-18,,Australia,Continental Championships,2026-03-17
+195337,2026 Europe Triathlon Cup Torremolinos,2026-04-25,,Spain,Continental Cup,2026-03-24
+195338,2026 Europe Triathlon Junior Cup Torremolinos,2026-04-25,,Spain,Continental Junior Cup,2026-03-24
+195144,2026 World Triathlon Championship Series Samarkand,2026-04-25,Samarkand,Uzbekistan,World Championship Series,2026-03-24
+195135,2026 World Triathlon Para Cup Samarkand,2026-04-25,,Uzbekistan,World Para Cup,2026-03-24
+195288,2026 Asia Triathlon Cup Subic Bay,2026-05-02,,Philippines,Continental Cup,2026-03-31
+195290,2026 Asia Triathlon Junior Cup Subic Bay,2026-05-02,,Philippines,Continental Junior Cup,2026-03-31
+195174,2026 Europe Triathlon Junior Cup Caorle,2026-05-08,,Italy,Continental Junior Cup,2026-04-07
+195173,2026 Europe Triathlon Cup Caorle,2026-05-09,,Italy,Continental Cup,2026-04-07
+195154,2026 World Triathlon Cup Chengdu,2026-05-09,,China,World Cup,2026-04-07
+195278,2026 Americas Triathlon Long Distance Championships Formosa,2026-05-10,,Argentina,Continental Championships,2026-04-07
+195257,2026 Americas Triathlon Cup Ixtapa,2026-05-16,,Mexico,Continental Cup,2026-04-14
+195291,2026 Asia Triathlon Cup Tam Chuc,2026-05-16,,Vietnam,Continental Cup,2026-04-14
+195145,2026 World Triathlon Championship Series Yokohama,2026-05-16,Yokohama,Japan,World Championship Series,2026-04-14
+195136,2026 World Triathlon Para Series Yokohama,2026-05-16,,Japan,World Para Series,2026-04-14
+195292,2026 Asia Triathlon Cup Lianyungang,2026-05-23,,China,Continental Cup,2026-04-21
+195175,2026 Europe Triathlon Cup Olsztyn,2026-05-23,,Poland,Continental Cup,2026-04-21
+195176,2026 Europe Triathlon Junior Cup Olsztyn,2026-05-23,,Poland,Continental Junior Cup,2026-04-21
+195267,2026 Americas Triathlon Championships Antofagasta,2026-05-30,,Chile,"Continental Championships, Age-Group Event",2026-04-28
+195293,2026 Asia Triathlon Cup Taizhou,2026-05-30,,China,Continental Cup,2026-04-28
+195177,2026 Europe Triathlon Cup Rzeszów,2026-05-30,,Poland,Continental Cup,2026-04-28
+195294,2026 Asia Triathlon Cup Osaka Castle,2026-05-31,,Japan,Continental Cup,2026-04-28
+195146,2026 World Triathlon Championship Series Alghero,2026-06-05,Alghero,Italy,World Championship Series,2026-05-05
+195321,2026 Africa Triathlon Cup Yasmine Hammamet,2026-06-06,,Tunisia,Continental Cup,2026-05-05
+195320,2026 Africa Triathlon Junior Cup Yasmine Hammamet,2026-06-06,,Tunisia,Continental Junior Cup,2026-05-05
+195296,"2026 Asia Triathlon Super Sprint Elite, Youth, U15 Championship Xuzhou",2026-06-13,,China,Continental Championships,2026-05-12
 195118,2026 Europe Triathlon Age-Group Championships Tarragona,2026-06-13,Tarragona,Spain,"Continental Championships, Age-Group Event",2026-05-12
 195114,2026 Europe Triathlon Championships Tarragona,2026-06-13,Tarragona,Spain,Continental Championships,2026-05-12
+195155,2026 World Triathlon Cup Huatulco,2026-06-14,,Mexico,World Cup,2026-05-12
+195180,2026 Europe Triathlon Cup Kitzbuhel,2026-06-19,,Austria,Continental Cup,2026-05-19
+195303,2026 Asia Triathlon Cup Astana,2026-06-20,,Kazakhstan,Continental Cup,2026-05-19
+195147,2026 World Triathlon Championship Series Quiberon,2026-06-20,Quiberon,France,World Championship Series,2026-05-19
+195132,2026 World Triathlon Para Cup Besançon,2026-06-20,,France,World Para Cup,2026-05-19
+195304,2026 Asia Triathlon Junior Cup Astana,2026-06-21,,Kazakhstan,Continental Junior Cup,2026-05-19
+195259,2026 Americas Triathlon Cup Montreal,2026-06-27,,Canada,Continental Cup,2026-05-26
+195181,2026 Europe Triathlon Cup Wels,2026-06-27,,Austria,Continental Cup,2026-05-26
+195183,2026 Europe Triathlon Junior Cup Tiszaujvaros,2026-06-27,,Hungary,Continental Junior Cup,2026-05-26
+195194,2026 Europe Triathlon Junior Cup Tiszaujvaros,2026-06-27,,Hungary,Continental Junior Cup,2026-05-26
+195156,2026 World Triathlon Cup Tiszaujvaros,2026-06-27,,Hungary,World Cup,2026-05-26
+195133,2026 World Triathlon Para Series Montreal,2026-06-27,,Canada,World Para Series,2026-05-26
+195182,2026 Europe Triathlon Junior Cup Wels,2026-06-28,,Austria,Continental Junior Cup,2026-05-26
+195185,2026 Europe Triathlon Junior Cup Holten,2026-07-04,,Netherlands,Continental Junior Cup,2026-06-02
+195184,2026 Europe Triathlon Premium Cup Holten,2026-07-04,,Netherlands,Continental Cup,2026-06-02
+195137,2026 World Triathlon Para Cup Tegernsee,2026-07-04,,Germany,World Para Cup,2026-06-02
+195218,2026 Africa Triathlon Premium Cup Larache,2026-07-05,,Morocco,Continental Cup,2026-06-02
+195260,2026 Americas Triathlon Cup Magog,2026-07-11,,Canada,Continental Cup,2026-06-09
 195117,2026 Europe Triathlon Age-Group Aquabike Championships Banyoles,2026-07-11,Banyoles,Spain,"Age-Group Event, Continental Championships",2026-06-09
 195121,2026 Europe Triathlon Aquathlon Championships Banyoles,2026-07-11,Banyoles,Spain,"Continental Championships, Age-Group Event",2026-06-09
 195120,2026 Europe Triathlon Cross Duathlon Championships Banyoles,2026-07-11,,Spain,"Continental Championships, Age-Group Event",2026-06-09
@@ -36,8 +97,69 @@ event_id,event_name,event_date,event_venue,event_country,event_categories,nomina
 195122,2026 Europe Triathlon Duathlon Championships Banyoles,2026-07-11,,Spain,"Continental Championships, Age-Group Event",2026-06-09
 195123,2026 Europe Triathlon Middle Distance Championships Banyoles,2026-07-11,,Spain,"Continental Championships, Age-Group Event",2026-06-09
 195113,2026 Europe Triathlon Multisport Championships Banyoles,2026-07-11,Banyoles,Spain,"Continental Championships, Age-Group Event",2026-06-09
+195148,2026 World Triathlon Championship Series Hamburg,2026-07-11,Hamburg,Germany,World Championship Series,2026-06-09
+195138,2026 World Triathlon Para Series Hamburg,2026-07-11,,Germany,World Para Series,2026-06-09
+195307,2026 Asia Triathlon Para Championships and Para Cup Tokyo Uminomori,2026-07-12,,Japan,"Continental Championships, Continental Para Cup",2026-06-09
+195149,2026 World Triathlon Mixed Relay Championships Hamburg,2026-07-12,,Germany,World Championships,2026-06-09
+195339,2026 Europe Triathlon Cup Tata,2026-07-18,,Hungary,Continental Cup,2026-06-16
+195201,2026 Europe Triathlon Junior Cup Izvorani,2026-07-18,,Romania,Continental Junior Cup,2026-06-16
+195157,2026 World Triathlon Cup Edmonton,2026-07-18,Edmonton,Canada,World Cup,2026-06-16
+195139,2026 World Triathlon Para Cup Tata,2026-07-18,,Hungary,World Para Cup,2026-06-16
+195150,2026 World Triathlon Championship Series London,2026-07-25,London,Great Britain,World Championship Series,2026-06-23
+195186,2026 Europe Triathlon Junior Cup Tabor,2026-07-26,,Czech Republic,Continental Junior Cup,2026-06-23
+195169,2026 Europe Triathlon Sprint and Relay Championships Elblag,2026-07-31,,Poland,Continental Championships,2026-06-30
+195158,2026 World Triathlon Cup Rio de Janeiro,2026-08-01,,Brazil,World Cup,2026-06-30
+195262,2026 Americas Triathlon Cup Kelowna,2026-08-08,,Canada,Continental Cup,2026-07-07
+195305,2026 Asia Triathlon Cup Turkestan,2026-08-08,,Kazakhstan,Continental Cup,2026-07-07
+195306,2026 Asia Triathlon Junior Cup Turkestan,2026-08-08,,Kazakhstan,Continental Junior Cup,2026-07-07
+195159,2026 World Triathlon Cup Asuncion,2026-08-08,,Paraguay,World Cup,2026-07-07
+195200,2026 Europe Triathlon Junior Cup Chisinau,2026-08-15,,Moldova,Continental Junior Cup,2026-07-14
+195187,2026 Europe Triathlon Junior Cup Moletai,2026-08-22,,Lithuania,Continental Junior Cup,2026-07-21
+195160,2026 World Triathlon Cup Lima,2026-08-22,,Peru,World Cup,2026-07-21
+195188,2026 Europe Triathlon Junior Cup Riga,2026-08-29,,Latvia,Continental Junior Cup,2026-07-28
+195151,2026 World Triathlon Championship Series Weihai,2026-08-29,Weihai,China,World Championship Series,2026-07-28
+195189,2026 Europe Triathlon Cup Derry,2026-09-05,,Ireland,Continental Cup,2026-08-04
+195190,2026 Europe Triathlon Junior Cup Derry,2026-09-05,,Ireland,Continental Junior Cup,2026-08-04
+195140,2026 World Triathlon Para Cup Alhandra,2026-09-05,,Portugal,World Para Cup,2026-08-04
 195080,2026 World Triathlon Powerman Long Distance Duathlon Championships Zofingen,2026-09-06,Zofingen,Switzerland,"World Championships, Age-Group Event",2026-08-04
+195322,2026 Africa Triathlon Cup Monstir,2026-09-12,,Tunisia,Continental Cup,2026-08-11
+195323,2026 Africa Triathlon Junior Cup Monstir,2026-09-12,,Tunisia,Continental Junior Cup,2026-08-11
+195297,2026 Asia Triathlon Cup Cholpon-Ata,2026-09-12,,Kyrgyzstan,Continental Cup,2026-08-11
+195191,2026 Europe Triathlon Junior Cup Zagreb,2026-09-12,,Croatia,Continental Junior Cup,2026-08-11
+195152,2026 World Triathlon Championship Series Karlovy Vary,2026-09-13,Karlovy Vary,Czech Republic,World Championship Series,2026-08-11
+195221,2026 Africa Triathlon Cup Tipaza,2026-09-19,,Algeria,Continental Cup,2026-08-18
+195222,2026 Africa Triathlon Junior Cup Tipaza,2026-09-19,,Algeria,Continental Junior Cup,2026-08-18
+195263,2026 Americas Triathlon Duathlon Championships Merida,2026-09-19,,Venezuela,Continental Championships,2026-08-18
+195192,2026 Europe Triathlon Cup São Martinho do Porto,2026-09-19,,Portugal,Continental Cup,2026-08-18
 195085,2026 World Triathlon Age-Group Aquabike Championships Pontevedra,2026-09-23,,Spain,"World Championships, Age-Group Event",2026-08-18
 195086,2026 World Triathlon Age-Group Championships Pontevedra,2026-09-23,,Spain,"World Championships, Age-Group Event",2026-08-18
 195088,2026 World Triathlon Championship Finals Pontevedra,2026-09-23,,Spain,"World Championship Finals, World Championships",2026-08-18
-195087,2026 World Triathlon Para Championships Pontevedra,2026-09-23,,Spain,World Championships,2026-08-18
+195087,2026 World Triathlon Para Championships Pontevedra,2026-09-25,,Spain,World Championships,2026-08-25
+195197,2026 Europe Triathlon Junior Cup Bled,2026-09-26,,Slovenia,Continental Cup,2026-08-25
+195298,2026 Asia Triathlon Duathlon Cup Tabriz,2026-10-02,,Iran,Continental Cup,2026-09-01
+195161,2026 World Triathlon Cup Rome,2026-10-03,,Italy,World Cup,2026-09-01
+195198,2026 Europe Triathlon Cup Ceuta,2026-10-04,,Spain,Continental Cup,2026-09-01
+195223,2026 Africa Triathlon Championships Hurghada,2026-10-09,,Egypt,Continental Championships,2026-09-08
+195242,2026 Africa Triathlon Duathlon Age-Group Championships Hurghada,2026-10-09,,Egypt,"Continental Championships, Age-Group Event",2026-09-08
+195224,2026 Africa Triathlon Duathlon Championships Hurghada,2026-10-09,,Egypt,Continental Championships,2026-09-08
+195244,2026 Africa Triathlon Junior Cup Hurghada,2026-10-10,,Egypt,Continental Junior Cup,2026-09-08
+195245,2026 Africa Triathlon Aquathlon Age-Group Championships Hurghada,2026-10-11,,Egypt,"Continental Championships, Age-Group Event",2026-09-08
+195225,2026 Africa Triathlon Aquathlon Championships Hurghada,2026-10-11,,Egypt,Continental Championships,2026-09-08
+195264,2026 Americas Triathlon Premium Cup Santa Fe,2026-10-11,,Argentina,Continental Cup,2026-09-08
+195299,2026 Asia Triathlon Para Cup Chiba,2026-10-11,,Japan,Continental Para Cup,2026-09-08
+195199,2026 Europe Triathlon Cup Tenerife,2026-10-11,,Spain,Continental Cup,2026-09-08
+195300,2026 Asia Triathlon Cup Kota Kinabalu,2026-10-16,,Malaysia,Continental Cup,2026-09-15
+195126,2026 Europe Triathlon Youth Championships Melilla,2026-10-16,,Spain,Continental Championships,2026-09-15
+195301,2026 Asia Triathlon Cup Chonqing,2026-10-24,,China,Continental Cup,2026-09-22
+195162,2026 World Triathlon Cup Tongyeong,2026-10-24,,Republic of Korea,World Cup,2026-09-22
+195141,2026 World Triathlon Para Cup Alanya,2026-10-24,,Türkiye,World Para Cup,2026-09-22
+195163,2026 World Triathlon Cup Iquique,2026-10-31,,Chile,World Cup,2026-09-29
+195165,2026 World Triathlon Cup Hong Kong,2026-11-07,,"Hong Kong, China",World Cup,2026-10-06
+195164,2026 World Triathlon Cup San Pedro de la Paz,2026-11-07,,Chile,World Cup,2026-10-06
+195142,2026 World Triathlon Para Cup San Pedro de la Paz,2026-11-07,,Chile,World Para Cup,2026-10-06
+195003,2026 World Triathlon Multisport Championships Abu Dhabi,2026-11-13,Hudayriyat Island,United Arab Emirates,World Championships,2026-10-13
+195166,2026 World Triathlon Cup Miyazaki,2026-11-14,,Japan,World Cup,2026-10-13
+195302,2026 Asia Triathlon Sprint Championships Aqaba,2026-11-26,,Jordan,Continental Championships,2026-10-27
+195168,2026 World Triathlon Cup Jeddah,2026-11-27,,Saudi Arabia,World Cup,2026-10-27
+195226,2026 Africa Triathlon Cup Kilifi,2026-11-29,,Kenya,Continental Cup,2026-10-27
+195227,2026 Africa Triathlon Junior Cup Kilifi,2026-11-29,,Kenya,Continental Junior Cup,2026-10-27

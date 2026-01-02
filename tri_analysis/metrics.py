@@ -1,5 +1,13 @@
-from database import get_engine
+import argparse
+from pathlib import Path
+
 import pandas as pd
+from sqlalchemy import bindparam, text
+
+try:
+    from tri_analysis.database import get_engine
+except ImportError:  # pragma: no cover
+    from database import get_engine  # type: ignore
 
 def adjust_outlier(series, threshold=2):
     # For a given series of split times, if the minimum positive value is more than
@@ -12,21 +20,70 @@ def adjust_outlier(series, threshold=2):
         return series.mask(series == sorted_vals.iloc[0], pd.NA)
     return series
 
-# Load in all race results and calculate position metrics. Save to the position_metrics table.
-def calculate_position_metrics():
-    '''
-    try:
-        with open('latest_events.txt') as f:
-            event_ids = [int(line.strip()) for line in f if line.strip().isdigit()]
-            print(f"Calculating metrics for events: {event_ids}")
-    except Exception as e:
-        print("Could not load latest_events.txt, calculating for all events.")
-        event_ids = None'''
 
-    event_ids = None  # For now, calculate for all events
-    df = pd.read_sql_table('race_results', get_engine(), schema='public')
+def _project_root() -> Path:
+    return Path(__file__).resolve().parents[1]
+
+
+def load_latest_event_ids(events_file: str | Path = "latest_events.txt") -> list[int]:
+    """Load event IDs from a newline-delimited file.
+
+    Lines may contain extra whitespace; non-integer lines are ignored.
+    """
+    events_path = Path(events_file)
+    if not events_path.is_absolute():
+        events_path = _project_root() / events_path
+
+    event_ids: list[int] = []
+    if not events_path.exists():
+        raise FileNotFoundError(f"Latest events file not found: {events_path}")
+
+    for line in events_path.read_text(encoding="utf-8").splitlines():
+        s = line.strip()
+        if not s:
+            continue
+        try:
+            event_ids.append(int(s))
+        except ValueError:
+            continue
+
+    # De-dupe while preserving order
+    seen: set[int] = set()
+    deduped: list[int] = []
+    for eid in event_ids:
+        if eid not in seen:
+            seen.add(eid)
+            deduped.append(eid)
+    return deduped
+
+# Load in race results and calculate position metrics.
+def calculate_position_metrics(event_ids: list[int] | None = None, engine=None) -> pd.DataFrame:
+    engine = engine or get_engine()
+
+    base_sql = """
+        SELECT
+            athlete_id,
+            event_id,
+            prog_id,
+            swimtime,
+            t1time,
+            biketime,
+            t2time,
+            runtime,
+            position,
+            total_time,
+            start_num,
+            athlete_full_name
+        FROM race_results
+    """
+
     if event_ids:
-        df = df[df['event_id'].isin(event_ids)]
+        stmt = text(base_sql + " WHERE event_id IN :event_ids").bindparams(
+            bindparam("event_ids", expanding=True)
+        )
+        df = pd.read_sql(stmt, engine, params={"event_ids": event_ids})
+    else:
+        df = pd.read_sql(text(base_sql), engine)
     
     def parse_time_to_secs(t):
         if pd.isna(t) or t == "":
@@ -143,15 +200,80 @@ def calculate_position_metrics():
     )
     return df
 
+
+def refresh_position_metrics(metrics_df: pd.DataFrame, engine=None, chunksize: int = 5000) -> None:
+    """Refresh metrics for the events present in metrics_df.
+
+    This keeps historical metrics for other events intact.
+    Strategy:
+    1) DELETE existing position_metrics rows for these event_id(s)
+    2) INSERT (append) the freshly computed rows
+
+    This avoids requiring a UNIQUE constraint for ON CONFLICT upserts.
+    """
+    if metrics_df.empty:
+        print("No metrics to write.")
+        return
+
+    engine = engine or get_engine()
+    event_ids = sorted({int(x) for x in metrics_df["event_id"].dropna().unique().tolist()})
+    if not event_ids:
+        raise ValueError("metrics_df has no event_id values")
+
+    delete_stmt = text("DELETE FROM position_metrics WHERE event_id IN :event_ids").bindparams(
+        bindparam("event_ids", expanding=True)
+    )
+
+    with engine.begin() as conn:
+        conn.execute(delete_stmt, {"event_ids": event_ids})
+
+    metrics_df.to_sql(
+        "position_metrics",
+        engine,
+        if_exists="append",
+        index=False,
+        method="multi",
+        chunksize=chunksize,
+    )
+
 # Save the calculated metrics to a database or file
 def main():
-    df = calculate_position_metrics()
+    parser = argparse.ArgumentParser(description="Compute and persist position_metrics.")
+    parser.add_argument(
+        "--latest-events",
+        action="store_true",
+        help="Only compute metrics for event_ids listed in latest_events.txt",
+    )
+    parser.add_argument(
+        "--events-file",
+        default="latest_events.txt",
+        help="Path to latest events file (default: latest_events.txt)",
+    )
+    parser.add_argument(
+        "--chunksize",
+        type=int,
+        default=5000,
+        help="Insert chunksize for writing position_metrics",
+    )
+    args = parser.parse_args()
+
+    engine = get_engine()
+    event_ids = None
+    if args.latest_events:
+        event_ids = load_latest_event_ids(args.events_file)
+        print(f"Loaded {len(event_ids)} event_id(s) from {args.events_file}.")
+        if not event_ids:
+            print("No event IDs found; nothing to do.")
+            return
+
+    df = calculate_position_metrics(event_ids=event_ids, engine=engine)
     if df.empty:
         print("No valid data available for metrics calculation.")
         return
 
-    engine = get_engine()
-    df.to_sql('position_metrics', engine, if_exists='replace', index=False, method='multi')
+    print(f"Computed {len(df)} position_metrics rows; refreshing table for {df['event_id'].nunique()} event(s)...")
+    refresh_position_metrics(df, engine=engine, chunksize=args.chunksize)
+    print("position_metrics refresh complete.")
 
 if __name__ == "__main__":
     main()

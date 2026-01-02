@@ -24,11 +24,14 @@ try:
     # Prefer explicit module path
     from tri_analysis.config import HEADERS, EVENT_LISTING_URL, CATEGORY_IDS
 except Exception:  # fallback when executed within tri_analysis as CWD
-    from config import HEADERS, EVENT_LISTING_URL, CATEGORY_IDS
+    try:
+        from tri_analysis.config import HEADERS, EVENT_LISTING_URL, CATEGORY_IDS
+    except ImportError:  # pragma: no cover
+        from config import HEADERS, EVENT_LISTING_URL, CATEGORY_IDS  # type: ignore
 
 
 # Default categories per user request: Continental Cups, World Cups, WTCS, Para Series
-DEFAULT_CATEGORY_IDS = "340|341|342|623|352|624|348|349|449|350"
+DEFAULT_CATEGORY_IDS = "340|341|342|623|352|624|348|349|449|350|351|448"
 
 
 def nomination_tuesday(event_dt: date) -> date:

@@ -1,10 +1,36 @@
 import json
 import requests
 import pandas as pd
-from config import (
-    HEADERS, ATHLETE_RESULTS_URL, ATHLETE_DATA_URL, ATHLETE_SEARCH_URL, RANKING_URL, EVENT_LISTING_URL,
-    PROGRAM_LISTING_URL, PROGRAM_RESULTS_URL, PROGRAM_DETAILS_URL, BASE_URL, SPEC_IDS, CATEGORY_IDS
-)
+try:
+    from tri_analysis.config import (
+        HEADERS,
+        ATHLETE_RESULTS_URL,
+        ATHLETE_DATA_URL,
+        ATHLETE_SEARCH_URL,
+        RANKING_URL,
+        EVENT_LISTING_URL,
+        PROGRAM_LISTING_URL,
+        PROGRAM_RESULTS_URL,
+        PROGRAM_DETAILS_URL,
+        BASE_URL,
+        SPEC_IDS,
+        CATEGORY_IDS,
+    )
+except ImportError:  # pragma: no cover
+    from config import (  # type: ignore
+        HEADERS,
+        ATHLETE_RESULTS_URL,
+        ATHLETE_DATA_URL,
+        ATHLETE_SEARCH_URL,
+        RANKING_URL,
+        EVENT_LISTING_URL,
+        PROGRAM_LISTING_URL,
+        PROGRAM_RESULTS_URL,
+        PROGRAM_DETAILS_URL,
+        BASE_URL,
+        SPEC_IDS,
+        CATEGORY_IDS,
+    )
 
 def fetch_athlete_id_search(athlete_name: str) -> int:
     """

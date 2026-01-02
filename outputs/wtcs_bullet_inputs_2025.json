@@ -1,0 +1,242 @@
+[
+  {
+    "athlete_id": 96667,
+    "name": "Chase McQueen",
+    "gender": "male",
+    "radar": {
+      "swim": 8.49,
+      "bike": 7.69,
+      "run": 5.07,
+      "transitions": 6.18,
+      "n_swim": 6,
+      "n_bike": 6,
+      "n_run": 6,
+      "n_transitions": 6,
+      "swim_bracket": "top ~20%",
+      "bike_bracket": "top ~third",
+      "run_bracket": "below average",
+      "transitions_bracket": "above average"
+    },
+    "components": {
+      "swim": {
+        "n_races": 6,
+        "mean_swimrank_pct": 0.16739775797607936,
+        "mean_behindswim_pct": 0.23438660055217056
+      },
+      "bike": {
+        "n_races": 6,
+        "mean_bikerank_pct": 0.2602397245652877,
+        "mean_behindbike_pct": 0.14756476489967055,
+        "mean_gap_delta_pct": 0.249290621909141,
+        "mean_pos_delta_pct": 0.4647999408388682
+      },
+      "run": {
+        "n_races": 6,
+        "mean_runrank_pct": 0.7068258711019219,
+        "mean_behindrun_pct": 0.4517422535051756
+      },
+      "transitions": {
+        "n_races": 6,
+        "mean_t1_loss_pct": 0.472822270417601,
+        "mean_t2_loss_pct": 0.37716329299015205
+      }
+    },
+    "coupling": {
+      "n_merged": 6,
+      "mean_run_strength_when_swim_gap_good": 5.302121922021878,
+      "mean_run_strength_when_swim_gap_bad": 3.906150943396227
+    }
+  },
+  {
+    "athlete_id": 81334,
+    "name": "Taylor Spivey",
+    "gender": "female",
+    "radar": {
+      "swim": 8.14,
+      "bike": 5.52,
+      "run": 8.3,
+      "transitions": 5.59,
+      "n_swim": 7,
+      "n_bike": 7,
+      "n_run": 7,
+      "n_transitions": 7,
+      "swim_bracket": "top ~third",
+      "bike_bracket": "above average",
+      "run_bracket": "top ~20%",
+      "transitions_bracket": "above average"
+    },
+    "components": {
+      "swim": {
+        "n_races": 7,
+        "mean_swimrank_pct": 0.183525096948361,
+        "mean_behindswim_pct": 0.26209032875612215
+      },
+      "bike": {
+        "n_races": 7,
+        "mean_bikerank_pct": 0.5070325671781356,
+        "mean_behindbike_pct": 0.30794268928651053,
+        "mean_gap_delta_pct": 0.5230151061115668,
+        "mean_pos_delta_pct": 0.6550042301729705
+      },
+      "run": {
+        "n_races": 7,
+        "mean_runrank_pct": 0.16182501868904575,
+        "mean_behindrun_pct": 0.25290705086754445
+      },
+      "transitions": {
+        "n_races": 7,
+        "mean_t1_loss_pct": 0.40937448229960866,
+        "mean_t2_loss_pct": 0.5703593743434199
+      }
+    },
+    "coupling": {
+      "n_merged": 7,
+      "mean_run_strength_when_swim_gap_good": 8.306741679687576,
+      "mean_run_strength_when_swim_gap_bad": 8.243123336291038
+    }
+  },
+  {
+    "athlete_id": 123392,
+    "name": "Morgan Pearson",
+    "gender": "male",
+    "radar": {
+      "swim": 6.36,
+      "bike": 5.9,
+      "run": 7.6,
+      "transitions": 6.6,
+      "n_swim": 6,
+      "n_bike": 6,
+      "n_run": 6,
+      "n_transitions": 6,
+      "swim_bracket": "above average",
+      "bike_bracket": "above average",
+      "run_bracket": "top ~third",
+      "transitions_bracket": "above average"
+    },
+    "components": {
+      "swim": {
+        "n_races": 6,
+        "mean_swimrank_pct": 0.47652996971146183,
+        "mean_behindswim_pct": 0.4219223898656172
+      },
+      "bike": {
+        "n_races": 6,
+        "mean_bikerank_pct": 0.5892532281205164,
+        "mean_behindbike_pct": 0.40447537938701134,
+        "mean_gap_delta_pct": 0.4969011953974918,
+        "mean_pos_delta_pct": 0.48327068388330946
+      },
+      "run": {
+        "n_races": 6,
+        "mean_runrank_pct": 0.285251235453531,
+        "mean_behindrun_pct": 0.3347912209729394
+      },
+      "transitions": {
+        "n_races": 6,
+        "mean_t1_loss_pct": 0.22356892994186098,
+        "mean_t2_loss_pct": 0.5312815828181606
+      }
+    },
+    "coupling": {
+      "n_merged": 6,
+      "mean_run_strength_when_swim_gap_good": 8.414173593350384,
+      "mean_run_strength_when_swim_gap_bad": 5.967136965025311
+    }
+  },
+  {
+    "athlete_id": 106041,
+    "name": "Erika Ackerlund",
+    "gender": "female",
+    "radar": {
+      "swim": 4.04,
+      "bike": 6.29,
+      "run": 5.12,
+      "transitions": 5.72,
+      "n_swim": 5,
+      "n_bike": 5,
+      "n_run": 5,
+      "n_transitions": 5,
+      "swim_bracket": "bottom ~third",
+      "bike_bracket": "above average",
+      "run_bracket": "below average",
+      "transitions_bracket": "above average"
+    },
+    "components": {
+      "swim": {
+        "n_races": 5,
+        "mean_swimrank_pct": 0.6561756709959699,
+        "mean_behindswim_pct": 0.6774152414002039
+      },
+      "bike": {
+        "n_races": 5,
+        "mean_bikerank_pct": 0.35053555424399413,
+        "mean_behindbike_pct": 0.5175886296938927,
+        "mean_gap_delta_pct": 0.3535756668839375,
+        "mean_pos_delta_pct": 0.42820616364834974
+      },
+      "run": {
+        "n_races": 5,
+        "mean_runrank_pct": 0.5343668207176082,
+        "mean_behindrun_pct": 0.5617189340873552
+      },
+      "transitions": {
+        "n_races": 5,
+        "mean_t1_loss_pct": 0.5815411238719509,
+        "mean_t2_loss_pct": 0.3692151318467108
+      }
+    },
+    "coupling": {
+      "n_merged": 5,
+      "mean_run_strength_when_swim_gap_good": null,
+      "mean_run_strength_when_swim_gap_bad": 5.11684790744321
+    }
+  },
+  {
+    "athlete_id": 164894,
+    "name": "John Reed",
+    "gender": "male",
+    "radar": {
+      "swim": 5.26,
+      "bike": 3.8,
+      "run": 7.55,
+      "transitions": 5.38,
+      "n_swim": 8,
+      "n_bike": 8,
+      "n_run": 8,
+      "n_transitions": 8,
+      "swim_bracket": "below average",
+      "bike_bracket": "bottom ~third",
+      "run_bracket": "top ~third",
+      "transitions_bracket": "below average"
+    },
+    "components": {
+      "swim": {
+        "n_races": 8,
+        "mean_swimrank_pct": 0.507248138926769,
+        "mean_behindswim_pct": 0.5724548450430214
+      },
+      "bike": {
+        "n_races": 8,
+        "mean_bikerank_pct": 0.7428328995038266,
+        "mean_behindbike_pct": 0.6672188182765586,
+        "mean_gap_delta_pct": 0.7365382960676751,
+        "mean_pos_delta_pct": 0.6083712892081734
+      },
+      "run": {
+        "n_races": 8,
+        "mean_runrank_pct": 0.18384418993660073,
+        "mean_behindrun_pct": 0.47749116255060947
+      },
+      "transitions": {
+        "n_races": 8,
+        "mean_t1_loss_pct": 0.34901943382630607,
+        "mean_t2_loss_pct": 0.6775626328258949
+      }
+    },
+    "coupling": {
+      "n_merged": 8,
+      "mean_run_strength_when_swim_gap_good": 7.628516624040921,
+      "mean_run_strength_when_swim_gap_bad": 7.5069787687958796
+    }
+  }
+]

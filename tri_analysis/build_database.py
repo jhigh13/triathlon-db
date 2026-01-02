@@ -6,8 +6,27 @@ import datetime
 import pandas as pd
 from dotenv import load_dotenv
 from sqlalchemy import text
-from database import get_engine, initialize_database
-from config import ATHLETE_TABLE_NAME, RACE_RESULTS_TABLE_NAME, EVENTS_TABLE_NAME, RANKINGS_RESULTS_TABLE_NAME, METRICS_TABLE_NAME
+try:
+    from tri_analysis.database import get_engine, initialize_database
+except ImportError:  # pragma: no cover
+    from database import get_engine, initialize_database  # type: ignore
+
+try:
+    from tri_analysis.config import (
+        ATHLETE_TABLE_NAME,
+        RACE_RESULTS_TABLE_NAME,
+        EVENTS_TABLE_NAME,
+        RANKINGS_RESULTS_TABLE_NAME,
+        METRICS_TABLE_NAME,
+    )
+except ImportError:  # pragma: no cover
+    from config import (  # type: ignore
+        ATHLETE_TABLE_NAME,
+        RACE_RESULTS_TABLE_NAME,
+        EVENTS_TABLE_NAME,
+        RANKINGS_RESULTS_TABLE_NAME,
+        METRICS_TABLE_NAME,
+    )
 from tri_analysis.api_handling import (
     fetch_athlete_id_search,
     fetch_athlete_id_ranking,
@@ -60,8 +79,8 @@ def main():
     initialize_database()
 
     # Allow overriding the date window via environment variables for backfills (e.g., para-only last 4 years)
-    start_date = os.environ.get("START_DATE") or datetime.date(2025, 7, 15).strftime("%Y-%m-%d")
-    end_date = os.environ.get("END_DATE") or datetime.date(2025, 11, 23).strftime("%Y-%m-%d")
+    start_date = os.environ.get("START_DATE") or datetime.date(2025, 8, 10).strftime("%Y-%m-%d")
+    end_date = os.environ.get("END_DATE") or datetime.date(2025, 12, 1).strftime("%Y-%m-%d")
 
     # Initialize as an empty list to collect DataFrames from each process_program_data call
     event_df = []
