@@ -1,6 +1,7 @@
 import json
 import requests
 import pandas as pd
+from datetime import datetime
 try:
     from tri_analysis.config import (
         HEADERS,
@@ -12,6 +13,7 @@ try:
         PROGRAM_LISTING_URL,
         PROGRAM_RESULTS_URL,
         PROGRAM_DETAILS_URL,
+        PROGRAM_ENTRIES_URL,
         BASE_URL,
         SPEC_IDS,
         CATEGORY_IDS,
@@ -27,6 +29,7 @@ except ImportError:  # pragma: no cover
         PROGRAM_LISTING_URL,
         PROGRAM_RESULTS_URL,
         PROGRAM_DETAILS_URL,
+        PROGRAM_ENTRIES_URL,
         BASE_URL,
         SPEC_IDS,
         CATEGORY_IDS,
@@ -339,4 +342,77 @@ def fetch_rankings(ranking_cat_id: int, limit: int = 200) -> pd.DataFrame:
             'retrieved_at':   pd.to_datetime(js['published']).date()
         })
     return pd.DataFrame(records)
+
+
+def fetch_program_entries(event_id: int, prog_id: int, entry_type: str = "start", limit: int | None = None) -> dict:
+    """Fetch program entries for a given (event_id, prog_id).
+
+    This is used for start lists (default) and can support wait lists in the future.
+
+    Notes:
+    - Wait lists may return 403 until 30 days pre-event (per API docs).
+    """
+    params: dict = {"type": entry_type}
+    if limit is not None:
+        params["limit"] = limit
+    url = PROGRAM_ENTRIES_URL.format(event_id=event_id, prog_id=prog_id)
+    resp = requests.get(url, headers=HEADERS, params=params)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def normalize_program_entries(payload: dict, entry_type: str = "start") -> pd.DataFrame:
+    """Normalize the Program Entries API payload into a single DataFrame.
+
+    Produces one row per entry in payload['data']['entries'].
+    """
+    data = (payload or {}).get("data") or {}
+    event_id = data.get("event_id")
+    prog_id = data.get("prog_id")
+    entries = data.get("entries") or []
+    if not isinstance(entries, list) or not entries:
+        return pd.DataFrame(columns=[
+            "event_id", "prog_id", "entry_id", "entry_type",
+            "approved", "start_num", "api_updated_at", "last_fetched_at",
+            "is_active", "removed_at",
+            "athlete_id", "athlete_full_name", "athlete_first", "athlete_last",
+            "athlete_gender", "athlete_country_id", "athlete_country_name",
+            "athlete_noc", "athlete_yob", "athlete_slug", "validated",
+        ])
+
+    now_utc = pd.Timestamp.now(tz="UTC")
+    rows: list[dict] = []
+    for e in entries:
+        if not isinstance(e, dict):
+            continue
+        api_updated_at = pd.to_datetime(e.get("updated_at"), errors="coerce", utc=True)
+        row = {
+            "event_id": event_id,
+            "prog_id": prog_id,
+            "entry_id": e.get("entry_id"),
+            "entry_type": entry_type,
+            "approved": e.get("approved"),
+            "start_num": None if e.get("start_num") is None else str(e.get("start_num")),
+            "api_updated_at": None if pd.isna(api_updated_at) else api_updated_at.to_pydatetime(),
+            "last_fetched_at": now_utc.to_pydatetime(),
+            "is_active": True,
+            "removed_at": None,
+            "athlete_id": e.get("athlete_id"),
+            "athlete_full_name": e.get("athlete_full_name") or e.get("athlete_title"),
+            "athlete_first": e.get("athlete_first"),
+            "athlete_last": e.get("athlete_last"),
+            "athlete_gender": e.get("athlete_gender"),
+            "athlete_country_id": e.get("athlete_country_id"),
+            "athlete_country_name": e.get("athlete_country_name"),
+            "athlete_noc": e.get("athlete_noc"),
+            "athlete_yob": e.get("athlete_yob"),
+            "athlete_slug": e.get("athlete_slug"),
+            "validated": e.get("validated"),
+        }
+        rows.append(row)
+
+    df = pd.DataFrame(rows)
+    # Ensure nullable columns don't get pandas NaN
+    df = df.where(~df.isna(), None)
+    return df
 

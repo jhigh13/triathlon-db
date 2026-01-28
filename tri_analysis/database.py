@@ -208,6 +208,35 @@ def initialize_database():
         Column('computed_at', DateTime, nullable=False),
         PrimaryKeyConstraint('event_id', 'prog_id', 'athlete_id', 'checkpoint', name='pk_wtcs_pack_membership')
     )
+
+    # Program entries (start lists). One row per entry_id per (event_id, prog_id).
+    # Note: we intentionally keep key athlete fields denormalized for quick display,
+    # but athlete_id still joins to the athlete dimension when present.
+    Table(
+        'program_entries', metadata,
+        Column('event_id', Integer, nullable=False),
+        Column('prog_id', Integer, nullable=False),
+        Column('entry_id', Integer, nullable=False),
+        Column('entry_type', String, nullable=False),
+        Column('approved', Boolean, nullable=True),
+        Column('start_num', String, nullable=True),
+        Column('api_updated_at', DateTime(timezone=True), nullable=True),
+        Column('last_fetched_at', DateTime(timezone=True), nullable=False),
+        Column('is_active', Boolean, nullable=False),
+        Column('removed_at', DateTime(timezone=True), nullable=True),
+        Column('athlete_id', Integer, nullable=True),
+        Column('athlete_full_name', String, nullable=True),
+        Column('athlete_first', String, nullable=True),
+        Column('athlete_last', String, nullable=True),
+        Column('athlete_gender', String, nullable=True),
+        Column('athlete_country_id', Integer, nullable=True),
+        Column('athlete_country_name', String, nullable=True),
+        Column('athlete_noc', String, nullable=True),
+        Column('athlete_yob', Integer, nullable=True),
+        Column('athlete_slug', String, nullable=True),
+        Column('validated', Boolean, nullable=True),
+        PrimaryKeyConstraint('event_id', 'prog_id', 'entry_id', name='pk_program_entries')
+    )
     
     # Staging table for historical rankings (no constraints)
     Table(
@@ -430,6 +459,16 @@ def initialize_database():
         conn.execute(text(
             'CREATE INDEX IF NOT EXISTS idx_wtcs_pack_membership_athlete_checkpoint '
             'ON wtcs_pack_membership (athlete_id, checkpoint)'
+        ))
+
+        # Helpful indexes for program entries lookups
+        conn.execute(text(
+            'CREATE INDEX IF NOT EXISTS idx_program_entries_event_prog_active '
+            'ON program_entries (event_id, prog_id, entry_type, is_active)'
+        ))
+        conn.execute(text(
+            'CREATE INDEX IF NOT EXISTS idx_program_entries_athlete '
+            'ON program_entries (athlete_id)'
         ))
         # Ensure critical integer columns are wide enough (avoid smallint overflows)
         # Note: ALTER TYPE to same type is a no-op; this is safe to run repeatedly.

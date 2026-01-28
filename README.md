@@ -1,4 +1,4 @@
-# Triathlon‑DB
+# Triathlon‑DB  ** OUTDATED ** 
 
 [![CI](https://github.com/jhigh13/triathlon-db/actions/workflows/ci.yml/badge.svg)](https://github.com/jhigh13/triathlon-db/actions/workflows/ci.yml)
 [![Coverage](https://img.shields.io/coveralls/github/jhigh13/triathlon-db?style=flat)](https://coveralls.io/github/jhigh13/triathlon-db)
@@ -135,16 +135,67 @@ I have included both the raw `.pbix` and a static PDF export below.
 
 ---
 
-## Contributing
+## Race Prediction (v1)
 
-Pull requests welcome. Please open an issue first to discuss major changes.
+Pre-race predictions for WTCS draft-legal events using historical results, pack dynamics, and Monte Carlo simulation.
+
+### Quick Start
 
 ```bash
-# run tests (will exist after Sprint‑2)
-pytest -q
+# 1. Train models on historical data (2022-2025)
+python scripts/train_models.py \
+    --start_date 2022-01-01 \
+    --end_date 2025-12-31 \
+    --output models/bundle.joblib
+
+# 2. Predict an upcoming program
+python scripts/predict_program.py \
+    --event_id 178882 \
+    --prog_id 553345 \
+    --model_path models/bundle.joblib
+```
+
+### Features Used (MVP)
+- **Athlete Form**: EWMA swim/bike/run/total (last 5), std_total_24m, days_since_last_race
+- **Draft-Legal Pack Metrics**: front_pack_rate, avg_swim_gap_leader (from `wtcs_pack_membership`)
+- **Field Context**: seed_total_rank, n_entrants
+
+### Outputs
+- Predicted finishing order (deterministic, sorted by total time)
+- Predicted splits (swim, bike, run) and total time
+- Win/podium/top-5/top-10/top-20 probabilities (Monte Carlo)
+- Rank intervals (10th-90th percentile)
+- CSV export to `outputs/`
+
+### Backtesting
+```python
+from tri_analysis.prediction.evaluate import backtest_events
+from tri_analysis.database import get_engine
+
+engine = get_engine()
+results = backtest_events(
+    engine,
+    event_prog_keys=[(178882, 553345), (178883, 553346)],
+    bundle_path="models/bundle.joblib"
+)
+print(results[["event_id", "precision_at_10", "spearman_corr", "mae_total_sec"]])
+```
+
+### Module Structure
+```
+tri_analysis/prediction/
+├── __init__.py      # Package exports
+├── utils_time.py    # Time parsing (mm:ss → seconds)
+├── sql.py           # Database queries (no leakage)
+├── features.py      # Feature engineering
+├── train.py         # Model training + persistence
+├── predict.py       # Deterministic predictions
+├── simulate.py      # Monte Carlo probabilities
+└── evaluate.py      # Metrics + backtesting
 ```
 
 ---
+
 
 ## License
 

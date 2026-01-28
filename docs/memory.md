@@ -1,5 +1,131 @@
 # Triathlon Database - File Memory
 
+## Recent File Changes (January 2026)
+
+### Prediction Anchoring Fix (2026-01-26)
+
+#### Problem Diagnosed
+- Model had inverted learning: athletes with unusually fast EMAs (like Reese Vannerson) were predicted SLOWER
+- Root cause: tree-based model learned U-shaped relationship - very fast EMA correlates with racing at higher tiers
+- When fast athlete races at lower tier event, model predicts "regression to mean" (unrealistically slow)
+- Example: Vannerson (EMA=52.7m, best=49.9m) predicted at 63.6m (10.8 min slower than EMA!)
+
+#### `tri_analysis/prediction/predict.py` (Fixed 2026-01-26)
+- **Added**: Prediction anchoring to prevent absurd slowdowns
+- **Logic**: Cap predictions at 110% of athlete's EMA total time
+- **Effect**: Vannerson rank improved from 22nd to 6th (now appropriately top tier)
+
+#### `tri_analysis/prediction/sql.py` (Fixed 2026-01-26)
+- **Added**: `distance_category` parameter to `fetch_pack_history()`
+- **Fixed**: Pack metrics (ema_bike_gap_sec_7, etc.) now filter by distance
+- **Impact**: Prevented Olympic distance gaps (~4500s) mixing with Sprint gaps (~1000s)
+
+### Event Tier Classification & Sample Weighting
+
+#### `tri_analysis/prediction/features.py` (Updated 2026-01-26)
+- **Added**: `EVENT_TIER_PATTERNS` dict - regex patterns for classifying event tiers
+  - Tier 1: WTCS/Championship Series, World Championship Finals
+  - Tier 2: World Cup events
+  - Tier 3: Regional (Continental Cup, Americas Cup, etc.)
+  - Tier 4: Other events
+- **Added**: `TIER_SAMPLE_WEIGHTS` = {1: 4.0, 2: 2.0, 3: 1.5, 4: 1.0}
+- **Added**: `classify_event_tier(event_name)` function
+- **Added**: `event_tier` as feature column (now 18 total features)
+- **Updated**: `build_features_for_program()` now passes distance_category to pack fetch
+
+#### `tri_analysis/prediction/train.py` (Updated 2026-01-26)
+- **Added**: `use_sample_weights` parameter to `train_baseline_models()`
+- **Added**: Sample weighting based on event tier during training
+- **Effect**: WTCS events get 4x weight, World Cups 2x, Regional 1.5x
+
+#### `tri_analysis/prediction/sql.py` (Fixed 2026-01-26)
+- **Fixed**: `fetch_event_metadata()` was missing `event_name` column in SELECT
+- **Impact**: Without this fix, ALL events were classified as tier 4
+
+### Model Performance (2026-01-26)
+- **Previous**: Precision@10 ~22%, Spearman ~0.40
+- **After pack features**: Precision@10 44%, Spearman 0.11  
+- **After tier weighting fix**: Precision@10 47.9%, Spearman 0.105
+- **Training data**: 22,811 samples across tiers (2,187 T1, 3,869 T2, 7,782 T3, 8,973 T4)
+- **Model v5**: 38,328 samples (2018-2025), includes distance-filtered pack features
+
+### Prediction Pipeline (`tri_analysis/prediction/`)
+
+#### `tri_analysis/prediction/__init__.py`
+- **Purpose**: Package init exposing key utilities (parse_time_to_seconds, seconds_to_hms, ProgramKey)
+
+#### `tri_analysis/prediction/utils_time.py`
+- **Purpose**: Time string parsing ("mm:ss", "hh:mm:ss") to/from integer seconds
+- **Key Functions**: `parse_time_to_seconds()`, `seconds_to_hms()`, `parse_time_columns()`
+- **Handles**: None, empty, DNF/DNS/DSQ strings gracefully
+
+#### `tri_analysis/prediction/sql.py`
+- **Purpose**: Parameterized SQL queries for prediction data extraction
+- **Key Functions**: 
+  - `fetch_program_results()` - labeled rows for a program
+  - `fetch_athlete_history()` - prior finisher results (no leakage)
+  - `fetch_pack_history()` - wtcs_pack_membership history (now with distance filtering)
+  - `fetch_start_list()` - program_entries for upcoming races
+- **Uses**: ProgramKey(event_id, prog_id) dataclass
+
+#### `tri_analysis/prediction/features.py`
+- **Purpose**: Feature engineering for athlete form, pack metrics, and field context
+- **Key Functions**:
+  - `compute_athlete_form_features()` - EWMA splits, std, days since race
+  - `compute_pack_features()` - front_pack_rate, avg_swim_gap_leader
+  - `compute_field_context_features()` - seed_total_rank, n_entrants
+  - `build_features_for_program()` - complete feature matrix for a program
+- **MVP Features**: ema_{swim,bike,run,total}_sec_5, std_total_sec_24m, days_since_last_race, front_pack_rate, avg_swim_gap_leader, seed_total_rank, n_entrants
+
+#### `tri_analysis/prediction/train.py`
+- **Purpose**: Model training and persistence
+- **Key Components**:
+  - `ModelBundle` dataclass: stores model_swim, model_bike, model_run, model_total, feature_columns, metadata
+  - `train_baseline_models()` - trains HistGradientBoostingRegressor (or LightGBM if available)
+  - `save_model_bundle()` / `load_model_bundle()` - joblib persistence
+  - `build_training_dataset()` - creates training DataFrame from historical programs
+
+#### `tri_analysis/prediction/predict.py`
+- **Purpose**: Deterministic predictions from trained models
+- **Key Functions**:
+  - `predict_splits_and_total()` - adds pred_{swim,bike,run,total}_sec, predicted_rank
+  - `format_prediction_output()` - clean display DataFrame
+
+#### `tri_analysis/prediction/simulate.py`
+- **Purpose**: Monte Carlo simulation for probability estimates
+- **Key Functions**:
+  - `estimate_uncertainty()` - adds sigma columns from std_total_sec_24m
+  - `run_monte_carlo()` - 10k simulations with pack effects
+  - Returns: prob_win, prob_podium, prob_top5, prob_top10, prob_top20, expected_rank, rank intervals, time intervals
+- **Draft-Legal Features**: Pack bonus/penalty effects on bike segment
+
+#### `tri_analysis/prediction/evaluate.py`
+- **Purpose**: Evaluation metrics and backtesting
+- **Key Functions**:
+  - `precision_at_k()` - fraction of true top-K in predicted top-K
+  - `spearman_rank_corr()` - rank correlation
+  - `compute_mae()` - mean absolute error for times
+  - `backtest_events()` - rolling backtest harness
+
+### CLI Scripts
+
+#### `scripts/train_models.py`
+- **Purpose**: Train prediction models from historical data
+- **Usage**: `python scripts/train_models.py --start_date 2022-01-01 --end_date 2025-12-31 --output models/bundle.joblib`
+
+#### `scripts/predict_program.py`
+- **Purpose**: Predict outcomes for an upcoming program
+- **Usage**: `python scripts/predict_program.py --event_id 123 --prog_id 456 --model_path models/bundle.joblib`
+- **Outputs**: Prints top 20 table, saves CSV to outputs/
+
+### Test Files
+
+#### `tests/test_prediction.py`
+- **Purpose**: Unit tests for prediction pipeline
+- **Coverage**: Time parsing, feature computation, simulation, evaluation metrics
+
+---
+
 ## Recent File Changes (June 2025)
 
 ### Core ETL Pipeline Files
@@ -252,6 +378,16 @@
   - Prints a table to stdout and writes CSV to `tri_analysis/outputs/future_tri_events.csv`.
 - Default categories covered: 340, 341, 342, 623, 352, 624, 348, 349, 449, 350.
 - **Notes**: Initial skeleton powering new Streamlit page. Future expansion: pack classification persistence, lead/chase participation rates, PDF export staging.
+
+#### `tri_analysis/update_program_entries.py`
+- Purpose: Pull upcoming event start lists (Program Entries) and persist them to the DB for downstream prediction/simulation workflows.
+- How it works:
+  - Uses `fetch_events_ids` (date window) and `fetch_program_ids` (broad program selection) to build (event_id, prog_id) pairs.
+  - Calls the Program Entries endpoint (`/events/{event_id}/programs/{prog_id}/entries?type=start`) and normalizes rows via `normalize_program_entries`.
+  - Upserts into `program_entries` and deactivates entries that disappeared since the last successful pull.
+- Notes:
+  - Does not store waitlists or raw JSON snapshots (by design for now).
+  - Tunable concurrency via env vars (`PROGRAM_WORKERS`, `ENTRY_WORKERS`) for faster extraction.
 
 #### `streamlit_app.py` (Sept 2025 addition)
 - Added new navigation option "WTCS US Performance" with skeleton page rendering summary table and best/worst race IDs using new helper module functions.
