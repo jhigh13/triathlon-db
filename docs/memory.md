@@ -169,6 +169,9 @@
 - **test_hello_world.py**: Basic environment validation
 - **Coverage**: Integrated with GitHub Actions CI/CD pipeline
 
+#### `tests/conftest.py`
+- **Purpose**: Ensures the repo root is on `sys.path` so `tri_analysis` imports work reliably when running tests via `pytest.exe` on Windows.
+
 ### Data & Infrastructure
 
 #### `requirements.txt`
@@ -231,6 +234,13 @@
 #### `tri_analysis/para_standards.py`
 - **Purpose**: Standalone CLI report generator to compare a selected USA athlete vs Paris medalists for a para category since 2021.
 - **Key Points**: Finds Paris benchmark event via `events` (major games + `is_para`), extracts medalists from `race_results`, filters history to major para events, outputs HTML+PNG charts and a CSV dataset.
+- **Benchmark System**: 
+  - "Win Gold" uses only Paris gold medalist (position 1, weight 1.0).
+  - "Gold Contention" uses weighted average: Paris medalists 1/2/3 (weights 0.5/0.3/0.2) + additional top contenders (weight 0.15 each).
+  - Additional contenders configured per category in `ADDITIONAL_BENCHMARK_ATHLETES` dict (e.g., athletes who didn't medal at Paris but are top-tier competitors).
+- **Time-Factor Handling**: For PTWC (H2) and PTVI (B2/B3), computes effort total (sum of splits) and factor segment (placing total - effort total) for transparency; benchmarks use placing/adjusted totals.
+- **Recent Changes**:
+  - **Jan 2026**: Added support for additional benchmark athletes beyond Paris medalists; configurable per category with automatic database lookup and weighting (0.15 per athlete).
 
 #### `tests/test_para_standards.py`
 - **Purpose**: Unit tests for time parsing and pace conversion helpers used by para standards reporting.

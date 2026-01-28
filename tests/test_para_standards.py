@@ -102,6 +102,7 @@ def test_composite_score_positive_when_usa_better():
                 "event_label": "Test Event",
                 "event_date": "2024-01-01",
                 "athlete_id": 100,
+                "finish_status": "FINISH",
                 # USA better: lower swim/run pace + lower transitions + higher bike speed
                 "swim_pace_s_per_100m": 90.0,
                 "bike_speed_kmh": 36.0,
@@ -115,6 +116,7 @@ def test_composite_score_positive_when_usa_better():
                 "event_label": "Test Event",
                 "event_date": "2024-01-01",
                 "athlete_id": 200,
+                "finish_status": "FINISH",
                 # Benchmark worse
                 "swim_pace_s_per_100m": 95.0,
                 "bike_speed_kmh": 34.0,
@@ -128,6 +130,131 @@ def test_composite_score_positive_when_usa_better():
     composite, _scales = compute_composite_scores(df, usa_athlete_id=100, athlete_weights={200: 1.0})
     assert len(composite) == 1
     assert float(composite.loc[0, "score"]) > 0
+
+
+def test_time_factor_normalization_ptvi_b3_2025_subtracts_from_swim_and_total():
+    from tri_analysis.para_standards import compute_metrics
+
+    df = pd.DataFrame(
+        [
+            {
+                "event_id": 1,
+                "prog_id": 1,
+                "event_name": "Test Event",
+                "event_date": "2025-06-01",
+                "prog_name": "PTVI Men",
+                "prog_distance_category": "Sprint",
+                "swim_distance": 750.0,
+                "bike_distance": 20000.0,
+                "run_distance": 5000.0,
+                "athlete_id": 10,
+                "full_name": "Oscar Kelly B3",
+                "finish_status": "FINISH",
+                "finish_position": 1,
+                # Includes factor in swim (2:41 for PTVI Men)
+                "swimtime": "00:12:00",
+                "t1time": "00:00:30",
+                "biketime": "00:30:00",
+                "t2time": "00:00:30",
+                "runtime": "00:15:00",
+                "total_time": "00:58:00",
+            }
+        ]
+    )
+
+    out = compute_metrics(df)
+    row = out.iloc[0]
+    assert row["para_subclass"] == "B3"
+    assert row["time_factor_year"] == 2025
+    assert row["time_factor_sec"] == 161
+    assert bool(row["time_factor_applied"]) is True
+    assert float(row["swimtime_sec_adjusted"]) == 12 * 60
+    # Swim splits are not adjusted (feeds are inconsistent); raw == adjusted
+    assert float(row["swimtime_sec_raw"]) == 12 * 60
+
+    assert float(row["total_time_sec_adjusted"]) == 58 * 60
+    # Effort total from sum of splits: 12:00 + 0:30 + 30:00 + 0:30 + 15:00 = 58:00
+    assert float(row["sum_splits_sec"]) == 58 * 60
+    assert float(row["total_time_sec_raw"]) == 58 * 60
+    # Default behavior: total_time_sec remains adjusted-for-placing
+    assert float(row["total_time_sec"]) == 58 * 60
+
+
+def test_time_factor_segment_matches_adjusted_minus_effort_total():
+    from tri_analysis.para_standards import compute_metrics
+
+    df = pd.DataFrame(
+        [
+            {
+                "event_id": 1,
+                "prog_id": 1,
+                "event_name": "Test Event",
+                "event_date": "2025-06-01",
+                "prog_name": "PTWC Women",
+                "prog_distance_category": "Sprint",
+                "swim_distance": 750.0,
+                "bike_distance": 20000.0,
+                "run_distance": 5000.0,
+                "athlete_id": 10,
+                "full_name": "Kendall Gretsch H2",
+                "finish_status": "FINISH",
+                "finish_position": 1,
+                # Swim split is effort; adjusted total includes factor (3:38)
+                "swimtime": "00:11:51",
+                "t1time": "00:00:51",
+                "biketime": "00:35:37",
+                "t2time": "00:00:33",
+                "runtime": "00:12:55",
+                "total_time": "01:05:25",
+            }
+        ]
+    )
+
+    out = compute_metrics(df)
+    row = out.iloc[0]
+    assert bool(row["time_factor_applied"]) is True
+    assert float(row["time_factor_sec"]) == 218
+    assert float(row["sum_splits_sec"]) == (11 * 60 + 51) + (0 * 60 + 51) + (35 * 60 + 37) + (0 * 60 + 33) + (12 * 60 + 55)
+    assert float(row["total_time_sec_adjusted"]) == (65 * 60 + 25)
+    assert float(row["total_time_sec_raw"]) == float(row["sum_splits_sec"])
+    assert float(row["time_factor_segment_sec"]) == 218
+
+
+def test_time_factor_not_applied_for_pre_2024_years():
+    from tri_analysis.para_standards import compute_metrics
+
+    df = pd.DataFrame(
+        [
+            {
+                "event_id": 1,
+                "prog_id": 1,
+                "event_name": "Test Event",
+                "event_date": "2023-06-01",
+                "prog_name": "PTWC Women",
+                "prog_distance_category": "Sprint",
+                "swim_distance": 750.0,
+                "bike_distance": 20000.0,
+                "run_distance": 5000.0,
+                "athlete_id": 10,
+                "full_name": "Kendall Gretsch H2",
+                "finish_status": "FINISH",
+                "finish_position": 1,
+                "swimtime": "00:12:00",
+                "t1time": "00:00:30",
+                "biketime": "00:30:00",
+                "t2time": "00:00:30",
+                "runtime": "00:15:00",
+                "total_time": "01:00:00",
+            }
+        ]
+    )
+
+    out = compute_metrics(df)
+    row = out.iloc[0]
+    assert row["para_subclass"] == "H2"
+    assert pd.isna(row["time_factor_sec"])
+    assert pd.isna(row["time_factor_year"])
+    assert bool(row["time_factor_applied"]) is False
 
 
 def test_time_to_seconds_formats():

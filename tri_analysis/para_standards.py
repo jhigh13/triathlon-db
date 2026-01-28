@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Optional
@@ -31,6 +32,22 @@ DEFAULT_MAJOR_CAT_PATTERNS = [
     "%Para Championships%",
     "%World Triathlon Para%",
 ]
+
+# Additional top contenders (beyond Paris medalists) to include in benchmarks.
+# These are athletes who didn't medal at Paris but are considered top-tier competitors.
+ADDITIONAL_BENCHMARK_ATHLETES = {
+    "PTS2 Men": ["Maurits Morsink", "Lionel Morales", "Wim DePaepe"],
+    "PTS3 Men": ["Henry Urand", "Cedric Denuziere"],
+    "PTS4 Men": ["Pierre-Antoine Baele", "Gregoire Berthon"],
+    "PTS5 Men": ["Stefan Daniel", "Bence Mocsari"],
+    "PTVI Men": ["Owen Cravens", "Hector Catala Laparra"],
+    "PTWC Women": ["Jessica Ferreira"],
+    "PTS2 Women": ["Anu Francis"],
+    "PTS3 Women": ["Elise Marc", "Kenia Villalobos", "Sanne Koopman"],  # Pontevedra 2023 podium (PTS3 wasn't a Paris medal event)
+    "PTS4 Women": ["Kelly Elmlinger", "Grace Brimelow"],
+    "PTS5 Women": ["Kamylle Frenette"],
+    "PTVI Women": ["Leticia Freitas", "Alison Peasgood", "Chloe MacCombe", "Judith MacCombe"],
+}
 
 
 @dataclass(frozen=True)
@@ -307,6 +324,42 @@ def fetch_paris_medalists(engine: Engine, bench: BenchmarkEvent) -> pd.DataFrame
     return df
 
 
+def fetch_additional_benchmark_athletes(engine: Engine, category: str) -> pd.DataFrame:
+    """Fetch additional top contenders for the category to include in benchmarks.
+    
+    Returns a dataframe with athlete_id, full_name, and a synthetic finish_position (starting at 4).
+    """
+    athlete_names = ADDITIONAL_BENCHMARK_ATHLETES.get(category, [])
+    if not athlete_names:
+        return pd.DataFrame(columns=["athlete_id", "full_name", "finish_position"])
+    
+    results = []
+    for name in athlete_names:
+        query = text(
+            """
+            SELECT athlete_id, full_name
+            FROM athlete
+            WHERE full_name ILIKE :pattern
+            LIMIT 1
+            """
+        )
+        with engine.begin() as conn:
+            df = pd.read_sql(query, conn, params={"pattern": f"%{name}%"})
+        
+        if not df.empty:
+            results.append(df.iloc[0])
+        else:
+            print(f"Warning: Could not find athlete '{name}' in database for category '{category}'")
+    
+    if not results:
+        return pd.DataFrame(columns=["athlete_id", "full_name", "finish_position"])
+    
+    additional = pd.DataFrame(results)
+    # Assign synthetic positions starting at 4 (after the 3 medalists)
+    additional["finish_position"] = range(4, 4 + len(additional))
+    return additional
+
+
 def fetch_major_history(
     engine: Engine,
     category: str,
@@ -414,7 +467,7 @@ def _infer_distance_panel_from_distances(
     return "Other"
 
 
-def compute_metrics(df: pd.DataFrame) -> pd.DataFrame:
+def compute_metrics(df: pd.DataFrame, normalize_time_factor: bool = True) -> pd.DataFrame:
     if df.empty:
         return df
 
@@ -428,6 +481,10 @@ def compute_metrics(df: pd.DataFrame) -> pd.DataFrame:
         out["event_name"] = ""
     if "event_date" not in out.columns:
         out["event_date"] = pd.NaT
+    if "full_name" not in out.columns:
+        out["full_name"] = ""
+    if "prog_name" not in out.columns:
+        out["prog_name"] = ""
 
     for col in ["swimtime", "t1time", "biketime", "t2time", "runtime", "total_time"]:
         out[col + "_sec"] = out[col].apply(time_to_seconds)
@@ -441,6 +498,128 @@ def compute_metrics(df: pd.DataFrame) -> pd.DataFrame:
     nonfinish = out["finish_status"].fillna("").str.upper().ne("FINISH")
     for col in ["swimtime_sec", "t1time_sec", "biketime_sec", "t2time_sec", "runtime_sec", "total_time_sec"]:
         out.loc[nonfinish, col] = pd.NA
+
+    # --- Para time-factor normalization (PTVI/PTWC) ---
+    # Some para categories apply a fixed start offset ("time factor") to certain subclasses.
+    # In the results feed this often appears as extra time embedded in the swim split (and thus total_time).
+    # For standards/pace analysis we normalize by removing that factor so swim/total reflect comparable effort.
+    # We preserve the original values for transparency.
+
+    def _parse_gender_from_prog_name(prog_name: object) -> Optional[str]:
+        s = str(prog_name or "").lower()
+        if "women" in s:
+            return "Women"
+        if "men" in s:
+            return "Men"
+        return None
+
+    def _parse_division_from_prog_name(prog_name: object) -> Optional[str]:
+        s = str(prog_name or "").upper()
+        if "PTVI" in s:
+            return "PTVI"
+        if "PTWC" in s:
+            return "PTWC"
+        return None
+
+    def _extract_para_subclass(full_name: object) -> Optional[str]:
+        s = str(full_name or "").strip()
+        if not s:
+            return None
+        m = re.search(r"\b(B[123]|H[12])\b\s*$", s)
+        if not m:
+            return None
+        return m.group(1)
+
+    # Known seasonal factors (seconds).
+    # Only apply factors for matching years. For future years beyond our table, carry forward the latest year.
+    _PARA_TIME_FACTOR_SECONDS: dict[int, dict[tuple[str, str], int]] = {
+        2024: {
+            ("PTWC", "Women"): 3 * 60 + 38,
+            ("PTWC", "Men"): 3 * 60 + 0,
+            ("PTVI", "Women"): 3 * 60 + 11,
+            ("PTVI", "Men"): 2 * 60 + 41,
+        },
+        2025: {
+            ("PTWC", "Women"): 3 * 60 + 38,
+            ("PTWC", "Men"): 3 * 60 + 8,
+            ("PTVI", "Women"): 3 * 60 + 11,
+            ("PTVI", "Men"): 2 * 60 + 41,
+        },
+    }
+
+    def _factor_year(event_year: Optional[int]) -> Optional[int]:
+        if not event_year:
+            return None
+        years = sorted(_PARA_TIME_FACTOR_SECONDS.keys())
+        if not years:
+            return None
+        if event_year in _PARA_TIME_FACTOR_SECONDS:
+            return event_year
+        # If we have future seasons not yet encoded, assume latest known year
+        if event_year > years[-1]:
+            return years[-1]
+        # For years earlier than our factor table, do not guess.
+        return None
+
+    def _infer_time_factor_seconds(row: pd.Series) -> tuple[Optional[int], Optional[int]]:
+        division = _parse_division_from_prog_name(row.get("prog_name"))
+        gender = _parse_gender_from_prog_name(row.get("prog_name"))
+        if not division or not gender:
+            return None, None
+
+        dt = pd.to_datetime(row.get("event_date"), errors="coerce")
+        year = int(dt.year) if pd.notna(dt) else None
+        factor_year = _factor_year(year)
+        if factor_year is None:
+            return None, None
+
+        sec = _PARA_TIME_FACTOR_SECONDS.get(factor_year, {}).get((division, gender))
+        if not sec:
+            return None, factor_year
+        return int(sec), factor_year
+
+    out["para_subclass"] = out["full_name"].apply(_extract_para_subclass)
+    factor_info = out.apply(_infer_time_factor_seconds, axis=1)
+    out["time_factor_sec"] = factor_info.apply(lambda t: t[0])
+    out["time_factor_year"] = factor_info.apply(lambda t: t[1])
+
+    division = out["prog_name"].apply(_parse_division_from_prog_name)
+    disadvantaged = (
+        ((division == "PTVI") & out["para_subclass"].isin(["B2", "B3"]))
+        | ((division == "PTWC") & (out["para_subclass"] == "H2"))
+    )
+
+    factor_seconds = pd.to_numeric(out["time_factor_sec"], errors="coerce")
+    out["time_factor_applied"] = disadvantaged & factor_seconds.fillna(0).gt(0)
+
+    out["swimtime_sec_adjusted"] = out["swimtime_sec"]
+    out["total_time_sec_adjusted"] = out["total_time_sec"]
+
+    # Important: In our DB/feeds, the time factor is reliably reflected in TOTAL time, but not always embedded in the swim split.
+    # So we do NOT try to adjust swim split times by the factor (it can double-count and exaggerate differences).
+    # Instead, treat the factor as a separate offset that bridges effort total -> adjusted-for-placing total.
+
+    split_cols = ["swimtime_sec", "t1time_sec", "biketime_sec", "t2time_sec", "runtime_sec"]
+    splits_num = out[split_cols].apply(pd.to_numeric, errors="coerce")
+    out["sum_splits_sec"] = splits_num.sum(axis=1, min_count=len(split_cols))
+
+    # Effort total: prefer sum of splits; if unavailable, fall back to subtracting expected factor when applicable.
+    out["total_time_sec_raw"] = out["sum_splits_sec"]
+    fallback_effort = out["total_time_sec_raw"].isna() & out["time_factor_applied"]
+    out.loc[fallback_effort, "total_time_sec_raw"] = (
+        pd.to_numeric(out.loc[fallback_effort, "total_time_sec_adjusted"], errors="coerce")
+        - factor_seconds.loc[fallback_effort]
+    )
+    out.loc[pd.to_numeric(out["total_time_sec_raw"], errors="coerce") < 0, "total_time_sec_raw"] = 0
+
+    # Keep swim "raw" equal to as-reported swim split (typically already effort-based).
+    out["swimtime_sec_raw"] = out["swimtime_sec_adjusted"]
+
+    # Observed factor segment (if we can compute effort total). This should usually equal the expected factor.
+    out["time_factor_segment_sec"] = pd.to_numeric(out["total_time_sec_adjusted"], errors="coerce") - pd.to_numeric(
+        out["total_time_sec_raw"], errors="coerce"
+    )
+    out.loc[out["time_factor_segment_sec"].isna(), "time_factor_segment_sec"] = pd.NA
 
     # Primary: use prog_distance_category text when present.
     # Fallback: infer from distances when missing/blank.
@@ -512,6 +691,105 @@ def _summary_table_html(title: str, summary: pd.DataFrame) -> str:
     return f"<div class='summary-block'><p><b>{title}</b></p>{table_html}</div>"
 
 
+def _factor_audit_html(df: pd.DataFrame, usa_athlete_id: int, medalists: pd.DataFrame) -> str:
+    """Render a compact audit of para time-factor handling.
+
+    Uses:
+    - total_time_sec_adjusted: placing / official total
+    - total_time_sec_raw: effort total (sum of splits or adjusted minus expected factor)
+    - time_factor_sec: expected seasonal factor
+    - time_factor_segment_sec: observed (adjusted - raw)
+    """
+
+    required = {"time_factor_applied", "time_factor_sec", "time_factor_segment_sec", "total_time_sec_raw", "total_time_sec_adjusted"}
+    if not required.issubset(set(df.columns)):
+        return ""
+
+    try:
+        medalist_ids = set(pd.to_numeric(medalists.get("athlete_id"), errors="coerce").dropna().astype(int).tolist())
+    except Exception:
+        medalist_ids = set()
+
+    focus_ids = medalist_ids | {int(usa_athlete_id)}
+    work = df[df.get("athlete_id").isin(list(focus_ids))].copy() if "athlete_id" in df.columns else df.copy()
+
+    work["finish_status"] = work.get("finish_status", "").fillna("").astype(str).str.upper()
+    work = work[work["finish_status"].eq("FINISH")]
+    if work.empty:
+        return ""
+
+    work["time_factor_applied"] = work["time_factor_applied"].fillna(False).astype(bool)
+    if not bool(work["time_factor_applied"].any()):
+        return ""
+
+    work["expected_factor_sec"] = pd.to_numeric(work["time_factor_sec"], errors="coerce")
+    work["observed_segment_sec"] = pd.to_numeric(work["time_factor_segment_sec"], errors="coerce")
+    work["factor_diff_sec"] = work["observed_segment_sec"] - work["expected_factor_sec"]
+    work["abs_factor_diff_sec"] = work["factor_diff_sec"].abs()
+
+    group_cols = [c for c in ["full_name", "para_subclass"] if c in work.columns]
+    if not group_cols:
+        group_cols = ["athlete_id"] if "athlete_id" in work.columns else []
+
+    applied = work[work["time_factor_applied"]].copy()
+    if applied.empty:
+        return ""
+
+    summary = (
+        applied.groupby(group_cols, dropna=False)
+        .agg(
+            events_with_factor=("time_factor_applied", "sum"),
+            expected_factor_sec=("expected_factor_sec", "median"),
+            observed_segment_sec=("observed_segment_sec", "median"),
+            median_abs_error_sec=("abs_factor_diff_sec", "median"),
+            max_abs_error_sec=("abs_factor_diff_sec", "max"),
+        )
+        .reset_index()
+    )
+
+    for col in ["expected_factor_sec", "observed_segment_sec", "median_abs_error_sec", "max_abs_error_sec"]:
+        summary[col] = summary[col].apply(_format_seconds_mmss)
+
+    # USA-only per-event detail (kept compact)
+    usa_detail = applied[applied.get("athlete_id") == int(usa_athlete_id)].copy() if "athlete_id" in applied.columns else pd.DataFrame()
+    detail_html = ""
+    if not usa_detail.empty:
+        usa_detail["event_date"] = pd.to_datetime(usa_detail.get("event_date"), errors="coerce")
+        usa_detail = usa_detail.sort_values(["event_date", "event_name"], ascending=[True, True])
+        cols = [c for c in ["event_date", "event_name", "prog_name"] if c in usa_detail.columns]
+        cols += ["total_time_sec_adjusted", "total_time_sec_raw", "expected_factor_sec", "observed_segment_sec", "factor_diff_sec"]
+        d = usa_detail[cols].copy()
+        for c in ["total_time_sec_adjusted", "total_time_sec_raw", "expected_factor_sec", "observed_segment_sec", "factor_diff_sec"]:
+            d[c] = d[c].apply(_format_seconds_mmss)
+        if "event_date" in d.columns:
+            d["event_date"] = pd.to_datetime(d["event_date"], errors="coerce").dt.date.astype(str)
+        d = d.rename(
+            columns={
+                "event_date": "Date",
+                "event_name": "Event",
+                "prog_name": "Program",
+                "total_time_sec_adjusted": "Placing total",
+                "total_time_sec_raw": "Effort total",
+                "expected_factor_sec": "Expected factor",
+                "observed_segment_sec": "Observed segment",
+                "factor_diff_sec": "Observed - expected",
+            }
+        )
+        detail_html = (
+            "<h4>USA athlete event-level audit (rows with factor applied)</h4>"
+            + d.to_html(index=False, escape=True)
+        )
+
+    return (
+        "<div class='summary-block'>"
+        "<h2>Time-Factor Audit</h2>"
+        "<p>Benchmarks use <b>placing totals</b>. This section audits whether the observed factor segment (placing total − effort total) matches the expected seasonal factor.</p>"
+        + summary.to_html(index=False, escape=True)
+        + detail_html
+        + "</div><hr/>"
+    )
+
+
 def _format_seconds_mmss(value: object) -> str:
     if value is None or (isinstance(value, float) and pd.isna(value)):
         return ""
@@ -551,7 +829,10 @@ def _format_summary_numeric_columns(summary: pd.DataFrame, decimals: int = 2) ->
 
 
 def _default_medalist_weights(medalists: pd.DataFrame) -> dict[int, float]:
-    """Weights by Paris finish position (1,2,3) -> (0.5,0.3,0.2).
+    """Weights by finish position: (1,2,3) -> (0.5,0.3,0.2), positions 4+ -> 0.15.
+
+    Positions 4+ represent additional top contenders who didn't medal at Paris
+    but are considered competitive benchmarks.
 
     Returned dict is athlete_id -> weight.
     """
@@ -567,6 +848,9 @@ def _default_medalist_weights(medalists: pd.DataFrame) -> dict[int, float]:
             continue
         if pos in pos_weights:
             weights[athlete_id] = float(pos_weights[pos])
+        elif pos >= 4:
+            # Additional benchmark contenders (not Paris medalists but top-tier)
+            weights[athlete_id] = 0.15
     return weights
 
 
@@ -843,14 +1127,14 @@ def compute_composite_scores(
 
     # Weighted average of available advantages per event (re-normalize weights when missing)
     weight_map = {k: w for k, _c, _b, w in metric_specs}
-    score = pd.Series([pd.NA] * len(events), index=events.index, dtype="float64")
+    score = pd.Series([float("nan")] * len(events), index=events.index, dtype="float64")
 
     for idx, row in events.iterrows():
         numer = 0.0
         denom = 0.0
         for key in weight_map.keys():
             adv = row.get(f"adv_{key}")
-            if adv is None or (isinstance(adv, float) and pd.isna(adv)):
+            if adv is None or pd.isna(adv):
                 continue
             w = float(weight_map[key])
             numer += w * float(adv)
@@ -877,6 +1161,8 @@ def _projection_table_html(
     Otherwise show the magnitude of improvement needed (in the metric's units).
     """
 
+    total_col = "total_time_sec_adjusted" if "total_time_sec_adjusted" in df.columns else "total_time_sec"
+
     metric_specs = [
         # name, col, unit_label, fmt, better_is_lower
         ("Swim pace", "swim_pace_s_per_100m", "mm:ss/100m", "time", True),
@@ -884,7 +1170,7 @@ def _projection_table_html(
         ("Run pace", "run_pace_s_per_km", "mm:ss/km", "time", True),
         ("T1", "t1time_sec", "mm:ss", "time", True),
         ("T2", "t2time_sec", "mm:ss", "time", True),
-        ("Total", "total_time_sec", "mm:ss", "time", True),
+        ("Total (placing)", total_col, "mm:ss", "time", True),
     ]
 
     rows: list[dict[str, object]] = []
@@ -1028,10 +1314,39 @@ def _benchmark_scoreboard_html(
         )
         rows.append(
             {
-                "metric": "Total time (mm:ss)",
-                **compute_usa_vs_benchmark_summary(df, usa_athlete_id, weights, "total_time_sec", fmt="time"),
+                "metric": "Total time (placing, mm:ss)",
+                **compute_usa_vs_benchmark_summary(
+                    df,
+                    usa_athlete_id,
+                    weights,
+                    "total_time_sec_adjusted" if "total_time_sec_adjusted" in df.columns else "total_time_sec",
+                    fmt="time",
+                ),
             }
         )
+
+        # Dual-frame transparency (does not change benchmark frame): show effort total + factor segment when present.
+        if "total_time_sec_raw" in df.columns:
+            rows.append(
+                {
+                    "metric": "Effort total (mm:ss)",
+                    **compute_usa_vs_benchmark_summary(df, usa_athlete_id, weights, "total_time_sec_raw", fmt="time"),
+                }
+            )
+        if "time_factor_segment_sec" in df.columns:
+            rows.append(
+                {
+                    "metric": "Factor segment (mm:ss)",
+                    **compute_usa_vs_benchmark_summary(
+                        df,
+                        usa_athlete_id,
+                        weights,
+                        "time_factor_segment_sec",
+                        fmt="time",
+                        better_is_lower=True,
+                    ),
+                }
+            )
 
         # Composite score row (unitless, positive = USA better than benchmark)
         if comp_events:
@@ -1089,7 +1404,7 @@ def _benchmark_scoreboard_html(
     )
     html += _build_block(
         "Gold Contention Benchmark",
-        "Benchmark = weighted average of Paris medalists by finish position (1/2/3 weights = 0.5/0.3/0.2), computed per event and summarized across events.",
+        "Benchmark = weighted average of Paris medalists (1/2/3 weights = 0.5/0.3/0.2) plus additional top contenders (weight = 0.15 each), computed per event and summarized across events.",
         contend_weights,
     )
     return html
@@ -1381,10 +1696,42 @@ def write_outputs(
     report_path = outdir / "report.html"
     blocks = []
 
+    # Separate Paris medalists (positions 1-3) from additional contenders (4+)
+    paris_medalists = medalists[medalists["finish_position"] <= 3].copy()
+    additional_contenders = medalists[medalists["finish_position"] > 3].copy()
+
     medal_lines = "".join(
         f"<li>{int(r['finish_position'])}. {r['full_name']} (athlete_id={int(r['athlete_id'])})</li>"
-        for _, r in medalists.sort_values("finish_position").iterrows()
+        for _, r in paris_medalists.sort_values("finish_position").iterrows()
     )
+
+    additional_lines = ""
+    if not additional_contenders.empty:
+        additional_lines = (
+            "<p><b>Additional benchmark athletes:</b></p><ul>"
+            + "".join(
+                f"<li>{r['full_name']} (athlete_id={int(r['athlete_id'])})</li>"
+                for _, r in additional_contenders.iterrows()
+            )
+            + "</ul>"
+        )
+
+    factor_note = ""
+    if "time_factor_applied" in df.columns:
+        applied = df["time_factor_applied"].fillna(False)
+        if applied.any():
+            years_used = sorted(
+                pd.to_numeric(df.loc[applied, "time_factor_year"], errors="coerce").dropna().astype(int).unique().tolist()
+            )
+            years_txt = ", ".join(str(y) for y in years_used) if years_used else "(unknown year)"
+            factor_note = (
+                "<p><b>Time-factor handling:</b> For PTWC (H2) and PTVI (B2/B3), the seasonal time factor is treated as a "
+                "separate offset applied to <i>total</i> time for placing. Swim splits are not adjusted (feeds are not consistent about "
+                "embedding the factor into the swim split). "
+                f"(Factor table year used: {years_txt}.) "
+                "The dataset includes: <code>total_time_sec_adjusted</code> (placing), <code>total_time_sec_raw</code> (effort, from sum of splits / factor removed), "
+                "and <code>time_factor_segment_sec</code> (= adjusted - raw) for auditing.</p>"
+            )
 
     header = f"""
     <h1>Para Standards Report</h1>
@@ -1393,10 +1740,15 @@ def write_outputs(
     <p><b>Benchmark event:</b> {bench.event_name} ({bench.event_date})</p>
     <p><b>Paris medalists:</b></p>
     <ol>{medal_lines}</ol>
+    {additional_lines}
+    {factor_note}
     <hr/>
     """
 
     blocks.append(header)
+
+    # Time-factor audit (only renders when factor rows exist)
+    blocks.append(_factor_audit_html(df, usa_athlete_id=usa_athlete_id, medalists=medalists))
 
     # Top-level benchmark scoreboard
     blocks.append(_benchmark_scoreboard_html(df, usa_athlete_id=usa_athlete_id, medalists=medalists))
@@ -1525,6 +1877,7 @@ def run(
     benchmark_city: str,
     outdir: Path,
     write_png: bool,
+    normalize_time_factor: bool = True,
     major_cat_patterns: Optional[list[str]] = None,
 ) -> None:
     engine = get_engine()
@@ -1560,6 +1913,12 @@ def run(
         )
     )
 
+    # Include additional top contenders beyond Paris medalists
+    additional = fetch_additional_benchmark_athletes(engine, category)
+    if not additional.empty:
+        print(f"Including {len(additional)} additional benchmark athletes: {', '.join(additional['full_name'].tolist())}")
+        medalists = pd.concat([medalists, additional], ignore_index=True)
+
     cohort_ids = [usa_id] + [int(x) for x in medalists["athlete_id"].tolist()]
     cohort_ids = sorted(set(cohort_ids))
 
@@ -1580,7 +1939,7 @@ def run(
         )
 
     print("Computing pace/time metrics...")
-    metrics = compute_metrics(history)
+    metrics = compute_metrics(history, normalize_time_factor=normalize_time_factor)
 
     print("Writing outputs (HTML+CSV" + ("+PNG" if write_png else "") + ")...")
     write_outputs(
@@ -1622,6 +1981,15 @@ def main() -> None:
         action="store_true",
         help="Skip PNG export (HTML+CSV only). Useful if kaleido is not installed.",
     )
+    parser.add_argument(
+        "--no-factor-normalization",
+        action="store_true",
+        help=(
+            "Disable para time-factor handling (PTVI/PTWC). When enabled (default), the report computes factor audit columns and an "
+            "effort total (<code>total_time_sec_raw</code>) from the sum of splits / expected factor, while keeping total time for benchmarks "
+            "as adjusted-for-placing (<code>total_time_sec_adjusted</code>)."
+        ),
+    )
 
     args = parser.parse_args()
 
@@ -1633,6 +2001,7 @@ def main() -> None:
         benchmark_city=args.benchmark_city,
         outdir=Path(args.outdir),
         write_png=(not args.no_png),
+        normalize_time_factor=(not args.no_factor_normalization),
     )
 
 
