@@ -1,7 +1,10 @@
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 from sqlalchemy.exc import DataError
 import pandas as pd
-from database import get_engine
+try:
+    from tri_analysis.database import get_engine
+except ImportError:  # pragma: no cover
+    from database import get_engine  # type: ignore
 
 def upsert_dataframe(df, table_name, conflict_cols, update_cols, engine=None):
     """
@@ -33,7 +36,26 @@ def upsert_dataframe(df, table_name, conflict_cols, update_cols, engine=None):
         ON CONFLICT ({conflict_target}) DO UPDATE SET
             {update_stmt}
     """
+    def _sanitize_value(v):
+        # Convert pandas Timestamp to python datetime
+        try:
+            if isinstance(v, pd.Timestamp):
+                return None if pd.isna(v) else v.to_pydatetime()
+        except Exception:
+            pass
+
+        # Convert pandas NA / numpy NaN to None (critical for integer columns)
+        try:
+            if pd.isna(v):
+                return None
+        except Exception:
+            pass
+
+        return v
+
     records = df.to_dict(orient="records")
+    # Ensure DB driver never sees NaN / NA for integer columns
+    records = [{k: _sanitize_value(v) for k, v in rec.items()} for rec in records]
     try:
         with engine.begin() as conn:
             conn.execute(text(sql), records)
@@ -129,3 +151,94 @@ def upsert_race_results(df, engine):
         ],
         engine
     )
+
+
+def upsert_program_entries(df: pd.DataFrame, engine):
+    """Upsert program entry (startlist) rows into the database."""
+    upsert_dataframe(
+        df,
+        "program_entries",
+        ["event_id", "prog_id", "entry_id"],
+        [
+            "entry_type",
+            "approved",
+            "start_num",
+            "api_updated_at",
+            "last_fetched_at",
+            "is_active",
+            "removed_at",
+            "athlete_id",
+            "athlete_full_name",
+            "athlete_first",
+            "athlete_last",
+            "athlete_gender",
+            "athlete_country_id",
+            "athlete_country_name",
+            "athlete_noc",
+            "athlete_yob",
+            "athlete_slug",
+            "validated",
+        ],
+        engine,
+    )
+
+
+def deactivate_missing_program_entries(
+    engine,
+    event_id: int,
+    prog_id: int,
+    entry_type: str,
+    active_entry_ids: list[int] | list[str],
+    removed_at,
+):
+    """Mark previously-active entries as inactive when they disappear from the latest pull.
+
+    This assumes the caller successfully fetched a complete start list for (event_id, prog_id, entry_type).
+    """
+    with engine.begin() as conn:
+        if active_entry_ids:
+            stmt = text(
+                """
+                UPDATE program_entries
+                SET
+                    is_active = FALSE,
+                    removed_at = :removed_at
+                WHERE event_id = :event_id
+                  AND prog_id = :prog_id
+                  AND entry_type = :entry_type
+                  AND is_active = TRUE
+                  AND entry_id NOT IN :entry_ids
+                """
+            ).bindparams(bindparam("entry_ids", expanding=True))
+            conn.execute(
+                stmt,
+                {
+                    "event_id": event_id,
+                    "prog_id": prog_id,
+                    "entry_type": entry_type,
+                    "removed_at": removed_at,
+                    "entry_ids": list(active_entry_ids),
+                },
+            )
+        else:
+            # If the API returns an empty list successfully, deactivate all currently-active entries.
+            conn.execute(
+                text(
+                    """
+                    UPDATE program_entries
+                    SET
+                        is_active = FALSE,
+                        removed_at = :removed_at
+                    WHERE event_id = :event_id
+                      AND prog_id = :prog_id
+                      AND entry_type = :entry_type
+                      AND is_active = TRUE
+                    """
+                ),
+                {
+                    "event_id": event_id,
+                    "prog_id": prog_id,
+                    "entry_type": entry_type,
+                    "removed_at": removed_at,
+                },
+            )

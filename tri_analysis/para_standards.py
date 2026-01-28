@@ -1619,6 +1619,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--no-png",
+        "--no.png",
         action="store_true",
         help="Skip PNG export (HTML+CSV only). Useful if kaleido is not installed.",
     )

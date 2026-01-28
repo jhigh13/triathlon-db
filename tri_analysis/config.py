@@ -22,6 +22,7 @@ EVENT_DETAILS_URL    = f"{BASE_URL}/events/{{event_id}}"
 PROGRAM_LISTING_URL  = f"{BASE_URL}/events/{{event_id}}/programs"
 PROGRAM_DETAILS_URL   = f"{BASE_URL}/events/{{event_id}}/programs/{{program_id}}"
 PROGRAM_RESULTS_URL = f"{BASE_URL}/events/{{event_id}}/programs/{{program_id}}/results"
+PROGRAM_ENTRIES_URL = f"{BASE_URL}/events/{{event_id}}/programs/{{prog_id}}/entries"
 
 # Database
 '''

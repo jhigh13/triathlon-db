@@ -1,7 +1,7 @@
-"""WTCS full-field pack metrics (precompute + persist).
+"""Pack metrics (precompute + persist) for triathlon events.
 
 Purpose
-- Compute deterministic pack membership for WTCS events only.
+- Compute deterministic pack membership for triathlon events.
 - Field is strictly (event_id, prog_id) (no combining).
 - Checkpoints are swim/bike/run using elapsed checkpoint times from position_metrics.
 - Pack definition is a chain rule: a new pack starts when gap_to_prev_sec > max_gap_to_prev_sec.
@@ -11,11 +11,20 @@ Why this exists
 - These results are stable, reusable, and fast to query once persisted.
 
 Usage (PowerShell)
-- Compute for all WTCS events in DB:
+- Compute for WTCS events only (default):
   `python -m tri_analysis.wtcs_pack_metrics`
+
+- Compute for ALL events with position_metrics data:
+  `python -m tri_analysis.wtcs_pack_metrics --all-events`
 
 - Limit by date range:
   `python -m tri_analysis.wtcs_pack_metrics --start-date 2025-01-01 --end-date 2025-12-31`
+
+Event Tiers (for model weighting):
+- WTCS (tier=1): World Triathlon Championship Series, Finals
+- World Cup (tier=2): World Triathlon World Cup events
+- Regional (tier=3): Continental championships (PATCO, ATU, OTU, ASTC, ETU)
+- Other (tier=4): All other events
 
 Notes
 - Option A behavior: only athletes with a valid elapsed time at the checkpoint are stored.
@@ -42,6 +51,67 @@ if project_root not in sys.path:
 
 from tri_analysis.database import get_engine
 from tri_analysis.wtcs_performance import WTCS_NAME_PATTERNS
+
+
+# Event tier classification for model weighting
+# Tier 1 = highest level (WTCS), Tier 4 = lowest (local/other)
+EVENT_TIER_PATTERNS: Dict[int, List[str]] = {
+    1: [  # WTCS / Championship Series
+        "Championship Series",
+        "WTCS",
+        "Championship Finals",
+        "Grand Final",
+    ],
+    2: [  # World Cup (check BEFORE regional due to "Triathlon Cup" pattern)
+        "World Cup",
+        "ITU Triathlon World Cup",
+        "World Triathlon Cup",  # New naming convention
+    ],
+    3: [  # Regional / Continental Championships & Cups
+        "PATCO",  # Pan American
+        "ATU",    # Africa
+        "OTU",    # Oceania
+        "ASTC",   # Asia
+        "ETU",    # Europe
+        "CAMTRI", # Central America & Caribbean
+        "Continental",
+        "African Championships",
+        "Asian Championships",
+        "Oceania Championships",
+        "Pan-American",
+        "European Championships",
+        "European Cup",
+        "Oceania Cup",
+        "Panamerican Cup",
+        "Pan-American Cup",
+        "Asia Triathlon Cup",
+        "Africa Triathlon Cup",
+        "Americas Triathlon Cup",
+    ],
+    # Tier 4 = everything else (default)
+}
+
+
+def classify_event_tier(event_name: str) -> int:
+    """Classify an event into a tier based on its name.
+    
+    Returns:
+        1 = WTCS (highest), 2 = World Cup, 3 = Regional, 4 = Other (lowest)
+    
+    Note: Checks tiers in order 1->2->3 to ensure "World Cup" matches tier 2
+    before regional patterns like "Cup" might accidentally match.
+    """
+    if not event_name:
+        return 4
+    name_upper = event_name.upper()
+    
+    # Check in tier order (1, 2, 3) to get correct precedence
+    for tier in sorted(EVENT_TIER_PATTERNS.keys()):
+        patterns = EVENT_TIER_PATTERNS[tier]
+        for pattern in patterns:
+            if pattern.upper() in name_upper:
+                return tier
+    return 4
 
 
 CHECKPOINTS: Dict[str, str] = {
@@ -99,6 +169,45 @@ def list_wtcs_event_program_pairs(
         FROM events
         WHERE {where_sql}
         ORDER BY event_id, prog_id
+        """
+    )
+
+    with engine.connect() as conn:
+        rows = conn.execute(query, params).fetchall()
+
+    return [(int(r[0]), int(r[1])) for r in rows]
+
+
+def list_all_event_program_pairs_with_position_metrics(
+    engine: Engine,
+    *,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+) -> List[Tuple[int, int]]:
+    """Return all (event_id, prog_id) pairs that have position_metrics data.
+    
+    This is more inclusive than list_wtcs_event_program_pairs - it includes
+    World Cups, Continental Championships, and any other event with timing data.
+    """
+    params: Dict[str, object] = {}
+    where_parts: List[str] = []
+    
+    if start_date:
+        where_parts.append("e.event_date >= :start_date")
+        params["start_date"] = start_date
+    if end_date:
+        where_parts.append("e.event_date <= :end_date")
+        params["end_date"] = end_date
+
+    where_sql = " AND ".join(where_parts) if where_parts else "TRUE"
+
+    query = text(
+        f"""
+        SELECT DISTINCT pm.event_id, pm.prog_id
+        FROM position_metrics pm
+        JOIN events e ON pm.event_id = e.event_id AND pm.prog_id = e.prog_id
+        WHERE {where_sql}
+        ORDER BY pm.event_id, pm.prog_id
         """
     )
 
@@ -286,23 +395,36 @@ def refresh_pack_membership_for_event_program(
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
-    parser = argparse.ArgumentParser(description="Compute and persist WTCS full-field pack membership.")
+    parser = argparse.ArgumentParser(description="Compute and persist pack membership for triathlon events.")
     parser.add_argument("--start-date", default=None, help="Optional start date filter (YYYY-MM-DD)")
     parser.add_argument("--end-date", default=None, help="Optional end date filter (YYYY-MM-DD)")
     parser.add_argument("--max-gap-to-prev-sec", type=int, default=2, help="Chain threshold in seconds (default: 2)")
     parser.add_argument("--dry-run", action="store_true", help="Compute counts but do not write to DB")
     parser.add_argument("--limit", type=int, default=None, help="Optional limit of (event_id, prog_id) pairs")
+    parser.add_argument(
+        "--all-events", 
+        action="store_true", 
+        help="Process ALL events with position_metrics (not just WTCS). Includes World Cups, Continental events, etc."
+    )
 
     args = parser.parse_args(list(argv) if argv is not None else None)
 
     engine = get_engine()
     params = PackAlgoParams(max_gap_to_prev_sec=int(args.max_gap_to_prev_sec))
 
-    pairs = list_wtcs_event_program_pairs(engine, start_date=args.start_date, end_date=args.end_date)
+    if args.all_events:
+        pairs = list_all_event_program_pairs_with_position_metrics(
+            engine, start_date=args.start_date, end_date=args.end_date
+        )
+        scope_label = "ALL events with position_metrics"
+    else:
+        pairs = list_wtcs_event_program_pairs(engine, start_date=args.start_date, end_date=args.end_date)
+        scope_label = "WTCS events"
+    
     if args.limit:
         pairs = pairs[: int(args.limit)]
 
-    print(f"WTCS pairs matched: {len(pairs)}")
+    print(f"{scope_label} matched: {len(pairs)}")
 
     total_rows = 0
     for event_id, prog_id in pairs:
