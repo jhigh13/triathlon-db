@@ -188,6 +188,9 @@ def initialize_database():
         Column('bikerank',     Integer),
         Column('t2rank',       Integer),
         Column('runrank',      Integer),
+        # race-level aggregates for fast feature building
+        Column('n_finishers',     Integer),
+        Column('median_total_sec', Float),
     )
 
     # WTCS pack membership (precomputed, deterministic; full field per event_id+prog_id)
@@ -238,6 +241,19 @@ def initialize_database():
         PrimaryKeyConstraint('event_id', 'prog_id', 'entry_id', name='pk_program_entries')
     )
     
+    # Elo ratings for athletes (computed by elo_ratings.py)
+    Table(
+        'athlete_elo_ratings', metadata,
+        Column('athlete_id', Integer, nullable=False),
+        Column('gender', String, nullable=False),       # 'male' or 'female'
+        Column('elo_rating', Float, nullable=False),     # current Elo rating
+        Column('elo_peak', Float, nullable=False),       # all-time peak rating
+        Column('elo_races', Integer, nullable=False),    # total races processed
+        Column('last_race_date', Date, nullable=True),   # date of most recent race
+        Column('last_updated', DateTime, nullable=False),
+        PrimaryKeyConstraint('athlete_id', 'gender', name='pk_athlete_elo_ratings')
+    )
+
     # Staging table for historical rankings (no constraints)
     Table(
         'staging_rankings', metadata,
@@ -388,6 +404,9 @@ def initialize_database():
         conn.execute(text(f'ALTER TABLE "{RACE_RESULTS_TABLE_NAME}" ADD COLUMN IF NOT EXISTS finish_status VARCHAR'))
         conn.execute(text(f'ALTER TABLE "{RACE_RESULTS_TABLE_NAME}" ADD COLUMN IF NOT EXISTS finish_position INTEGER'))
         conn.execute(text(f'ALTER TABLE "{RACE_RESULTS_TABLE_NAME}" ADD COLUMN IF NOT EXISTS position_sort INTEGER'))
+        # Add new race-level aggregates to position_metrics if missing
+        conn.execute(text('ALTER TABLE "position_metrics" ADD COLUMN IF NOT EXISTS n_finishers INTEGER'))
+        conn.execute(text('ALTER TABLE "position_metrics" ADD COLUMN IF NOT EXISTS median_total_sec DOUBLE PRECISION'))
         # Backfill finish_status and finish_position from existing position values (cast numeric positions)
         conn.execute(
             text(
@@ -470,6 +489,12 @@ def initialize_database():
             'CREATE INDEX IF NOT EXISTS idx_program_entries_athlete '
             'ON program_entries (athlete_id)'
         ))
+        # Elo ratings indexes
+        conn.execute(text(
+            'CREATE INDEX IF NOT EXISTS idx_athlete_elo_ratings_rating '
+            'ON athlete_elo_ratings (gender, elo_rating DESC)'
+        ))
+
         # Ensure critical integer columns are wide enough (avoid smallint overflows)
         # Note: ALTER TYPE to same type is a no-op; this is safe to run repeatedly.
         #conn.execute(text(f'ALTER TABLE "{RACE_RESULTS_TABLE_NAME}" ALTER COLUMN finish_position TYPE INTEGER'))

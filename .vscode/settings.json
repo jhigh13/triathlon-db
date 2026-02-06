@@ -6,5 +6,9 @@
                 "copilot/gpt-5.1-codex-max"
             ]
         }
+    },
+    "workbench.editorAssociations": {
+        "*.copilotmd": "vscode.markdown.preview.editor",
+        "file:/**/*.xlsx": "jupyter-data-wrangler"
     }
 }

@@ -114,7 +114,8 @@ def fetch_athlete_history(
         event_id, prog_id, athlete_id, event_date,
         swimtime, t1time, biketime, t2time, runtime, total_time,
         finish_status, finish_position, position_sort,
-        prog_name, prog_distance_category, event_country, wetsuit
+        prog_name, prog_distance_category, event_country, wetsuit,
+        n_finishers
     """
     # Build dynamic WHERE clause
     where_clauses = [
@@ -152,7 +153,11 @@ def fetch_athlete_history(
             e.prog_name,
             e.prog_distance_category,
             e.event_country,
-            e.wetsuit
+            e.wetsuit,
+            (SELECT COUNT(*) FROM race_results rr2
+             WHERE rr2.event_id = rr.event_id
+               AND rr2.prog_id = rr.prog_id
+               AND rr2.finish_status = 'FINISH') AS n_finishers
         FROM race_results rr
         JOIN events e
             ON rr.event_id = e.event_id
@@ -164,6 +169,55 @@ def fetch_athlete_history(
 
     df = pd.read_sql(query, engine, params=params)
     logger.debug(f"fetch_athlete_history: {len(df)} rows for athlete {athlete_id} before {before_date}")
+    return df
+
+
+def fetch_race_field_results(
+    engine: Engine,
+    race_keys: list[tuple[int, int]],
+) -> pd.DataFrame:
+    """
+    Fetch all finishers' split times for a set of races.
+
+    Used for computing race-level stats (median total, split ranks).
+    Returns all finishers for the given (event_id, prog_id) pairs.
+
+    Args:
+        engine: SQLAlchemy Engine
+        race_keys: List of (event_id, prog_id) tuples
+
+    Columns returned:
+        event_id, prog_id, athlete_id, swimtime, biketime, runtime,
+        total_time, finish_position, position_sort
+    """
+    if not race_keys:
+        return pd.DataFrame()
+
+    # Build VALUES list for PostgreSQL tuple IN clause
+    values_list = ", ".join(
+        [f"({int(eid)}, {int(pid)})" for eid, pid in race_keys]
+    )
+
+    query = text(f"""
+        SELECT
+            rr.event_id,
+            rr.prog_id,
+            rr.athlete_id,
+            rr.swimtime,
+            rr.biketime,
+            rr.runtime,
+            rr.total_time,
+            rr.finish_position,
+            rr.position_sort
+        FROM race_results rr
+        WHERE (rr.event_id, rr.prog_id) IN ({values_list})
+          AND rr.finish_status = 'FINISH'
+          AND rr.total_time IS NOT NULL
+        ORDER BY rr.event_id, rr.prog_id, rr.position_sort
+    """)
+
+    df = pd.read_sql(query, engine)
+    logger.debug(f"fetch_race_field_results: {len(df)} rows for {len(race_keys)} races")
     return df
 
 
@@ -226,6 +280,323 @@ def fetch_pack_history(
 
     df = pd.read_sql(query, engine, params=params)
     logger.debug(f"fetch_pack_history: {len(df)} rows for athlete {athlete_id} before {before_date}, distance={distance_category}")
+    return df
+
+
+def fetch_pack_effect_data(
+    engine: Engine,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    distance_category: str | None = None,
+    elite_only: bool = True,
+) -> pd.DataFrame:
+    """
+    Fetch paired swim-pack + bike-time data for learning pack effects.
+
+    Returns one row per athlete per race, joining swim pack membership with
+    race results. Used to learn the empirical relationship between swim gap
+    and bike performance (drafting benefit vs. solo penalty).
+
+    Args:
+        engine: SQLAlchemy Engine
+        start_date: Optional start date filter (inclusive)
+        end_date: Optional end date filter (inclusive)
+        distance_category: Optional filter (e.g., 'sprint', 'standard')
+        elite_only: If True, only include Elite Men/Women programs
+
+    Columns returned:
+        event_id, prog_id, athlete_id, swim_pack_id, swim_gap_to_leader,
+        swim_pack_size, swim_position, swimtime, biketime, runtime,
+        total_time, finish_position, prog_distance_category, event_date
+    """
+    where_clauses = [
+        "pm.checkpoint = 'swim'",
+        "rr.finish_status = 'FINISH'",
+        "rr.total_time IS NOT NULL",
+        "rr.biketime IS NOT NULL",
+    ]
+    params = {}
+
+    if start_date:
+        where_clauses.append("e.event_date >= :start_date")
+        params["start_date"] = start_date
+    if end_date:
+        where_clauses.append("e.event_date <= :end_date")
+        params["end_date"] = end_date
+    if distance_category:
+        where_clauses.append("e.prog_distance_category = :distance_category")
+        params["distance_category"] = distance_category
+    if elite_only:
+        where_clauses.append("e.prog_name IN ('Elite Men', 'Elite Women')")
+
+    where_sql = " AND ".join(where_clauses)
+
+    query = text(f"""
+        SELECT
+            pm.event_id,
+            pm.prog_id,
+            pm.athlete_id,
+            pm.pack_id AS swim_pack_id,
+            pm.gap_to_leader_sec AS swim_gap_to_leader,
+            pm.pack_size AS swim_pack_size,
+            pm.pos_at_checkpoint AS swim_position,
+            rr.swimtime,
+            rr.biketime,
+            rr.runtime,
+            rr.total_time,
+            rr.finish_position,
+            e.prog_distance_category,
+            e.event_date
+        FROM wtcs_pack_membership pm
+        JOIN race_results rr
+            ON pm.event_id = rr.event_id
+            AND pm.prog_id = rr.prog_id
+            AND pm.athlete_id = rr.athlete_id
+        JOIN events e
+            ON pm.event_id = e.event_id
+            AND pm.prog_id = e.prog_id
+        WHERE {where_sql}
+        ORDER BY e.event_date, pm.event_id, pm.prog_id, pm.pos_at_checkpoint
+    """)
+
+    df = pd.read_sql(query, engine, params=params)
+    logger.info(
+        f"fetch_pack_effect_data: {len(df)} rows "
+        f"({df[['event_id', 'prog_id']].drop_duplicates().shape[0]} races)"
+    )
+    return df
+
+
+def fetch_swim_to_bike_transitions(
+    engine: Engine,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    distance_category: str | None = None,
+    elite_only: bool = True,
+) -> pd.DataFrame:
+    """
+    Fetch paired swim-exit and bike-exit pack membership for learning merge patterns.
+
+    Self-joins wtcs_pack_membership at checkpoint='swim' to checkpoint='bike'
+    for the same (event_id, prog_id, athlete_id). This reveals which athletes
+    changed packs during the bike leg.
+
+    Args:
+        engine: SQLAlchemy Engine
+        start_date: Optional start date filter (inclusive)
+        end_date: Optional end date filter (inclusive)
+        distance_category: Optional filter (e.g., 'sprint', 'standard')
+        elite_only: If True, only include Elite Men/Women programs
+
+    Columns returned:
+        event_id, prog_id, athlete_id, event_date, prog_distance_category,
+        swim_pack_id, swim_pack_size, swim_gap_to_leader_sec, swim_gap_to_prev_sec, swim_pos,
+        bike_pack_id, bike_pack_size, bike_gap_to_leader_sec, bike_pos
+    """
+    where_clauses = [
+        "sw.checkpoint = 'swim'",
+        "bk.checkpoint = 'bike'",
+    ]
+    params = {}
+
+    if start_date:
+        where_clauses.append("e.event_date >= :start_date")
+        params["start_date"] = start_date
+    if end_date:
+        where_clauses.append("e.event_date <= :end_date")
+        params["end_date"] = end_date
+    if distance_category:
+        where_clauses.append("e.prog_distance_category = :distance_category")
+        params["distance_category"] = distance_category
+    if elite_only:
+        where_clauses.append("e.prog_name IN ('Elite Men', 'Elite Women')")
+
+    where_sql = " AND ".join(where_clauses)
+
+    query = text(f"""
+        SELECT
+            sw.event_id,
+            sw.prog_id,
+            sw.athlete_id,
+            e.event_date,
+            e.prog_distance_category,
+            sw.pack_id           AS swim_pack_id,
+            sw.pack_size         AS swim_pack_size,
+            sw.gap_to_leader_sec AS swim_gap_to_leader_sec,
+            sw.gap_to_prev_sec   AS swim_gap_to_prev_sec,
+            sw.pos_at_checkpoint AS swim_pos,
+            bk.pack_id           AS bike_pack_id,
+            bk.pack_size         AS bike_pack_size,
+            bk.gap_to_leader_sec AS bike_gap_to_leader_sec,
+            bk.pos_at_checkpoint AS bike_pos
+        FROM wtcs_pack_membership sw
+        JOIN wtcs_pack_membership bk
+            ON sw.event_id = bk.event_id
+            AND sw.prog_id = bk.prog_id
+            AND sw.athlete_id = bk.athlete_id
+            AND bk.checkpoint = 'bike'
+        JOIN events e
+            ON sw.event_id = e.event_id
+            AND sw.prog_id = e.prog_id
+        WHERE {where_sql}
+        ORDER BY e.event_date, sw.event_id, sw.prog_id, sw.pos_at_checkpoint
+    """)
+
+    df = pd.read_sql(query, engine, params=params)
+    logger.info(
+        f"fetch_swim_to_bike_transitions: {len(df)} rows "
+        f"({df[['event_id', 'prog_id']].drop_duplicates().shape[0]} races)"
+    )
+    return df
+
+
+def fetch_elo_ratings(
+    engine: Engine,
+    athlete_ids: list[int],
+) -> pd.DataFrame:
+    """
+    Fetch Elo ratings for a set of athletes.
+
+    Args:
+        engine: SQLAlchemy Engine
+        athlete_ids: List of athlete IDs to look up
+
+    Columns returned:
+        athlete_id, elo_rating, elo_peak, elo_races, last_race_date
+    """
+    if not athlete_ids:
+        return pd.DataFrame()
+
+    id_list = ", ".join(str(int(a)) for a in athlete_ids)
+
+    query = text(f"""
+        SELECT
+            athlete_id,
+            elo_rating,
+            elo_peak,
+            elo_races,
+            last_race_date
+        FROM athlete_elo_ratings
+        WHERE athlete_id IN ({id_list})
+    """)
+
+    df = pd.read_sql(query, engine)
+    logger.debug(f"fetch_elo_ratings: {len(df)} rows for {len(athlete_ids)} athletes")
+    return df
+
+
+def fetch_wt_ranking_points(
+    engine: Engine,
+    athlete_ids: list[int],
+    year: int | None = None,
+    gender: str | None = None,
+) -> pd.DataFrame:
+    """
+    Fetch World Triathlon ranking points for a set of athletes.
+
+    Returns the most recent ranking entry per athlete. If year is specified,
+    fetches rankings for that specific year.
+
+    Args:
+        engine: SQLAlchemy Engine
+        athlete_ids: List of athlete IDs
+        year: If provided, fetch rankings for this year
+        gender: If provided, filter to gender-specific ranking categories
+
+    Columns returned:
+        athlete_id, rank_position, total_points, ranking_cat_name, year
+    """
+    if not athlete_ids:
+        return pd.DataFrame()
+
+    id_list = ", ".join(str(int(a)) for a in athlete_ids)
+
+    where_clauses = [f"ar.athlete_id IN ({id_list})"]
+    params: dict = {}
+
+    if year:
+        where_clauses.append("ar.year = :year")
+        params["year"] = year
+
+    # NOTE: gender filter on ranking_cat_name removed — the actual DB values
+    # ("World Triathlon Championship Series", "World Rankings", etc.) don't
+    # contain gender. Since we filter by athlete_id, each athlete only gets
+    # their own ranking regardless.
+
+    where_sql = " AND ".join(where_clauses)
+
+    # Use DISTINCT ON to get the most recent ranking per athlete
+    query = text(f"""
+        SELECT DISTINCT ON (ar.athlete_id)
+            ar.athlete_id,
+            ar.rank_position,
+            ar.total_points,
+            ar.ranking_cat_name,
+            ar.year
+        FROM athlete_rankings ar
+        WHERE {where_sql}
+        ORDER BY ar.athlete_id, ar.year DESC, ar.retrieved_at DESC
+    """)
+
+    df = pd.read_sql(query, engine, params=params)
+    logger.debug(f"fetch_wt_ranking_points: {len(df)} rows for {len(athlete_ids)} athletes")
+    return df
+
+
+def fetch_precomputed_race_metrics(
+    engine: Engine,
+    athlete_id: int,
+    before_date: date,
+    limit: int = 50,
+) -> pd.DataFrame:
+    """
+    Fetch precomputed race metrics from position_metrics for an athlete's history.
+
+    Returns per-race split ranks, n_finishers, median_total_sec, and elapsedrun.
+    This replaces the expensive fetch_race_field_results() + Python computation
+    approach, since position_metrics already stores per-athlete-per-race rankings.
+
+    Args:
+        engine: SQLAlchemy Engine
+        athlete_id: Athlete ID
+        before_date: Cutoff date (exclusive)
+        limit: Maximum number of recent races (default 50)
+
+    Columns returned:
+        event_id, prog_id, event_date, swimrank, bikerank, runrank,
+        n_finishers, median_total_sec, elapsedrun
+    """
+    query = text("""
+        SELECT
+            pm.event_id,
+            pm.prog_id,
+            e.event_date,
+            pm.swimrank,
+            pm.bikerank,
+            pm.runrank,
+            pm.n_finishers,
+            pm.median_total_sec,
+            pm.elapsedrun
+        FROM position_metrics pm
+        JOIN events e
+            ON pm.event_id = e.event_id
+            AND pm.prog_id = e.prog_id
+        WHERE pm.athlete_id = :athlete_id
+          AND e.event_date < :before_date
+          AND pm.n_finishers IS NOT NULL
+          AND pm.elapsedrun > 0
+        ORDER BY e.event_date DESC
+        LIMIT :limit
+    """)
+
+    df = pd.read_sql(query, engine, params={
+        "athlete_id": athlete_id,
+        "before_date": before_date,
+        "limit": limit,
+    })
+    logger.debug(
+        f"fetch_precomputed_race_metrics: {len(df)} rows for athlete {athlete_id}"
+    )
     return df
 
 

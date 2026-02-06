@@ -18,14 +18,24 @@ logger = logging.getLogger(__name__)
 
 def predict_splits_and_total(
     features_df: pd.DataFrame,
-    bundle: ModelBundle
+    bundle: ModelBundle,
+    distance_category: str | None = None,
 ) -> pd.DataFrame:
     """
     Generate predictions for all athletes in the features DataFrame.
 
+    Uses distance-specific split models when available in the bundle for
+    accurate absolute time predictions (swim, bike, run). Falls back to
+    the unified split models otherwise. Rankings always use the unified
+    percentile model (model_total_pct) since percentile targets are
+    distance-agnostic.
+
     Args:
         features_df: DataFrame with feature columns (from build_features_for_program)
         bundle: Trained ModelBundle
+        distance_category: Race distance (e.g., 'sprint', 'standard') for
+                          selecting distance-specific split models. If None,
+                          uses unified models.
 
     Returns:
         DataFrame with original columns plus:
@@ -53,21 +63,39 @@ def predict_splits_and_total(
     # Replace any remaining NaNs with median (defensive)
     X = X.fillna(X.median())
 
-    # Predict each split
+    # Select distance-specific split models if available
+    dist_models = None
+    dist_key = None
+    if distance_category and hasattr(bundle, "distance_split_models") and bundle.distance_split_models:
+        dist_key = distance_category.lower().strip()
+        # Normalize olympic → standard
+        if dist_key == "olympic":
+            dist_key = "standard"
+        dist_models = bundle.distance_split_models.get(dist_key)
+        if dist_models:
+            logger.info(f"Using distance-specific split models for '{dist_key}' (splits: {list(dist_models.keys())})")
+        else:
+            logger.info(f"No distance-specific models for '{dist_key}', using unified split models")
+
+    # Predict each split (distance-specific if available, else unified)
     predictions = {}
 
-    if bundle.model_swim is not None:
-        predictions["pred_swim_sec"] = bundle.model_swim.predict(X)
+    swim_model = (dist_models or {}).get("swim") or bundle.model_swim
+    bike_model = (dist_models or {}).get("bike") or bundle.model_bike
+    run_model = (dist_models or {}).get("run") or bundle.model_run
+
+    if swim_model is not None:
+        predictions["pred_swim_sec"] = swim_model.predict(X)
     else:
         predictions["pred_swim_sec"] = np.full(len(df), np.nan)
 
-    if bundle.model_bike is not None:
-        predictions["pred_bike_sec"] = bundle.model_bike.predict(X)
+    if bike_model is not None:
+        predictions["pred_bike_sec"] = bike_model.predict(X)
     else:
         predictions["pred_bike_sec"] = np.full(len(df), np.nan)
 
-    if bundle.model_run is not None:
-        predictions["pred_run_sec"] = bundle.model_run.predict(X)
+    if run_model is not None:
+        predictions["pred_run_sec"] = run_model.predict(X)
     else:
         predictions["pred_run_sec"] = np.full(len(df), np.nan)
 
@@ -103,14 +131,30 @@ def predict_splits_and_total(
             n_adjusted = over_limit.sum()
             logger.info(f"Anchored {n_adjusted} predictions that exceeded {MAX_SLOWDOWN_FACTOR:.0%} slowdown from EMA")
 
+    # ========== Percentile Model (Two-Stage Ranking) ==========
+    # If a percentile model exists, predict finish_pct for ranking.
+    # This is distance-agnostic (target is always 0-1) and focuses on relative
+    # position rather than absolute seconds, improving ranking accuracy.
+    has_pct_model = getattr(bundle, "model_total_pct", None) is not None
+    if has_pct_model:
+        df["pred_finish_pct"] = bundle.model_total_pct.predict(X)
+        # Clip to valid range
+        df["pred_finish_pct"] = df["pred_finish_pct"].clip(0.001, 1.0)
+        logger.info("Using percentile model for ranking")
+
     # Format as human-readable times
     df["pred_swim_hms"] = df["pred_swim_sec"].apply(lambda x: seconds_to_hms(int(x)) if pd.notna(x) else None)
     df["pred_bike_hms"] = df["pred_bike_sec"].apply(lambda x: seconds_to_hms(int(x)) if pd.notna(x) else None)
     df["pred_run_hms"] = df["pred_run_sec"].apply(lambda x: seconds_to_hms(int(x)) if pd.notna(x) else None)
     df["pred_total_hms"] = df["pred_total_sec"].apply(lambda x: seconds_to_hms(int(x)) if pd.notna(x) else None)
 
-    # Compute predicted rank (1 = fastest)
-    df["predicted_rank"] = df["pred_total_sec"].rank(method="min", ascending=True).astype(int)
+    # Compute predicted rank
+    # Use percentile model for ranking if available (better cross-distance accuracy),
+    # otherwise fall back to ranking by predicted total seconds
+    if has_pct_model:
+        df["predicted_rank"] = df["pred_finish_pct"].rank(method="min", ascending=True).astype(int)
+    else:
+        df["predicted_rank"] = df["pred_total_sec"].rank(method="min", ascending=True).astype(int)
 
     # Sort by predicted rank
     df = df.sort_values("predicted_rank").reset_index(drop=True)
@@ -135,6 +179,7 @@ def format_prediction_output(pred_df: pd.DataFrame) -> pd.DataFrame:
         "pred_bike_hms",
         "pred_run_hms",
         "pred_total_sec",
+        "pred_finish_pct",
         "ema_total_sec_5",
         "front_pack_rate",
         "seed_total_rank",

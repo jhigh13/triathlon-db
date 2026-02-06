@@ -1,4 +1,16 @@
 """Quick script to find Cuba events and upcoming races with start lists."""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+# Allow running this file directly (e.g. `python .\scripts\find_events.py`)
+# while still importing from the repo root package folders like `tri_analysis/`.
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 from tri_analysis.database import get_engine
 import pandas as pd
 from sqlalchemy import text

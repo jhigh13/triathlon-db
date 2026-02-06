@@ -59,36 +59,204 @@ class ModelBundle:
     model_t1: Optional[Any] = None
     model_t2: Optional[Any] = None
     model_front_pack: Optional[Any] = None
+    model_total_pct: Optional[Any] = None  # Percentile model (finish_position / n_finishers)
+    distance_split_models: dict = field(default_factory=dict)
+    # e.g., {"sprint": {"swim": model, "bike": model, "run": model},
+    #        "standard": {"swim": model, "bike": model, "run": model}}
     feature_columns: list[str] = field(default_factory=list)
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
     version: str = "v1.0"
     metadata: dict = field(default_factory=dict)
 
 
-def create_regressor() -> Pipeline:
+# Default model hyperparameters
+DEFAULT_PARAMS = {
+    "n_estimators": 100,
+    "max_depth": 6,
+    "learning_rate": 0.1,
+    "num_leaves": 31,
+    "min_child_samples": 20,
+}
+
+
+# ---- Split Time Outlier Thresholds ----
+# Per-distance (min, max) in seconds for each split.
+# Values below min or above max are treated as data errors or
+# distance-category mislabeling (e.g., super-sprint results in sprint bucket).
+# Thresholds are set generously below/above the 1st/99th percentile of
+# legitimate data to avoid removing valid results.
+SPLIT_OUTLIER_THRESHOLDS = {
+    "super_sprint": {
+        "swim_sec":  (60, 720),       # 1:00 - 12:00
+        "t1_sec":    (5, 180),        # 0:05 - 3:00
+        "bike_sec":  (180, 1500),     # 3:00 - 25:00
+        "t2_sec":    (5, 120),        # 0:05 - 2:00
+        "run_sec":   (90, 1200),      # 1:30 - 20:00
+        "total_sec": (600, 3000),     # 10:00 - 50:00
+    },
+    "sprint": {
+        "swim_sec":  (240, 1500),     # 4:00 - 25:00
+        "t1_sec":    (5, 180),        # 0:05 - 3:00
+        "bike_sec":  (900, 3000),     # 15:00 - 50:00
+        "t2_sec":    (5, 120),        # 0:05 - 2:00
+        "run_sec":   (480, 2400),     # 8:00 - 40:00
+        "total_sec": (2400, 6000),    # 40:00 - 100:00
+    },
+    "standard": {
+        "swim_sec":  (600, 2400),     # 10:00 - 40:00
+        "t1_sec":    (5, 240),        # 0:05 - 4:00
+        "bike_sec":  (2400, 6000),    # 40:00 - 100:00
+        "t2_sec":    (5, 180),        # 0:05 - 3:00
+        "run_sec":   (1200, 4200),    # 20:00 - 70:00
+        "total_sec": (4800, 12000),   # 80:00 - 200:00
+    },
+    "middle_distance": {
+        "swim_sec":  (600, 4200),     # 10:00 - 70:00
+        "t1_sec":    (5, 600),        # 0:05 - 10:00
+        "bike_sec":  (4800, 14400),   # 80:00 - 240:00
+        "t2_sec":    (5, 300),        # 0:05 - 5:00
+        "run_sec":   (2700, 9000),    # 45:00 - 150:00
+        "total_sec": (9000, 25200),   # 150:00 - 420:00
+    },
+    "long_distance": {
+        "swim_sec":  (1800, 6000),    # 30:00 - 100:00
+        "t1_sec":    (5, 900),        # 0:05 - 15:00
+        "bike_sec":  (9000, 21600),   # 150:00 - 360:00
+        "t2_sec":    (5, 600),        # 0:05 - 10:00
+        "run_sec":   (5400, 16200),   # 90:00 - 270:00
+        "total_sec": (18000, 43200),  # 300:00 - 720:00
+    },
+}
+
+
+def filter_split_outliers(
+    df: pd.DataFrame,
+    distance_category: str,
+    split_col: str,
+) -> pd.Series:
+    """
+    Return a boolean mask of rows with valid (non-outlier) split times.
+
+    Rows where the split value falls outside the (min, max) threshold for the
+    given distance category are marked False. Rows with NaN splits are kept
+    (marked True) so they can be excluded later by the normal notna() filter.
+
+    Args:
+        df: DataFrame containing the split column
+        distance_category: Normalized distance key (e.g., 'sprint', 'standard')
+        split_col: Column name to check (e.g., 'swim_sec', 'bike_sec')
+
+    Returns:
+        Boolean Series aligned with df index (True = keep, False = outlier)
+    """
+    thresholds = SPLIT_OUTLIER_THRESHOLDS.get(distance_category)
+    if thresholds is None or split_col not in thresholds:
+        return pd.Series(True, index=df.index)
+
+    lo, hi = thresholds[split_col]
+    vals = df[split_col]
+
+    # NaN values pass through (they'll be filtered by notna() downstream)
+    is_nan = vals.isna()
+    in_range = (vals >= lo) & (vals <= hi)
+
+    return is_nan | in_range
+
+
+def filter_outliers_by_distance(
+    df: pd.DataFrame,
+    split_cols: list[str] | None = None,
+) -> pd.DataFrame:
+    """
+    Filter outlier split times from a mixed-distance training DataFrame.
+
+    For each row, looks up the distance category and applies the corresponding
+    thresholds. Outlier split values are set to NaN (per-split) so the row
+    can still be used for other targets. Rows where total_sec is an outlier
+    are dropped entirely.
+
+    Args:
+        df: Training DataFrame with 'prog_distance_category' and split columns
+        split_cols: Split columns to check. Default: swim_sec, bike_sec, run_sec, total_sec
+
+    Returns:
+        Filtered DataFrame (may be shorter if total_sec outliers were dropped)
+    """
+    if "prog_distance_category" not in df.columns:
+        return df
+
+    if split_cols is None:
+        split_cols = ["swim_sec", "t1_sec", "bike_sec", "t2_sec", "run_sec", "total_sec"]
+
+    df = df.copy()
+    dist_norm = df["prog_distance_category"].str.lower().str.strip().replace({"olympic": "standard"})
+
+    total_outlier_mask = pd.Series(True, index=df.index)
+    n_nulled = {col: 0 for col in split_cols}
+
+    for dist_cat, thresholds in SPLIT_OUTLIER_THRESHOLDS.items():
+        dist_mask = dist_norm == dist_cat
+        if not dist_mask.any():
+            continue
+
+        for col in split_cols:
+            if col not in thresholds or col not in df.columns:
+                continue
+
+            lo, hi = thresholds[col]
+            vals = df.loc[dist_mask, col]
+            bad = vals.notna() & ((vals < lo) | (vals > hi))
+
+            if col == "total_sec":
+                # Drop entire row if total is an outlier
+                total_outlier_mask.loc[bad[bad].index] = False
+            else:
+                # Null out individual split outliers (keep row for other targets)
+                df.loc[bad[bad].index, col] = np.nan
+
+            n_nulled[col] += bad.sum()
+
+    # Log summary
+    total_dropped = (~total_outlier_mask).sum()
+    for col, count in n_nulled.items():
+        if count > 0:
+            action = "dropped" if col == "total_sec" else "nulled"
+            logger.info(f"Outlier filter: {action} {count} rows for {col}")
+
+    return df.loc[total_outlier_mask].reset_index(drop=True)
+
+
+def create_regressor(params: dict | None = None) -> Pipeline:
     """
     Create a regression pipeline with imputation and model.
+
+    Args:
+        params: Optional hyperparameter overrides. Keys:
+                n_estimators, max_depth, learning_rate, num_leaves, min_child_samples.
+                Unspecified keys fall back to DEFAULT_PARAMS.
 
     Returns a Pipeline that:
     1. Imputes missing values with median
     2. Fits a gradient boosting regressor
     """
+    p = {**DEFAULT_PARAMS, **(params or {})}
+
     if USE_LIGHTGBM:
         model = LGBMRegressor(
-            n_estimators=100,
-            max_depth=6,
-            learning_rate=0.1,
-            num_leaves=31,
-            min_child_samples=20,
+            n_estimators=p["n_estimators"],
+            max_depth=p["max_depth"],
+            learning_rate=p["learning_rate"],
+            num_leaves=p.get("num_leaves", 31),
+            min_child_samples=p.get("min_child_samples", 20),
             random_state=42,
             verbose=-1,
         )
     else:
         model = HistGradientBoostingRegressor(
-            max_iter=100,
-            max_depth=6,
-            learning_rate=0.1,
-            min_samples_leaf=20,
+            max_iter=p["n_estimators"],
+            max_depth=p["max_depth"],
+            learning_rate=p["learning_rate"],
+            min_samples_leaf=p.get("min_child_samples", 20),
             random_state=42,
         )
 
@@ -104,7 +272,8 @@ def train_baseline_models(
     train_df: pd.DataFrame,
     feature_cols: list[str],
     target_cols: dict[str, str] | None = None,
-    use_sample_weights: bool = True
+    use_sample_weights: bool = True,
+    model_params: dict | None = None,
 ) -> ModelBundle:
     """
     Train baseline regression models for split and total time prediction.
@@ -130,6 +299,7 @@ def train_baseline_models(
             "bike": "bike_sec",
             "run": "run_sec",
             "total": "total_sec",
+            "total_pct": "finish_pct",  # Percentile target (0=winner, 1=last)
         }
 
     # Verify feature columns exist
@@ -171,7 +341,7 @@ def train_baseline_models(
 
         logger.info(f"Training {name} model on {len(y_train)} samples")
 
-        model = create_regressor()
+        model = create_regressor(params=model_params)
         # Pass sample weights to fit (works with LightGBM and sklearn)
         if weights_train is not None:
             model.fit(X_train, y_train, regressor__sample_weight=weights_train.values)
@@ -191,11 +361,122 @@ def train_baseline_models(
         model_bike=models.get("bike"),
         model_run=models.get("run"),
         model_total=models.get("total"),
+        model_total_pct=models.get("total_pct"),
         feature_columns=feature_cols,
-        metadata={"training_metrics": metrics},
+        metadata={
+            "training_metrics": metrics,
+            "model_params": model_params or DEFAULT_PARAMS,
+        },
     )
 
     return bundle
+
+
+def train_distance_split_models(
+    train_df: pd.DataFrame,
+    feature_cols: list[str],
+    min_samples: int = 200,
+    use_sample_weights: bool = True,
+    model_params: dict | None = None,
+) -> dict:
+    """
+    Train distance-specific split models (swim, bike, run) for each distance category.
+
+    Tree-based models can't learn multiplicative time scaling from a single
+    distance_category_encoded integer. Training separate split models per distance
+    produces accurate absolute time predictions for each distance.
+
+    The unified percentile model (model_total_pct) still handles rankings since
+    percentile targets are naturally distance-agnostic.
+
+    Args:
+        train_df: Training DataFrame with features, labels, and 'prog_distance_category'
+        feature_cols: Feature column names
+        min_samples: Minimum rows per distance to train models (skip if fewer)
+        use_sample_weights: Whether to use tier-based sample weights
+        model_params: Hyperparameter overrides for the regressors
+
+    Returns:
+        Dict of {distance: {"swim": model, "bike": model, "run": model}}
+        Only includes distances with sufficient training data.
+    """
+    from .features import TIER_SAMPLE_WEIGHTS
+
+    if "prog_distance_category" not in train_df.columns:
+        logger.warning("No 'prog_distance_category' column; skipping distance-specific split models")
+        return {}
+
+    # Normalize distance categories
+    df = train_df.copy()
+    df["_dist_norm"] = df["prog_distance_category"].str.lower().str.strip()
+
+    # Group standard/olympic together
+    df["_dist_norm"] = df["_dist_norm"].replace({"olympic": "standard"})
+
+    distance_models = {}
+    split_targets = {"swim": "swim_sec", "bike": "bike_sec", "run": "run_sec"}
+
+    for dist_cat, dist_df in df.groupby("_dist_norm"):
+        if dist_df[split_targets["swim"]].notna().sum() < min_samples:
+            logger.info(
+                f"Distance '{dist_cat}': {len(dist_df)} rows, "
+                f"<{min_samples} with valid splits — skipping"
+            )
+            continue
+
+        logger.info(f"Training distance-specific split models for '{dist_cat}' ({len(dist_df)} rows)")
+
+        X = dist_df[feature_cols].copy()
+
+        # Sample weights
+        sample_weights = None
+        if use_sample_weights and "event_tier" in dist_df.columns:
+            sample_weights = dist_df["event_tier"].map(TIER_SAMPLE_WEIGHTS).fillna(1.0)
+
+        models = {}
+        for split_name, target_col in split_targets.items():
+            if target_col not in dist_df.columns:
+                logger.warning(f"  {dist_cat}/{split_name}: target '{target_col}' not found, skipping")
+                continue
+
+            mask = dist_df[target_col].notna()
+
+            # Apply outlier filtering for this split
+            outlier_mask = filter_split_outliers(dist_df, dist_cat, target_col)
+            n_outliers = mask.sum() - (mask & outlier_mask).sum()
+            if n_outliers > 0:
+                logger.info(
+                    f"  {dist_cat}/{split_name}: removed {n_outliers} outlier rows "
+                    f"({n_outliers / mask.sum() * 100:.1f}% of valid data)"
+                )
+            mask = mask & outlier_mask
+
+            X_train = X.loc[mask]
+            y_train = dist_df.loc[mask, target_col]
+            w_train = sample_weights.loc[mask] if sample_weights is not None else None
+
+            if len(y_train) < 50:
+                logger.warning(f"  {dist_cat}/{split_name}: only {len(y_train)} samples, skipping")
+                continue
+
+            model = create_regressor(params=model_params)
+            if w_train is not None:
+                model.fit(X_train, y_train, regressor__sample_weight=w_train.values)
+            else:
+                model.fit(X_train, y_train)
+
+            # Training MAE
+            y_pred = model.predict(X_train)
+            mae = np.mean(np.abs(y_train - y_pred))
+            logger.info(f"  {dist_cat}/{split_name}: MAE={mae:.1f}s on {len(y_train)} samples")
+            models[split_name] = model
+
+        if models:
+            distance_models[dist_cat] = models
+            logger.info(f"  Trained {len(models)} split models for '{dist_cat}'")
+
+    logger.info(f"Distance-specific split models trained for: {list(distance_models.keys())}")
+    return distance_models
 
 
 def save_model_bundle(bundle: ModelBundle, path: str) -> str:
@@ -236,7 +517,8 @@ def build_training_dataset(
     min_finishers: int = 10,
     elite_only: bool = True,
     distance_categories: list[str] = None,
-    match_distance: bool = True
+    match_distance: bool = True,
+    gender: str | None = None,
 ) -> pd.DataFrame:
     """
     Build a training dataset by fetching results and computing features for historical programs.
@@ -264,6 +546,14 @@ def build_training_dataset(
         distance_categories=distance_categories
     )
     logger.info(f"Found {len(programs_df)} programs for training (elite_only={elite_only})")
+
+    # Filter by gender if specified
+    if gender:
+        if gender.lower() in ("men", "male"):
+            programs_df = programs_df[programs_df["prog_name"] == "Elite Men"]
+        elif gender.lower() in ("women", "female"):
+            programs_df = programs_df[programs_df["prog_name"] == "Elite Women"]
+        logger.info(f"Filtered to gender={gender}: {len(programs_df)} programs remaining")
 
     all_rows = []
 
@@ -310,6 +600,11 @@ def build_training_dataset(
             # Only keep finishers for training
             merged = merged[merged["finish_status"] == "FINISH"]
 
+            # Compute finish percentile target (0 = best, 1 = last)
+            n_finishers = len(merged)
+            if n_finishers > 0:
+                merged["finish_pct"] = merged["finish_position"].astype(float) / n_finishers
+
             all_rows.append(merged)
 
         except Exception as e:
@@ -321,6 +616,266 @@ def build_training_dataset(
         return pd.DataFrame()
 
     train_df = pd.concat(all_rows, ignore_index=True)
-    logger.info(f"Built training dataset with {len(train_df)} rows")
+    logger.info(f"Built training dataset with {len(train_df)} rows (before outlier filtering)")
+
+    # Apply outlier filtering based on distance-specific split thresholds
+    n_before = len(train_df)
+    train_df = filter_outliers_by_distance(train_df)
+    n_after = len(train_df)
+    if n_before != n_after:
+        logger.info(
+            f"Outlier filtering: {n_before} → {n_after} rows "
+            f"({n_before - n_after} dropped, {(n_before - n_after) / n_before * 100:.1f}%)"
+        )
 
     return train_df
+
+
+def time_based_cv_splits(
+    train_df: pd.DataFrame,
+    folds: list[tuple[str, str]] | None = None,
+) -> list[tuple[pd.DataFrame, pd.DataFrame]]:
+    """
+    Create time-based cross-validation splits (expanding window).
+
+    Each fold uses all data up to a cutoff for training and the next period
+    for validation. Requires an 'event_date' column in train_df.
+
+    Args:
+        train_df: Full training DataFrame with 'event_date' column
+        folds: Optional list of (train_end, val_end) date strings.
+               Default folds:
+                 Fold 1: train ≤2021-12-31, val 2022
+                 Fold 2: train ≤2022-12-31, val 2023
+                 Fold 3: train ≤2023-12-31, val 2024H1
+                 Fold 4: train ≤2024-06-30, val 2024H2
+
+    Returns:
+        List of (train_split, val_split) DataFrame tuples
+    """
+    if "event_date" not in train_df.columns:
+        raise ValueError("train_df must have an 'event_date' column for time-based CV")
+
+    dates = pd.to_datetime(train_df["event_date"])
+
+    if folds is None:
+        folds = [
+            ("2021-12-31", "2022-12-31"),
+            ("2022-12-31", "2023-12-31"),
+            ("2023-12-31", "2024-06-30"),
+            ("2024-06-30", "2024-12-31"),
+        ]
+
+    splits = []
+    for i, (train_end, val_end) in enumerate(folds):
+        train_mask = dates <= pd.Timestamp(train_end)
+        val_mask = (dates > pd.Timestamp(train_end)) & (dates <= pd.Timestamp(val_end))
+
+        train_split = train_df.loc[train_mask]
+        val_split = train_df.loc[val_mask]
+
+        if len(train_split) < 50 or len(val_split) < 10:
+            logger.warning(
+                f"Fold {i+1}: insufficient data (train={len(train_split)}, val={len(val_split)}), skipping"
+            )
+            continue
+
+        logger.info(
+            f"Fold {i+1}: train ≤{train_end} ({len(train_split)} rows), "
+            f"val ({train_end}, {val_end}] ({len(val_split)} rows)"
+        )
+        splits.append((train_split, val_split))
+
+    return splits
+
+
+def cross_validate(
+    train_df: pd.DataFrame,
+    feature_cols: list[str],
+    model_params: dict | None = None,
+    folds: list[tuple[str, str]] | None = None,
+    use_sample_weights: bool = True,
+) -> dict:
+    """
+    Run time-based cross-validation, training a finish_pct model per fold.
+
+    For each fold:
+    1. Train a single percentile model (fast)
+    2. Group val predictions by (event_id, prog_id)
+    3. Compute per-race Spearman correlation
+
+    Args:
+        train_df: Full training DataFrame with features, labels, and 'event_date'
+        feature_cols: Feature column names
+        model_params: Hyperparameters for the regressor
+        folds: Optional CV fold definitions (passed to time_based_cv_splits)
+        use_sample_weights: Whether to use tier-based sample weights
+
+    Returns:
+        Dict with keys: mean_spearman, mean_mae, fold_results (list of per-fold dicts)
+    """
+    from .features import TIER_SAMPLE_WEIGHTS
+    from scipy.stats import spearmanr
+
+    splits = time_based_cv_splits(train_df, folds=folds)
+    if not splits:
+        logger.error("No valid CV splits")
+        return {"mean_spearman": np.nan, "mean_mae": np.nan, "fold_results": []}
+
+    fold_results = []
+
+    for fold_idx, (tr, va) in enumerate(splits):
+        # Train percentile model only
+        target_col = "finish_pct"
+        if target_col not in tr.columns:
+            logger.warning(f"Fold {fold_idx+1}: '{target_col}' not in data, skipping")
+            continue
+
+        tr_mask = tr[target_col].notna()
+        va_mask = va[target_col].notna()
+
+        X_tr = tr.loc[tr_mask, feature_cols]
+        y_tr = tr.loc[tr_mask, target_col]
+        X_va = va.loc[va_mask, feature_cols]
+        y_va = va.loc[va_mask, target_col]
+
+        if len(y_tr) < 50 or len(y_va) < 10:
+            logger.warning(f"Fold {fold_idx+1}: insufficient labeled data, skipping")
+            continue
+
+        # Sample weights
+        w_tr = None
+        if use_sample_weights and "event_tier" in tr.columns:
+            w_tr = tr.loc[tr_mask, "event_tier"].map(TIER_SAMPLE_WEIGHTS).fillna(1.0)
+
+        model = create_regressor(params=model_params)
+        if w_tr is not None:
+            model.fit(X_tr, y_tr, regressor__sample_weight=w_tr.values)
+        else:
+            model.fit(X_tr, y_tr)
+
+        # Predict on validation
+        va_pred = va.loc[va_mask].copy()
+        va_pred["pred_pct"] = model.predict(X_va)
+
+        # Per-race Spearman
+        race_spearmans = []
+        race_maes = []
+        for _, race_group in va_pred.groupby(["event_id", "prog_id"]):
+            if len(race_group) < 5:
+                continue
+            corr, _ = spearmanr(race_group["pred_pct"], race_group[target_col])
+            race_spearmans.append(corr)
+            race_maes.append(np.mean(np.abs(race_group["pred_pct"] - race_group[target_col])))
+
+        fold_spearman = np.mean(race_spearmans) if race_spearmans else np.nan
+        fold_mae = np.mean(race_maes) if race_maes else np.nan
+
+        logger.info(
+            f"Fold {fold_idx+1}: Spearman={fold_spearman:.3f}, MAE={fold_mae:.4f}, "
+            f"n_races={len(race_spearmans)}"
+        )
+
+        fold_results.append({
+            "fold": fold_idx + 1,
+            "spearman": fold_spearman,
+            "mae": fold_mae,
+            "n_races": len(race_spearmans),
+            "n_train": len(y_tr),
+            "n_val": len(y_va),
+        })
+
+    mean_spearman = np.mean([f["spearman"] for f in fold_results]) if fold_results else np.nan
+    mean_mae = np.mean([f["mae"] for f in fold_results]) if fold_results else np.nan
+
+    return {
+        "mean_spearman": mean_spearman,
+        "mean_mae": mean_mae,
+        "fold_results": fold_results,
+    }
+
+
+# Default hyperparameter search grid
+DEFAULT_PARAM_GRID = {
+    "n_estimators": [100, 200, 500],
+    "max_depth": [4, 6, 8],
+    "learning_rate": [0.05, 0.1],
+    "min_child_samples": [10, 20, 50],
+}
+
+
+def tune_hyperparameters(
+    train_df: pd.DataFrame,
+    feature_cols: list[str],
+    param_grid: dict | None = None,
+    folds: list[tuple[str, str]] | None = None,
+    use_sample_weights: bool = True,
+) -> dict:
+    """
+    Grid search over hyperparameters using time-based cross-validation.
+
+    Optimizes for Spearman correlation on the percentile model.
+
+    Args:
+        train_df: Full training DataFrame
+        feature_cols: Feature column names
+        param_grid: Dict of param_name -> list of values to search.
+                    Default: DEFAULT_PARAM_GRID (54 combinations)
+        folds: Optional CV fold definitions
+        use_sample_weights: Whether to use tier-based sample weights
+
+    Returns:
+        Dict with keys: best_params, best_score, all_results (sorted list)
+    """
+    from itertools import product
+
+    if param_grid is None:
+        param_grid = DEFAULT_PARAM_GRID
+
+    # Generate all combinations
+    param_names = list(param_grid.keys())
+    param_values = list(param_grid.values())
+    combinations = list(product(*param_values))
+
+    logger.info(f"Hyperparameter tuning: {len(combinations)} combinations to evaluate")
+
+    all_results = []
+
+    for i, combo in enumerate(combinations):
+        params = dict(zip(param_names, combo))
+        params_str = ", ".join(f"{k}={v}" for k, v in params.items())
+
+        logger.info(f"[{i+1}/{len(combinations)}] {params_str}")
+
+        cv_result = cross_validate(
+            train_df, feature_cols,
+            model_params=params,
+            folds=folds,
+            use_sample_weights=use_sample_weights,
+        )
+
+        all_results.append({
+            "params": params,
+            "mean_spearman": cv_result["mean_spearman"],
+            "mean_mae": cv_result["mean_mae"],
+            "fold_results": cv_result["fold_results"],
+        })
+
+    # Sort by Spearman (higher is better)
+    all_results.sort(key=lambda x: x["mean_spearman"], reverse=True)
+
+    best = all_results[0] if all_results else {"params": DEFAULT_PARAMS, "mean_spearman": np.nan}
+
+    logger.info(f"\n--- Tuning Results (top 5) ---")
+    for rank, res in enumerate(all_results[:5], 1):
+        params_str = ", ".join(f"{k}={v}" for k, v in res["params"].items())
+        logger.info(f"  #{rank}: Spearman={res['mean_spearman']:.4f} | {params_str}")
+
+    logger.info(f"\nBest params: {best['params']}")
+    logger.info(f"Best Spearman: {best['mean_spearman']:.4f}")
+
+    return {
+        "best_params": best["params"],
+        "best_score": best["mean_spearman"],
+        "all_results": all_results,
+    }

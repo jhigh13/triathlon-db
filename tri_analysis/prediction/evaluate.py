@@ -155,7 +155,7 @@ def evaluate_program_predictions(
 def backtest_events(
     engine,
     event_prog_keys: list[tuple[int, int]],
-    bundle_path: str,
+    bundle_path: str | dict[str, str],
     feature_cols: Optional[list[str]] = None
 ) -> pd.DataFrame:
     """
@@ -170,21 +170,32 @@ def backtest_events(
     Args:
         engine: SQLAlchemy Engine
         event_prog_keys: List of (event_id, prog_id) tuples to evaluate
-        bundle_path: Path to saved ModelBundle
+        bundle_path: Path to saved ModelBundle, or dict like
+                     {"men": "path_men.joblib", "women": "path_women.joblib"}
+                     for gender-specific models
         feature_cols: Feature columns (uses bundle defaults if None)
 
     Returns:
         DataFrame with one row per event and metric columns
     """
-    from .sql import ProgramKey, fetch_program_results
+    from .sql import ProgramKey, fetch_program_results, fetch_event_metadata
     from .features import build_features_for_program, fill_missing_features, get_feature_columns
     from .train import load_model_bundle
     from .predict import predict_splits_and_total
     from .utils_time import parse_time_to_seconds
 
-    bundle = load_model_bundle(bundle_path)
-    if feature_cols is None:
-        feature_cols = bundle.feature_columns or get_feature_columns()
+    # Load bundle(s)
+    if isinstance(bundle_path, dict):
+        bundles = {k: load_model_bundle(v) for k, v in bundle_path.items()}
+        # Use feature cols from first bundle
+        if feature_cols is None:
+            first_bundle = next(iter(bundles.values()))
+            feature_cols = first_bundle.feature_columns or get_feature_columns()
+    else:
+        bundle = load_model_bundle(bundle_path)
+        bundles = None
+        if feature_cols is None:
+            feature_cols = bundle.feature_columns or get_feature_columns()
 
     results = []
 
@@ -203,11 +214,29 @@ def backtest_events(
             # Fill missing features
             features_df = fill_missing_features(features_df, feature_cols)
 
-            # Generate predictions
-            pred_df = predict_splits_and_total(features_df, bundle)
+            # Select the right bundle for gender-specific models
+            if bundles is not None:
+                # Determine gender from program results
+                results_df = fetch_program_results(engine, key)
+                prog_name = results_df["prog_name"].iloc[0] if not results_df.empty else ""
+                if "women" in prog_name.lower():
+                    active_bundle = bundles.get("women", next(iter(bundles.values())))
+                else:
+                    active_bundle = bundles.get("men", next(iter(bundles.values())))
+            else:
+                active_bundle = bundle
+                results_df = None
 
-            # Get actual results
-            results_df = fetch_program_results(engine, key)
+            # Get distance category for distance-specific split models
+            event_meta = fetch_event_metadata(engine, key)
+            distance_cat = event_meta.get("prog_distance_category") if event_meta else None
+
+            # Generate predictions
+            pred_df = predict_splits_and_total(features_df, active_bundle, distance_category=distance_cat)
+
+            # Get actual results (reuse if already fetched above)
+            if results_df is None:
+                results_df = fetch_program_results(engine, key)
             results_df["total_sec"] = results_df["total_time"].apply(parse_time_to_seconds)
 
             # Evaluate

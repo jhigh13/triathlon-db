@@ -209,6 +209,20 @@ def process_program_data(event_id, program_id) -> pd.DataFrame:
         "prog_distance_category": data.get("prog_distance_category"),
     }
 
+    # Event info (needed early for fallback logic)
+    event = data.get("event") or {}
+
+    # Fallback: infer prog_distance_category from event_specifications if missing/empty
+    if not row.get("prog_distance_category"):
+        event_specs = event.get("event_specifications") or []
+        spec_names = ", ".join([spec.get("cat_name") for spec in event_specs if spec.get("cat_name")])
+        if "Sprint" in spec_names:
+            row["prog_distance_category"] = "sprint"
+        elif "Standard" in spec_names:
+            row["prog_distance_category"] = "standard"
+        elif "Olympic" in spec_names:
+            row["prog_distance_category"] = "olympic"
+
     # Derive is_para from program name (robust to variations)
     prog_name = (row.get("prog_name") or "").upper()
     row["is_para"] = (
@@ -239,7 +253,6 @@ def process_program_data(event_id, program_id) -> pd.DataFrame:
         row[dist_key] = dist
 
     # Event info
-    event = data.get("event") or {}
     row["event_name"] = event.get("event_title")
     row["event_venue"] = event.get("event_venue")
     row["event_date"] = event.get("event_date")
@@ -250,6 +263,8 @@ def process_program_data(event_id, program_id) -> pd.DataFrame:
     # event_categories: concatenate all cat_name values
     event_categories = event.get("event_categories") or []
     row["cat_name"] = ", ".join([cat.get("cat_name") for cat in event_categories if cat.get("cat_name")])
+
+    
 
     # meta: add all meta fields except head_referee and competition_jury
     meta = data.get("meta") or {}
