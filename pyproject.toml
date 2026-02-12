@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "triathlon-db"
+version = "0.1.0"
+description = "World Triathlon database and prediction pipeline"
+requires-python = ">=3.12"
+dependencies = [
+    "sqlalchemy>=2.0",
+    "pandas>=2.1.0",
+    "numpy>=1.26",
+    "scikit-learn>=1.4",
+    "joblib>=1.3",
+    "psycopg[binary]>=3.2.1",
+]
+
+[tool.setuptools.packages.find]
+include = ["tri_analysis*"]

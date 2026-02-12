@@ -269,7 +269,7 @@ def main():
     parser.add_argument(
         "--model",
         type=str,
-        default="models/bundle_claudev16.joblib",
+        default="models/bundle_claudev23_men.joblib",
         help="Path to model bundle"
     )
     parser.add_argument(

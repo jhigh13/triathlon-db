@@ -10,5 +10,11 @@
     "workbench.editorAssociations": {
         "*.copilotmd": "vscode.markdown.preview.editor",
         "file:/**/*.xlsx": "jupyter-data-wrangler"
-    }
+    },
+    // Python environment — ensures every terminal + run picks the project venv
+    "python.defaultInterpreterPath": "${workspaceFolder}/.venv/Scripts/python.exe",
+    "python.terminal.activateEnvironment": true,
+    "python.terminal.activateEnvInCurrentTerminal": true,
+    // Default terminal cwd = project root so relative imports work
+    "terminal.integrated.cwd": "${workspaceFolder}"
 }

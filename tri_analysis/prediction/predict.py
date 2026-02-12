@@ -39,8 +39,8 @@ def predict_splits_and_total(
 
     Returns:
         DataFrame with original columns plus:
-        - pred_swim_sec, pred_bike_sec, pred_run_sec, pred_total_sec
-        - pred_swim_hms, pred_bike_hms, pred_run_hms, pred_total_hms (formatted strings)
+        - pred_swim_sec, pred_t1_sec, pred_bike_sec, pred_t2_sec, pred_run_sec, pred_total_sec
+        - pred_swim_hms, pred_t1_hms, pred_bike_hms, pred_t2_hms, pred_run_hms, pred_total_hms
         - predicted_rank (1=fastest predicted total)
     """
     if features_df.empty:
@@ -50,18 +50,23 @@ def predict_splits_and_total(
     df = features_df.copy()
     feature_cols = bundle.feature_columns
 
+    # Split models use a reduced feature set (no field-context/ranking features)
+    split_feature_cols = getattr(bundle, "split_feature_columns", None) or feature_cols
+
     # Ensure all feature columns exist
-    missing_cols = [c for c in feature_cols if c not in df.columns]
-    if missing_cols:
-        logger.warning(f"Missing feature columns: {missing_cols}")
-        for col in missing_cols:
-            df[col] = np.nan
+    for col_list in [feature_cols, split_feature_cols]:
+        missing_cols = [c for c in col_list if c not in df.columns]
+        if missing_cols:
+            logger.warning(f"Missing feature columns: {missing_cols}")
+            for col in missing_cols:
+                df[col] = np.nan
 
-    # Prepare feature matrix
-    X = df[feature_cols].copy()
+    # Prepare feature matrices
+    X_full = df[feature_cols].copy()
+    X_full = X_full.fillna(X_full.median())
 
-    # Replace any remaining NaNs with median (defensive)
-    X = X.fillna(X.median())
+    X_split = df[split_feature_cols].copy()
+    X_split = X_split.fillna(X_split.median())
 
     # Select distance-specific split models if available
     dist_models = None
@@ -73,45 +78,131 @@ def predict_splits_and_total(
             dist_key = "standard"
         dist_models = bundle.distance_split_models.get(dist_key)
         if dist_models:
-            logger.info(f"Using distance-specific split models for '{dist_key}' (splits: {list(dist_models.keys())})")
+            logger.info(
+                f"Using distance-specific split models for '{dist_key}' "
+                f"(splits: {list(dist_models.keys())}, "
+                f"features: {len(split_feature_cols)}/{len(feature_cols)})"
+            )
         else:
             logger.info(f"No distance-specific models for '{dist_key}', using unified split models")
 
-    # Predict each split (distance-specific if available, else unified)
+    # Predict each split
+    # Distance-specific models use X_split (reduced features)
+    # Unified fallback models use X_full (full features)
     predictions = {}
 
-    swim_model = (dist_models or {}).get("swim") or bundle.model_swim
-    bike_model = (dist_models or {}).get("bike") or bundle.model_bike
-    run_model = (dist_models or {}).get("run") or bundle.model_run
-
-    if swim_model is not None:
-        predictions["pred_swim_sec"] = swim_model.predict(X)
+    if dist_models and "swim" in dist_models:
+        predictions["pred_swim_sec"] = dist_models["swim"].predict(X_split)
+    elif bundle.model_swim is not None:
+        predictions["pred_swim_sec"] = bundle.model_swim.predict(X_full)
     else:
         predictions["pred_swim_sec"] = np.full(len(df), np.nan)
 
-    if bike_model is not None:
-        predictions["pred_bike_sec"] = bike_model.predict(X)
+    # T1 prediction
+    if dist_models and "t1" in dist_models:
+        predictions["pred_t1_sec"] = dist_models["t1"].predict(X_split)
+    elif getattr(bundle, "model_t1", None) is not None:
+        predictions["pred_t1_sec"] = bundle.model_t1.predict(X_full)
+    else:
+        predictions["pred_t1_sec"] = np.full(len(df), np.nan)
+
+    if dist_models and "bike" in dist_models:
+        predictions["pred_bike_sec"] = dist_models["bike"].predict(X_split)
+    elif bundle.model_bike is not None:
+        predictions["pred_bike_sec"] = bundle.model_bike.predict(X_full)
     else:
         predictions["pred_bike_sec"] = np.full(len(df), np.nan)
 
-    if run_model is not None:
-        predictions["pred_run_sec"] = run_model.predict(X)
+    # T2 prediction
+    if dist_models and "t2" in dist_models:
+        predictions["pred_t2_sec"] = dist_models["t2"].predict(X_split)
+    elif getattr(bundle, "model_t2", None) is not None:
+        predictions["pred_t2_sec"] = bundle.model_t2.predict(X_full)
+    else:
+        predictions["pred_t2_sec"] = np.full(len(df), np.nan)
+
+    if dist_models and "run" in dist_models:
+        predictions["pred_run_sec"] = dist_models["run"].predict(X_split)
+    elif bundle.model_run is not None:
+        predictions["pred_run_sec"] = bundle.model_run.predict(X_full)
     else:
         predictions["pred_run_sec"] = np.full(len(df), np.nan)
 
-    if bundle.model_total is not None:
-        predictions["pred_total_sec"] = bundle.model_total.predict(X)
-    else:
-        # Fall back to sum of splits if total model not available
-        predictions["pred_total_sec"] = (
-            predictions["pred_swim_sec"] +
-            predictions["pred_bike_sec"] +
-            predictions["pred_run_sec"]
-        )
-
-    # Add predictions to DataFrame
+    # Add predictions to DataFrame (before total, since we may derive total from splits)
+    # Force float dtype to prevent TypeError from mixed int/None object columns
     for col, vals in predictions.items():
-        df[col] = vals
+        df[col] = pd.to_numeric(pd.Series(vals, index=df.index), errors="coerce")
+
+    # T1/T2 fallback: fill missing T1/T2 predictions from total model budget
+    # Uses .any() so partial missing values (some athletes missing) also get filled.
+    # Need a temporary total for the fallback calculation
+    if bundle.model_total is not None:
+        _total_for_fallback = bundle.model_total.predict(X_full)
+    elif dist_models and "total" in dist_models:
+        _total_for_fallback = dist_models["total"].predict(X_full)
+    else:
+        _total_for_fallback = None
+
+    t1_has_any_missing = df["pred_t1_sec"].isna().any()
+    t2_has_any_missing = df["pred_t2_sec"].isna().any()
+    if (t1_has_any_missing or t2_has_any_missing) and _total_for_fallback is not None:
+        split_sum = df["pred_swim_sec"] + df["pred_bike_sec"] + df["pred_run_sec"]
+        transition_budget = (pd.Series(_total_for_fallback, index=df.index) - split_sum).clip(lower=0)
+
+        t1_mask = df["pred_t1_sec"].isna()
+        t2_mask = df["pred_t2_sec"].isna()
+        both_mask = t1_mask & t2_mask
+
+        n_t1_filled = 0
+        n_t2_filled = 0
+
+        if both_mask.any():
+            df.loc[both_mask, "pred_t1_sec"] = (transition_budget[both_mask] * 0.55)
+            df.loc[both_mask, "pred_t2_sec"] = (transition_budget[both_mask] * 0.45)
+            n_t1_filled += both_mask.sum()
+            n_t2_filled += both_mask.sum()
+
+        t1_only = t1_mask & ~t2_mask
+        if t1_only.any():
+            df.loc[t1_only, "pred_t1_sec"] = (transition_budget[t1_only] - df.loc[t1_only, "pred_t2_sec"]).clip(lower=5)
+            n_t1_filled += t1_only.sum()
+
+        t2_only = t2_mask & ~t1_mask
+        if t2_only.any():
+            df.loc[t2_only, "pred_t2_sec"] = (transition_budget[t2_only] - df.loc[t2_only, "pred_t1_sec"]).clip(lower=5)
+            n_t2_filled += t2_only.sum()
+
+        if n_t1_filled or n_t2_filled:
+            logger.info(f"Filled missing transitions: {n_t1_filled} T1, {n_t2_filled} T2 (from total model budget)")
+
+    # Total prediction: use SPLIT SUM when all 5 splits are available.
+    # This ensures Det. Total is consistent with what the simulation uses
+    # (sim_total = swim + T1 + bike + T2 + run), eliminating the split-total gap.
+    # Fall back to total model when splits are incomplete.
+    all_splits_available = all(
+        col in df.columns and df[col].notna().all()
+        for col in ["pred_swim_sec", "pred_t1_sec", "pred_bike_sec", "pred_t2_sec", "pred_run_sec"]
+    )
+
+    if all_splits_available:
+        df["pred_total_sec"] = (
+            df["pred_swim_sec"] + df["pred_t1_sec"] +
+            df["pred_bike_sec"] + df["pred_t2_sec"] +
+            df["pred_run_sec"]
+        )
+        logger.info("Using split sum as pred_total_sec (all 5 splits available)")
+    elif dist_models and "total" in dist_models:
+        df["pred_total_sec"] = dist_models["total"].predict(X_full)
+        logger.info(f"Using distance-specific total model for '{dist_key}' (incomplete splits)")
+    elif bundle.model_total is not None:
+        df["pred_total_sec"] = bundle.model_total.predict(X_full)
+        logger.info("Using unified total model (incomplete splits)")
+    else:
+        df["pred_total_sec"] = (
+            df["pred_swim_sec"].fillna(0) + df["pred_bike_sec"].fillna(0) +
+            df["pred_run_sec"].fillna(0)
+        )
+        logger.warning("No total model and incomplete splits — using partial split sum")
 
     # ========== Prediction Anchoring ==========
     # Prevent predictions from being unreasonably slow compared to historical performance.
@@ -137,16 +228,26 @@ def predict_splits_and_total(
     # position rather than absolute seconds, improving ranking accuracy.
     has_pct_model = getattr(bundle, "model_total_pct", None) is not None
     if has_pct_model:
-        df["pred_finish_pct"] = bundle.model_total_pct.predict(X)
+        df["pred_finish_pct"] = bundle.model_total_pct.predict(X_full)
         # Clip to valid range
         df["pred_finish_pct"] = df["pred_finish_pct"].clip(0.001, 1.0)
         logger.info("Using percentile model for ranking")
 
     # Format as human-readable times
     df["pred_swim_hms"] = df["pred_swim_sec"].apply(lambda x: seconds_to_hms(int(x)) if pd.notna(x) else None)
+    df["pred_t1_hms"] = df["pred_t1_sec"].apply(lambda x: seconds_to_hms(int(x)) if pd.notna(x) else None)
     df["pred_bike_hms"] = df["pred_bike_sec"].apply(lambda x: seconds_to_hms(int(x)) if pd.notna(x) else None)
+    df["pred_t2_hms"] = df["pred_t2_sec"].apply(lambda x: seconds_to_hms(int(x)) if pd.notna(x) else None)
     df["pred_run_hms"] = df["pred_run_sec"].apply(lambda x: seconds_to_hms(int(x)) if pd.notna(x) else None)
     df["pred_total_hms"] = df["pred_total_sec"].apply(lambda x: seconds_to_hms(int(x)) if pd.notna(x) else None)
+
+    # Log split-total accounting diagnostic
+    active_total = df["pred_swim_sec"] + df["pred_t1_sec"] + df["pred_bike_sec"] + df["pred_t2_sec"] + df["pred_run_sec"]
+    delta = df["pred_total_sec"] - active_total
+    logger.info(
+        f"Split-total accounting: mean delta={delta.mean():.1f}s, "
+        f"median={delta.median():.1f}s (total_model - sum_of_splits)"
+    )
 
     # Compute predicted rank
     # Use percentile model for ranking if available (better cross-distance accuracy),
@@ -176,7 +277,9 @@ def format_prediction_output(pred_df: pd.DataFrame) -> pd.DataFrame:
         "athlete_country_name",
         "pred_total_hms",
         "pred_swim_hms",
+        "pred_t1_hms",
         "pred_bike_hms",
+        "pred_t2_hms",
         "pred_run_hms",
         "pred_total_sec",
         "pred_finish_pct",

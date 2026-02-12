@@ -64,6 +64,7 @@ class ModelBundle:
     # e.g., {"sprint": {"swim": model, "bike": model, "run": model},
     #        "standard": {"swim": model, "bike": model, "run": model}}
     feature_columns: list[str] = field(default_factory=list)
+    split_feature_columns: list[str] = field(default_factory=list)  # Reduced set for split models
     created_at: str = field(default_factory=lambda: datetime.now().isoformat())
     version: str = "v1.0"
     metadata: dict = field(default_factory=dict)
@@ -296,7 +297,9 @@ def train_baseline_models(
     if target_cols is None:
         target_cols = {
             "swim": "swim_sec",
+            "t1": "t1_sec",
             "bike": "bike_sec",
+            "t2": "t2_sec",
             "run": "run_sec",
             "total": "total_sec",
             "total_pct": "finish_pct",  # Percentile target (0=winner, 1=last)
@@ -361,6 +364,8 @@ def train_baseline_models(
         model_bike=models.get("bike"),
         model_run=models.get("run"),
         model_total=models.get("total"),
+        model_t1=models.get("t1"),
+        model_t2=models.get("t2"),
         model_total_pct=models.get("total_pct"),
         feature_columns=feature_cols,
         metadata={
@@ -378,33 +383,55 @@ def train_distance_split_models(
     min_samples: int = 200,
     use_sample_weights: bool = True,
     model_params: dict | None = None,
-) -> dict:
+    split_feature_cols: list[str] | None = None,
+) -> tuple[dict, list[str]]:
     """
-    Train distance-specific split models (swim, bike, run) for each distance category.
+    Train distance-specific split and total models for each distance category.
 
-    Tree-based models can't learn multiplicative time scaling from a single
-    distance_category_encoded integer. Training separate split models per distance
-    produces accurate absolute time predictions for each distance.
+    Uses a reduced feature set (split_feature_cols) for individual split models
+    that focuses on individual athlete ability rather than field-context or
+    ranking features. Also trains a distance-specific total model using the
+    full feature set — this ensures predicted total time matches the distance's
+    actual time scale (e.g., sprint ~55min vs standard ~110min).
 
     The unified percentile model (model_total_pct) still handles rankings since
     percentile targets are naturally distance-agnostic.
 
     Args:
         train_df: Training DataFrame with features, labels, and 'prog_distance_category'
-        feature_cols: Feature column names
+        feature_cols: Full feature column names (used for total model + fallback)
         min_samples: Minimum rows per distance to train models (skip if fewer)
         use_sample_weights: Whether to use tier-based sample weights
         model_params: Hyperparameter overrides for the regressors
+        split_feature_cols: Reduced feature set for split models. If None,
+                           uses get_split_feature_columns() from features.py.
 
     Returns:
-        Dict of {distance: {"swim": model, "bike": model, "run": model}}
-        Only includes distances with sufficient training data.
+        Tuple of (distance_models dict, split_feature_columns list).
+        distance_models: {distance: {"swim": model, ..., "total": model}}
+        split_feature_columns: the feature columns used for training split models
     """
-    from .features import TIER_SAMPLE_WEIGHTS
+    from .features import TIER_SAMPLE_WEIGHTS, get_split_feature_columns
+
+    # Use reduced feature set for split models
+    if split_feature_cols is None:
+        split_feature_cols = get_split_feature_columns()
+
+    # Filter to columns that actually exist in the training data
+    available_cols = [c for c in split_feature_cols if c in train_df.columns]
+    missing = set(split_feature_cols) - set(available_cols)
+    if missing:
+        logger.warning(f"Split feature columns not in training data: {missing}")
+    split_feature_cols = available_cols
+
+    logger.info(
+        f"Split models using {len(split_feature_cols)} features "
+        f"(reduced from {len(feature_cols)} full features)"
+    )
 
     if "prog_distance_category" not in train_df.columns:
         logger.warning("No 'prog_distance_category' column; skipping distance-specific split models")
-        return {}
+        return {}, split_feature_cols
 
     # Normalize distance categories
     df = train_df.copy()
@@ -414,7 +441,12 @@ def train_distance_split_models(
     df["_dist_norm"] = df["_dist_norm"].replace({"olympic": "standard"})
 
     distance_models = {}
-    split_targets = {"swim": "swim_sec", "bike": "bike_sec", "run": "run_sec"}
+    split_targets = {"swim": "swim_sec", "t1": "t1_sec", "bike": "bike_sec", "t2": "t2_sec", "run": "run_sec"}
+    # Total model trained per-distance with FULL feature set for accurate absolute times
+    total_target = {"total": "total_sec"}
+
+    # Prepare full feature columns (available in training data)
+    full_feature_cols = [c for c in feature_cols if c in train_df.columns]
 
     for dist_cat, dist_df in df.groupby("_dist_norm"):
         if dist_df[split_targets["swim"]].notna().sum() < min_samples:
@@ -424,9 +456,10 @@ def train_distance_split_models(
             )
             continue
 
-        logger.info(f"Training distance-specific split models for '{dist_cat}' ({len(dist_df)} rows)")
+        logger.info(f"Training distance-specific models for '{dist_cat}' ({len(dist_df)} rows)")
 
-        X = dist_df[feature_cols].copy()
+        X_split = dist_df[split_feature_cols].copy()
+        X_full = dist_df[full_feature_cols].copy()
 
         # Sample weights
         sample_weights = None
@@ -434,6 +467,8 @@ def train_distance_split_models(
             sample_weights = dist_df["event_tier"].map(TIER_SAMPLE_WEIGHTS).fillna(1.0)
 
         models = {}
+
+        # Train split models (swim, t1, bike, t2, run) with reduced feature set
         for split_name, target_col in split_targets.items():
             if target_col not in dist_df.columns:
                 logger.warning(f"  {dist_cat}/{split_name}: target '{target_col}' not found, skipping")
@@ -451,7 +486,7 @@ def train_distance_split_models(
                 )
             mask = mask & outlier_mask
 
-            X_train = X.loc[mask]
+            X_train = X_split.loc[mask]
             y_train = dist_df.loc[mask, target_col]
             w_train = sample_weights.loc[mask] if sample_weights is not None else None
 
@@ -471,12 +506,42 @@ def train_distance_split_models(
             logger.info(f"  {dist_cat}/{split_name}: MAE={mae:.1f}s on {len(y_train)} samples")
             models[split_name] = model
 
+        # Train distance-specific total model with FULL feature set
+        # This gives accurate absolute times for the distance, avoiding the
+        # systematic bias from a unified total model across all distances.
+        for total_name, target_col in total_target.items():
+            if target_col not in dist_df.columns:
+                continue
+
+            mask = dist_df[target_col].notna()
+            outlier_mask = filter_split_outliers(dist_df, dist_cat, target_col)
+            mask = mask & outlier_mask
+
+            X_train = X_full.loc[mask]
+            y_train = dist_df.loc[mask, target_col]
+            w_train = sample_weights.loc[mask] if sample_weights is not None else None
+
+            if len(y_train) < 50:
+                logger.warning(f"  {dist_cat}/{total_name}: only {len(y_train)} samples, skipping")
+                continue
+
+            model = create_regressor(params=model_params)
+            if w_train is not None:
+                model.fit(X_train, y_train, regressor__sample_weight=w_train.values)
+            else:
+                model.fit(X_train, y_train)
+
+            y_pred = model.predict(X_train)
+            mae = np.mean(np.abs(y_train - y_pred))
+            logger.info(f"  {dist_cat}/{total_name}: MAE={mae:.1f}s on {len(y_train)} samples (full features)")
+            models[total_name] = model
+
         if models:
             distance_models[dist_cat] = models
-            logger.info(f"  Trained {len(models)} split models for '{dist_cat}'")
+            logger.info(f"  Trained {len(models)} models for '{dist_cat}' (incl. total)")
 
     logger.info(f"Distance-specific split models trained for: {list(distance_models.keys())}")
-    return distance_models
+    return distance_models, split_feature_cols
 
 
 def save_model_bundle(bundle: ModelBundle, path: str) -> str:

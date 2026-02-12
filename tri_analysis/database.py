@@ -309,65 +309,66 @@ def initialize_database():
     try:
         with engine.begin() as conn:
             # Convert weather metrics from numeric to text if needed
-            conn.execute(text("""
+            # NOTE: DO $$ blocks cannot use bind parameters; inline table name safely.
+            conn.execute(text(f"""
                 DO $$
                 BEGIN
                     IF EXISTS (
                         SELECT 1 FROM information_schema.columns
-                        WHERE table_name = :table AND column_name = 'temperature_water' AND data_type <> 'text'
+                        WHERE table_name = '{EVENTS_TABLE_NAME}' AND column_name = 'temperature_water' AND data_type <> 'text'
                     ) THEN
-                        EXECUTE 'ALTER TABLE ' || quote_ident(:table) || ' ALTER COLUMN temperature_water TYPE VARCHAR USING temperature_water::text';
+                        EXECUTE 'ALTER TABLE "{EVENTS_TABLE_NAME}" ALTER COLUMN temperature_water TYPE VARCHAR USING temperature_water::text';
                     END IF;
                     IF EXISTS (
                         SELECT 1 FROM information_schema.columns
-                        WHERE table_name = :table AND column_name = 'temperature_air' AND data_type <> 'text'
+                        WHERE table_name = '{EVENTS_TABLE_NAME}' AND column_name = 'temperature_air' AND data_type <> 'text'
                     ) THEN
-                        EXECUTE 'ALTER TABLE ' || quote_ident(:table) || ' ALTER COLUMN temperature_air TYPE VARCHAR USING temperature_air::text';
+                        EXECUTE 'ALTER TABLE "{EVENTS_TABLE_NAME}" ALTER COLUMN temperature_air TYPE VARCHAR USING temperature_air::text';
                     END IF;
                     IF EXISTS (
                         SELECT 1 FROM information_schema.columns
-                        WHERE table_name = :table AND column_name = 'humidity' AND data_type <> 'text'
+                        WHERE table_name = '{EVENTS_TABLE_NAME}' AND column_name = 'humidity' AND data_type <> 'text'
                     ) THEN
-                        EXECUTE 'ALTER TABLE ' || quote_ident(:table) || ' ALTER COLUMN humidity TYPE VARCHAR USING humidity::text';
+                        EXECUTE 'ALTER TABLE "{EVENTS_TABLE_NAME}" ALTER COLUMN humidity TYPE VARCHAR USING humidity::text';
                     END IF;
                     IF EXISTS (
                         SELECT 1 FROM information_schema.columns
-                        WHERE table_name = :table AND column_name = 'wbgt' AND data_type <> 'text'
+                        WHERE table_name = '{EVENTS_TABLE_NAME}' AND column_name = 'wbgt' AND data_type <> 'text'
                     ) THEN
-                        EXECUTE 'ALTER TABLE ' || quote_ident(:table) || ' ALTER COLUMN wbgt TYPE VARCHAR USING wbgt::text';
+                        EXECUTE 'ALTER TABLE "{EVENTS_TABLE_NAME}" ALTER COLUMN wbgt TYPE VARCHAR USING wbgt::text';
                     END IF;
                     IF EXISTS (
                         SELECT 1 FROM information_schema.columns
-                        WHERE table_name = :table AND column_name = 'wind' AND data_type <> 'text'
+                        WHERE table_name = '{EVENTS_TABLE_NAME}' AND column_name = 'wind' AND data_type <> 'text'
                     ) THEN
-                        EXECUTE 'ALTER TABLE ' || quote_ident(:table) || ' ALTER COLUMN wind TYPE VARCHAR USING wind::text';
+                        EXECUTE 'ALTER TABLE "{EVENTS_TABLE_NAME}" ALTER COLUMN wind TYPE VARCHAR USING wind::text';
                     END IF;
                 END$$;
-            """), {"table": EVENTS_TABLE_NAME})
+            """))
             # Widen lap columns to double precision (FLOAT) to allow NaN and avoid integer range issues
-            conn.execute(text("""
+            conn.execute(text(f"""
                 DO $$
                 BEGIN
                     IF EXISTS (
                         SELECT 1 FROM information_schema.columns
-                        WHERE table_name = :table AND column_name = 'swim_laps' AND data_type <> 'double precision'
+                        WHERE table_name = '{EVENTS_TABLE_NAME}' AND column_name = 'swim_laps' AND data_type <> 'double precision'
                     ) THEN
-                        EXECUTE 'ALTER TABLE ' || quote_ident(:table) || ' ALTER COLUMN swim_laps TYPE DOUBLE PRECISION';
+                        EXECUTE 'ALTER TABLE "{EVENTS_TABLE_NAME}" ALTER COLUMN swim_laps TYPE DOUBLE PRECISION';
                     END IF;
                     IF EXISTS (
                         SELECT 1 FROM information_schema.columns
-                        WHERE table_name = :table AND column_name = 'bike_laps' AND data_type <> 'double precision'
+                        WHERE table_name = '{EVENTS_TABLE_NAME}' AND column_name = 'bike_laps' AND data_type <> 'double precision'
                     ) THEN
-                        EXECUTE 'ALTER TABLE ' || quote_ident(:table) || ' ALTER COLUMN bike_laps TYPE DOUBLE PRECISION';
+                        EXECUTE 'ALTER TABLE "{EVENTS_TABLE_NAME}" ALTER COLUMN bike_laps TYPE DOUBLE PRECISION';
                     END IF;
                     IF EXISTS (
                         SELECT 1 FROM information_schema.columns
-                        WHERE table_name = :table AND column_name = 'run_laps' AND data_type <> 'double precision'
+                        WHERE table_name = '{EVENTS_TABLE_NAME}' AND column_name = 'run_laps' AND data_type <> 'double precision'
                     ) THEN
-                        EXECUTE 'ALTER TABLE ' || quote_ident(:table) || ' ALTER COLUMN run_laps TYPE DOUBLE PRECISION';
+                        EXECUTE 'ALTER TABLE "{EVENTS_TABLE_NAME}" ALTER COLUMN run_laps TYPE DOUBLE PRECISION';
                     END IF;
                 END$$;
-            """), {"table": EVENTS_TABLE_NAME})
+            """))
     except Exception:
         # Non-fatal; schema may already match
         pass
@@ -444,25 +445,26 @@ def initialize_database():
             )
         )
         # Ensure finish_position and position_sort are stored as INTEGER in case older schemas used VARCHAR
+        # NOTE: DO $$ blocks cannot use bind parameters; inline table name safely.
         conn.execute(text(
-            """
+            f"""
             DO $$
             BEGIN
                 IF EXISTS (
                     SELECT 1 FROM information_schema.columns
-                    WHERE table_name = :table AND column_name = 'finish_position' AND data_type <> 'integer'
+                    WHERE table_name = '{RACE_RESULTS_TABLE_NAME}' AND column_name = 'finish_position' AND data_type <> 'integer'
                 ) THEN
-                    EXECUTE 'ALTER TABLE ' || quote_ident(:table) || ' ALTER COLUMN finish_position TYPE INTEGER USING NULLIF(TRIM(finish_position), '''')::integer';
+                    EXECUTE 'ALTER TABLE "{RACE_RESULTS_TABLE_NAME}" ALTER COLUMN finish_position TYPE INTEGER USING NULLIF(TRIM(finish_position), '''')::integer';
                 END IF;
                 IF EXISTS (
                     SELECT 1 FROM information_schema.columns
-                    WHERE table_name = :table AND column_name = 'position_sort' AND data_type <> 'integer'
+                    WHERE table_name = '{RACE_RESULTS_TABLE_NAME}' AND column_name = 'position_sort' AND data_type <> 'integer'
                 ) THEN
-                    EXECUTE 'ALTER TABLE ' || quote_ident(:table) || ' ALTER COLUMN position_sort TYPE INTEGER USING NULLIF(TRIM(position_sort), '''')::integer';
+                    EXECUTE 'ALTER TABLE "{RACE_RESULTS_TABLE_NAME}" ALTER COLUMN position_sort TYPE INTEGER USING NULLIF(TRIM(position_sort), '''')::integer';
                 END IF;
             END$$;
             """
-        ), {"table": RACE_RESULTS_TABLE_NAME})
+        ))
         conn.execute(
             text(
                 f'CREATE UNIQUE INDEX IF NOT EXISTS idx_{RACE_RESULTS_TABLE_NAME}_conflict '

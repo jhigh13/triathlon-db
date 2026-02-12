@@ -2,7 +2,7 @@
 Monte Carlo simulation for probability estimates.
 
 Models the causal chain of draft-legal triathlon:
-    Swim → Pack Formation → Bike (with pack drafting effects) → Run → Total
+    Swim → T1 → Pack Formation (swim+T1) → Bike (with pack drafting) → T2 → Run → Total
 
 Key design principles:
 - Swim determines pack membership via chain-rule algorithm (>2s consecutive gap = new pack)
@@ -27,7 +27,9 @@ logger = logging.getLogger(__name__)
 
 # Default per-split uncertainty (seconds, std dev) — calibrated for standard distance
 DEFAULT_SIGMA_SWIM = 15.0
+DEFAULT_SIGMA_T1 = 5.0
 DEFAULT_SIGMA_BIKE = 45.0
+DEFAULT_SIGMA_T2 = 4.0
 DEFAULT_SIGMA_RUN = 30.0
 DEFAULT_SIGMA_TOTAL = 90.0  # Fallback when splits unavailable
 
@@ -48,10 +50,29 @@ DISTANCE_SIGMA_MULTIPLIER = {
 
 # Fraction of per-split variance attributable to shared "form factor"
 # (good day / bad day correlation across splits)
-DEFAULT_FORM_SHARE = 0.2
+DEFAULT_FORM_SHARE = 0.1
 
 
 # ── Pack Effect Model ────────────────────────────────────────────────
+
+# Distance-specific gap thresholds for pack formation.
+# Sprint: tighter swim fields, T1 noise can shuffle order → use wider gap.
+# Standard: typical WTCS distance, 3s works well.
+# Middle/long: non-drafting, pack effects should not apply.
+DISTANCE_PACK_GAP_SEC = {
+    "super-sprint": 5.0,
+    "super_sprint": 5.0,
+    "sprint": 5.0,
+    "standard": 3.0,
+    "olympic": 3.0,
+    "middle": 0.0,       # Non-drafting
+    "middle_distance": 0.0,
+    "long": 0.0,         # Non-drafting
+    "long_distance": 0.0,
+}
+
+# Distances where drafting is legal and pack effects should apply
+DRAFT_LEGAL_DISTANCES = {"super-sprint", "super_sprint", "sprint", "standard", "olympic"}
 
 
 @dataclass
@@ -348,6 +369,92 @@ def merge_params_from_dict(d: dict) -> MergeParams:
     return MergeParams(**{k: v for k, v in d.items() if k in MergeParams.__dataclass_fields__})
 
 
+def get_distance_pack_params(
+    bundle_metadata: dict,
+    distance_category: str | None,
+) -> PackEffectParams | None:
+    """
+    Look up distance-specific pack params from bundle metadata.
+
+    Falls back to the overall pack params if no distance-specific params exist.
+    Returns None if the distance is non-drafting (middle/long).
+    """
+    if distance_category is None:
+        # Fall back to overall params
+        d = bundle_metadata.get("pack_effect_params")
+        return pack_params_from_dict(d) if d else None
+
+    dist_key = distance_category.lower().strip()
+    if dist_key == "olympic":
+        dist_key = "standard"
+
+    # Non-drafting distances: no pack effects
+    if dist_key not in DRAFT_LEGAL_DISTANCES:
+        logger.info(f"Distance '{dist_key}' is non-drafting, disabling pack effects")
+        return None
+
+    # Try distance-specific params first
+    by_distance = bundle_metadata.get("pack_effect_params_by_distance", {})
+    if dist_key in by_distance:
+        params = pack_params_from_dict(by_distance[dist_key])
+        # Apply distance-specific gap threshold
+        params.max_gap_sec = DISTANCE_PACK_GAP_SEC.get(dist_key, 3.0)
+        params.distance_category = dist_key
+        logger.info(
+            f"Using distance-specific pack params for '{dist_key}': "
+            f"bonus={params.front_pack_bonus_sec:.1f}s, penalty={params.chase_penalty_sec:.1f}s, "
+            f"gap={params.max_gap_sec:.1f}s"
+        )
+        return params
+
+    # Fall back to overall params with distance-specific gap
+    d = bundle_metadata.get("pack_effect_params")
+    if d:
+        params = pack_params_from_dict(d)
+        params.max_gap_sec = DISTANCE_PACK_GAP_SEC.get(dist_key, 3.0)
+        params.distance_category = dist_key
+        logger.info(
+            f"No distance-specific pack params for '{dist_key}', "
+            f"using overall (gap overridden to {params.max_gap_sec:.1f}s)"
+        )
+        return params
+
+    return None
+
+
+def get_distance_merge_params(
+    bundle_metadata: dict,
+    distance_category: str | None,
+) -> MergeParams | None:
+    """
+    Look up distance-specific merge params from bundle metadata.
+
+    Falls back to overall merge params. Returns None for non-drafting distances.
+    """
+    if distance_category is None:
+        d = bundle_metadata.get("merge_params")
+        return merge_params_from_dict(d) if d else None
+
+    dist_key = distance_category.lower().strip()
+    if dist_key == "olympic":
+        dist_key = "standard"
+
+    if dist_key not in DRAFT_LEGAL_DISTANCES:
+        return None
+
+    by_distance = bundle_metadata.get("merge_params_by_distance", {})
+    if dist_key in by_distance:
+        params = merge_params_from_dict(by_distance[dist_key])
+        logger.info(
+            f"Using distance-specific merge params for '{dist_key}': "
+            f"beta_0={params.beta_0:.3f}, beta_gap={params.beta_gap:.3f}"
+        )
+        return params
+
+    d = bundle_metadata.get("merge_params")
+    return merge_params_from_dict(d) if d else None
+
+
 # ── Learn Merge Parameters ───────────────────────────────────────────
 
 
@@ -623,7 +730,7 @@ def apply_pack_merges(
 def continuous_gap_bike_effect(
     swim_times: np.ndarray,
     params: PackEffectParams,
-    density_window_sec: float = 3.0,
+    density_window_sec: float | None = None,
 ) -> np.ndarray:
     """
     Compute bike time adjustment as a continuous function of swim gap to leader.
@@ -663,6 +770,10 @@ def continuous_gap_bike_effect(
     chase_threshold = 15.0                  # Beyond this gap = full penalty
     min_size = params.min_pack_size_for_draft
     size_scale = params.draft_size_scale
+
+    # Use pack gap threshold as density window if not specified
+    if density_window_sec is None:
+        density_window_sec = params.max_gap_sec
 
     # Precompute sorted times for efficient density calculation
     sorted_times = np.sort(swim_times)
@@ -753,7 +864,9 @@ def estimate_uncertainty(
     # Scale per-split sigmas relative to athlete's total uncertainty
     ratio = df["sigma_total"] / (DEFAULT_SIGMA_TOTAL * dist_mult)
     df["sigma_swim"] = DEFAULT_SIGMA_SWIM * dist_mult * ratio
+    df["sigma_t1"] = DEFAULT_SIGMA_T1 * dist_mult * ratio
     df["sigma_bike"] = DEFAULT_SIGMA_BIKE * dist_mult * ratio
+    df["sigma_t2"] = DEFAULT_SIGMA_T2 * dist_mult * ratio
     df["sigma_run"] = DEFAULT_SIGMA_RUN * dist_mult * ratio
 
     return df
@@ -778,10 +891,12 @@ def run_monte_carlo(
 
     Models the causal structure of draft-legal triathlon racing:
     1. Simulate swim times (form + noise) → swim exit order
-    2. Compute swim gaps to leader → pack formation → dynamic merging → bike effect
-    3. Simulate bike times (form + noise + pack effect from swim)
-    4. Simulate run times (form + noise, individual effort only)
-    5. Total = swim + bike + run → rank
+    2. Simulate T1 times (form + noise) → bike entry order
+    3. Compute swim+T1 gaps → pack formation → dynamic merging → bike effect
+    4. Simulate bike times (form + noise + pack effect from swim+T1)
+    5. Simulate T2 times (form + noise)
+    6. Simulate run times (form + noise, individual effort only)
+    7. Total = swim + T1 + bike + T2 + run → rank
 
     The pack effect is centered around baseline predictions so that the
     simulation's mean matches the deterministic prediction. Variance comes
@@ -838,24 +953,52 @@ def run_monte_carlo(
         return _run_monte_carlo_total(df, n_sims, rng, use_pack_effects)
 
     # ── Causal chain simulation with multi-pack formation ──
+    # Swim → T1 → Pack Formation (swim+T1) → Bike (with drafting) → T2 → Run → Total
 
-    pred_swim = df["pred_swim_sec"].values.astype(np.float64)
-    pred_bike = df["pred_bike_sec"].values.astype(np.float64)
-    pred_run = df["pred_run_sec"].values.astype(np.float64)
+    # Defensive .fillna() to prevent None arithmetic errors from partial missing data
+    pred_swim = df["pred_swim_sec"].fillna(df["pred_swim_sec"].median()).values.astype(np.float64)
+    pred_bike = df["pred_bike_sec"].fillna(df["pred_bike_sec"].median()).values.astype(np.float64)
+    pred_run = df["pred_run_sec"].fillna(df["pred_run_sec"].median()).values.astype(np.float64)
+
+    # T1/T2 predictions (critical for accurate pack formation and total accounting)
+    # Use .any() to check if we have at least some T1/T2 data, and .fillna()
+    # to handle partial missing values defensively (prevents None arithmetic errors)
+    has_t1 = "pred_t1_sec" in df.columns and df["pred_t1_sec"].notna().any()
+    has_t2 = "pred_t2_sec" in df.columns and df["pred_t2_sec"].notna().any()
+
+    if has_t1:
+        pred_t1 = df["pred_t1_sec"].fillna(30.0).values.astype(np.float64)
+    else:
+        pred_t1 = np.full(n_athletes, 30.0)
+        logger.warning("No T1 predictions available, using 30s default")
+
+    if has_t2:
+        pred_t2 = df["pred_t2_sec"].fillna(25.0).values.astype(np.float64)
+    else:
+        pred_t2 = np.full(n_athletes, 25.0)
+        logger.warning("No T2 predictions available, using 25s default")
+
+    # NOTE: Split normalization removed. With explicit T1/T2 modeling, the
+    # split sum (swim + T1 + bike + T2 + run) should closely match the total
+    # model. Any residual gap is diagnostic, not something to paper over.
 
     sigma_swim = df["sigma_swim"].values
+    sigma_t1 = df["sigma_t1"].values
     sigma_bike = df["sigma_bike"].values
+    sigma_t2 = df["sigma_t2"].values
     sigma_run = df["sigma_run"].values
 
     # Pack effect parameters
     if pack_params is None:
         pack_params = PackEffectParams()
 
-    # Pre-compute baseline pack effect from predicted swim times.
+    # Pre-compute baseline pack effect from predicted swim + T1 times.
+    # In reality, pack formation at bike mount depends on swim exit + T1.
     # This is the pack effect "baked into" the predictions. We subtract it
     # so the simulation only adds the DEVIATION from baseline.
+    pred_bike_entry = pred_swim + pred_t1
     if use_pack_effects:
-        baseline_pack_effect = continuous_gap_bike_effect(pred_swim, pack_params)
+        baseline_pack_effect = continuous_gap_bike_effect(pred_bike_entry, pack_params)
     else:
         baseline_pack_effect = np.zeros(n_athletes)
 
@@ -866,6 +1009,10 @@ def run_monte_carlo(
     # Track outcomes
     rank_matrix = np.zeros((n_sims, n_athletes), dtype=np.int32)
     total_matrix = np.zeros((n_sims, n_athletes), dtype=np.float64)
+    # Track pack membership: how often each athlete ends up in the front pack
+    front_pack_count = np.zeros(n_athletes, dtype=np.int32)
+    # Track bike pack adjustment magnitudes
+    pack_effect_sum = np.zeros(n_athletes, dtype=np.float64)
 
     merge_label = ""
     if merge_params is not None:
@@ -875,7 +1022,8 @@ def run_monte_carlo(
         f"Running {n_sims} causal-chain simulations for {n_athletes} athletes "
         f"(pack_effects={use_pack_effects}, form_share={form_share:.0%}, "
         f"bonus={pack_params.front_pack_bonus_sec:.1f}s, "
-        f"penalty={pack_params.chase_penalty_sec:.1f}s{merge_label})"
+        f"penalty={pack_params.chase_penalty_sec:.1f}s{merge_label}, "
+        f"t1t2_modeled={'yes' if has_t1 and has_t2 else 'fallback'})"
     )
 
     for sim in range(n_sims):
@@ -888,39 +1036,64 @@ def run_monte_carlo(
         swim_noise = rng.normal(0, sigma_swim * noise_std)
         sim_swim = pred_swim + swim_form + swim_noise
 
-        # ── PACK EFFECT ON BIKE (swim exit → pack formation → bike drafting) ──
+        # ── T1 (transition 1: swim-to-bike) ──
+        # T1 varies per athlete and affects pack formation at bike mount
+        t1_form = form_factor * sigma_t1 * form_std
+        t1_noise = rng.normal(0, sigma_t1 * noise_std)
+        sim_t1 = pred_t1 + t1_form + t1_noise
+
+        # ── PACK EFFECT ON BIKE (swim + T1 → bike entry order → pack formation) ──
+        # Use swim + T1 for pack formation: this is when athletes enter the bike course
+        sim_bike_entry = sim_swim + sim_t1
         bike_pack_adjustment = np.zeros(n_athletes)
         if use_pack_effects:
             if merge_params is not None:
                 # Dynamic merging: chase packs can absorb solo riders ahead
                 sim_pack_effect = apply_pack_merges(
-                    sim_swim, pack_params, merge_params, rng, breakaway_bias
+                    sim_bike_entry, pack_params, merge_params, rng, breakaway_bias
                 )
             else:
-                # Static: one-shot from swim exit gaps (original behavior)
-                sim_pack_effect = continuous_gap_bike_effect(sim_swim, pack_params)
+                # Static: one-shot from bike entry gaps
+                sim_pack_effect = continuous_gap_bike_effect(sim_bike_entry, pack_params)
             # Center around baseline so mean matches prediction
             bike_pack_adjustment = sim_pack_effect - baseline_pack_effect
+
+        # Track pack statistics
+        if use_pack_effects:
+            # Front pack = athletes with negative or near-zero pack effect (getting draft benefit)
+            front_pack_count += (sim_pack_effect <= 0).astype(np.int32)
+            pack_effect_sum += bike_pack_adjustment
 
         # ── BIKE (with pack effect) ──
         bike_form = form_factor * sigma_bike * form_std
         bike_noise = rng.normal(0, sigma_bike * noise_std)
         sim_bike = pred_bike + bike_form + bike_noise + bike_pack_adjustment
 
+        # ── T2 (transition 2: bike-to-run) ──
+        t2_form = form_factor * sigma_t2 * form_std
+        t2_noise = rng.normal(0, sigma_t2 * noise_std)
+        sim_t2 = pred_t2 + t2_form + t2_noise
+
         # ── RUN (individual effort, no pack dynamics) ──
         run_form = form_factor * sigma_run * form_std
         run_noise = rng.normal(0, sigma_run * noise_std)
         sim_run = pred_run + run_form + run_noise
 
-        # ── TOTAL ──
-        sim_total = sim_swim + sim_bike + sim_run
+        # ── TOTAL (all 5 segments) ──
+        sim_total = sim_swim + sim_t1 + sim_bike + sim_t2 + sim_run
         total_matrix[sim, :] = sim_total
 
         # Rank (1 = fastest)
         ranks = np.argsort(np.argsort(sim_total)) + 1
         rank_matrix[sim, :] = ranks
 
-    return _aggregate_results(df, rank_matrix, total_matrix)
+    # Compute pack statistics
+    sim_pack_stats = {
+        "sim_front_pack_pct": front_pack_count / n_sims,
+        "sim_avg_pack_effect": pack_effect_sum / n_sims,
+    }
+
+    return _aggregate_results(df, rank_matrix, total_matrix, sim_pack_stats)
 
 
 def _run_monte_carlo_total(
@@ -979,6 +1152,7 @@ def _aggregate_results(
     df: pd.DataFrame,
     rank_matrix: np.ndarray,
     total_matrix: np.ndarray,
+    sim_pack_stats: dict | None = None,
 ) -> pd.DataFrame:
     """Aggregate simulation outcomes into probability and interval columns."""
     logger.info("Aggregating simulation results")
@@ -1002,6 +1176,11 @@ def _aggregate_results(
     result_df["total_p10"] = np.percentile(total_matrix, 10, axis=0)
     result_df["total_p50"] = np.percentile(total_matrix, 50, axis=0)
     result_df["total_p90"] = np.percentile(total_matrix, 90, axis=0)
+
+    # Pack statistics from simulation
+    if sim_pack_stats:
+        for col, vals in sim_pack_stats.items():
+            result_df[col] = vals
 
     # Sort by expected rank
     result_df = result_df.sort_values("expected_rank").reset_index(drop=True)
@@ -1037,13 +1216,12 @@ def format_simulation_output(sim_df: pd.DataFrame) -> pd.DataFrame:
                 lambda x: seconds_to_hms(int(x)) if pd.notna(x) else None
             )
 
-    # Build rank interval string
-    if all(c in output_df.columns for c in ["rank_p10", "rank_p90"]):
-        output_df["rank_interval"] = output_df.apply(
-            lambda r: f"{int(r['rank_p10'])}-{int(r['rank_p90'])}", axis=1
-        )
+    # Format sim pack stats as percentage
+    if "sim_front_pack_pct" in output_df.columns:
+        output_df["sim_front_pack_pct_fmt"] = (output_df["sim_front_pack_pct"] * 100).round(0).astype(int)
 
-    # Select display columns
+    # Select display columns — focused on probabilities and ranking,
+    # not individual split predictions (those are inputs to the sim, not outputs)
     display_cols = [
         "predicted_rank",
         "athlete_full_name",
@@ -1053,10 +1231,7 @@ def format_simulation_output(sim_df: pd.DataFrame) -> pd.DataFrame:
         "prob_top5_pct",
         "prob_top10_pct",
         "expected_rank",
-        "rank_interval",
-        "pred_swim_hms",
-        "pred_bike_hms",
-        "pred_run_hms",
+        "sim_front_pack_pct_fmt",
         "total_p50_hms",
         "pred_total_hms",
     ]
@@ -1073,12 +1248,9 @@ def format_simulation_output(sim_df: pd.DataFrame) -> pd.DataFrame:
         "prob_top5_pct": "Top5 %",
         "prob_top10_pct": "Top10 %",
         "expected_rank": "E[Rank]",
-        "rank_interval": "Rank 80% CI",
-        "pred_swim_hms": "Pred Swim",
-        "pred_bike_hms": "Pred Bike",
-        "pred_run_hms": "Pred Run",
-        "total_p50_hms": "Median Time",
-        "pred_total_hms": "Pred Total",
+        "sim_front_pack_pct_fmt": "Front Pk %",
+        "total_p50_hms": "Sim Median",
+        "pred_total_hms": "Det. Total",
     })
 
     return result

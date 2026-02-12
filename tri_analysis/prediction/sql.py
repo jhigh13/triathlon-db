@@ -494,8 +494,10 @@ def fetch_wt_ranking_points(
     """
     Fetch World Triathlon ranking points for a set of athletes.
 
-    Returns the most recent ranking entry per athlete. If year is specified,
-    fetches rankings for that specific year.
+    Returns one row per athlete with both world and continental rankings
+    as separate columns. Uses ranking_cat_id to distinguish:
+      - World rankings: cat_ids 13-16
+      - Continental rankings: cat_ids 35-44
 
     Args:
         engine: SQLAlchemy Engine
@@ -504,7 +506,8 @@ def fetch_wt_ranking_points(
         gender: If provided, filter to gender-specific ranking categories
 
     Columns returned:
-        athlete_id, rank_position, total_points, ranking_cat_name, year
+        athlete_id, rank_position, total_points, year,
+        continental_rank_position, continental_total_points
     """
     if not athlete_ids:
         return pd.DataFrame()
@@ -518,24 +521,41 @@ def fetch_wt_ranking_points(
         where_clauses.append("ar.year = :year")
         params["year"] = year
 
-    # NOTE: gender filter on ranking_cat_name removed — the actual DB values
-    # ("World Triathlon Championship Series", "World Rankings", etc.) don't
-    # contain gender. Since we filter by athlete_id, each athlete only gets
-    # their own ranking regardless.
-
     where_sql = " AND ".join(where_clauses)
 
-    # Use DISTINCT ON to get the most recent ranking per athlete
+    # Fetch world rankings (cat_ids 13-16) and continental rankings (cat_ids 35-44)
+    # separately, then join per athlete. DISTINCT ON picks the most recent entry.
     query = text(f"""
-        SELECT DISTINCT ON (ar.athlete_id)
-            ar.athlete_id,
-            ar.rank_position,
-            ar.total_points,
-            ar.ranking_cat_name,
-            ar.year
-        FROM athlete_rankings ar
-        WHERE {where_sql}
-        ORDER BY ar.athlete_id, ar.year DESC, ar.retrieved_at DESC
+        WITH world AS (
+            SELECT DISTINCT ON (ar.athlete_id)
+                ar.athlete_id,
+                ar.rank_position,
+                ar.total_points,
+                ar.year
+            FROM athlete_rankings ar
+            WHERE {where_sql}
+              AND ar.ranking_cat_id IN (13, 14, 15, 16)
+            ORDER BY ar.athlete_id, ar.year DESC, ar.retrieved_at DESC
+        ),
+        continental AS (
+            SELECT DISTINCT ON (ar.athlete_id)
+                ar.athlete_id,
+                ar.rank_position AS continental_rank_position,
+                ar.total_points AS continental_total_points
+            FROM athlete_rankings ar
+            WHERE {where_sql}
+              AND ar.ranking_cat_id IN (35, 36, 37, 38, 39, 40, 41, 42, 43, 44)
+            ORDER BY ar.athlete_id, ar.year DESC, ar.retrieved_at DESC
+        )
+        SELECT
+            COALESCE(w.athlete_id, c.athlete_id) AS athlete_id,
+            w.rank_position,
+            w.total_points,
+            w.year,
+            c.continental_rank_position,
+            c.continental_total_points
+        FROM world w
+        FULL OUTER JOIN continental c ON w.athlete_id = c.athlete_id
     """)
 
     df = pd.read_sql(query, engine, params=params)
@@ -730,4 +750,100 @@ def fetch_training_programs(
 
     df = pd.read_sql(query, engine, params=params)
     logger.info(f"fetch_training_programs: {len(df)} programs from {start_date} to {end_date} (elite_only={elite_only})")
+    return df
+
+
+def search_athletes(
+    engine: Engine,
+    query: str,
+    limit: int = 15,
+    exclude_ids: list[int] | None = None,
+) -> pd.DataFrame:
+    """
+    Search for athletes by name (case-insensitive ILIKE).
+
+    Returns distinct athletes with their most recent country info.
+
+    Args:
+        engine: SQLAlchemy Engine
+        query: Search string (matched with ILIKE %query%)
+        limit: Max results to return
+        exclude_ids: Athlete IDs to exclude from results
+
+    Returns:
+        DataFrame with columns: athlete_id, athlete_full_name, athlete_country_name
+    """
+    if not query or len(query.strip()) < 2:
+        return pd.DataFrame(columns=["athlete_id", "athlete_full_name", "athlete_country_name"])
+
+    exclude_clause = ""
+    params: dict = {"query": f"%{query.strip()}%", "limit": limit}
+    if exclude_ids:
+        exclude_clause = "AND rr.athlete_id != ALL(:exclude_ids)"
+        params["exclude_ids"] = exclude_ids
+
+    sql = text(f"""
+        SELECT DISTINCT ON (rr.athlete_id)
+            rr.athlete_id,
+            rr.athlete_full_name,
+            pe.athlete_country_name
+        FROM race_results rr
+        LEFT JOIN LATERAL (
+            SELECT pe2.athlete_country_name
+            FROM program_entries pe2
+            WHERE pe2.athlete_id = rr.athlete_id
+              AND pe2.athlete_country_name IS NOT NULL
+            ORDER BY pe2.event_id DESC
+            LIMIT 1
+        ) pe ON TRUE
+        WHERE rr.athlete_full_name ILIKE :query
+          {exclude_clause}
+        ORDER BY rr.athlete_id, rr.event_id DESC
+        LIMIT :limit
+    """)
+
+    df = pd.read_sql(sql, engine, params=params)
+    logger.debug(f"search_athletes: {len(df)} results for query='{query}'")
+    return df
+
+
+def fetch_athletes_by_ids(
+    engine: Engine,
+    athlete_ids: list[int],
+) -> pd.DataFrame:
+    """
+    Fetch athlete name and country for a list of athlete IDs.
+
+    Used when building features for a custom athlete list (user-curated start list).
+
+    Args:
+        engine: SQLAlchemy Engine
+        athlete_ids: List of athlete IDs to look up
+
+    Returns:
+        DataFrame with columns: athlete_id, athlete_full_name, athlete_country_name
+    """
+    if not athlete_ids:
+        return pd.DataFrame(columns=["athlete_id", "athlete_full_name", "athlete_country_name"])
+
+    sql = text("""
+        SELECT DISTINCT ON (rr.athlete_id)
+            rr.athlete_id,
+            rr.athlete_full_name,
+            pe.athlete_country_name
+        FROM race_results rr
+        LEFT JOIN LATERAL (
+            SELECT pe2.athlete_country_name
+            FROM program_entries pe2
+            WHERE pe2.athlete_id = rr.athlete_id
+              AND pe2.athlete_country_name IS NOT NULL
+            ORDER BY pe2.event_id DESC
+            LIMIT 1
+        ) pe ON TRUE
+        WHERE rr.athlete_id = ANY(:athlete_ids)
+        ORDER BY rr.athlete_id, rr.event_id DESC
+    """)
+
+    df = pd.read_sql(sql, engine, params={"athlete_ids": athlete_ids})
+    logger.debug(f"fetch_athletes_by_ids: {len(df)} athletes found for {len(athlete_ids)} requested")
     return df

@@ -33,6 +33,7 @@ import warnings
 warnings.filterwarnings("ignore", message="X does not have valid feature names")
 warnings.filterwarnings("ignore", category=FutureWarning)
 
+import numpy as np
 import pandas as pd
 
 from tri_analysis.database import get_engine
@@ -47,10 +48,11 @@ from tri_analysis.prediction.predict import predict_splits_and_total, format_pre
 from tri_analysis.prediction.simulate import (
     run_monte_carlo,
     format_simulation_output,
-    pack_params_from_dict,
-    merge_params_from_dict,
+    get_distance_pack_params,
+    get_distance_merge_params,
     PackEffectParams,
     MergeParams,
+    DRAFT_LEGAL_DISTANCES,
 )
 
 # Configure logging
@@ -74,8 +76,11 @@ def print_race_context(
     from tri_analysis.prediction.simulate import (
         assign_packs_chain,
         continuous_gap_bike_effect,
+        apply_pack_merges,
         DEFAULT_SIGMA_SWIM,
+        DEFAULT_SIGMA_T1,
         DEFAULT_SIGMA_BIKE,
+        DEFAULT_SIGMA_T2,
         DEFAULT_SIGMA_RUN,
         DISTANCE_SIGMA_MULTIPLIER,
         DEFAULT_FORM_SHARE,
@@ -87,15 +92,25 @@ def print_race_context(
     print("=" * 80)
 
     # ── 1. Predicted Pack Formations ──
+    # Use swim + T1 for pack formation (bike entry order), matching the simulation
     if "pred_swim_sec" in sim_df.columns and sim_df["pred_swim_sec"].notna().all():
         swim_times = sim_df["pred_swim_sec"].values
-        sorted_idx = swim_times.argsort()
-        sorted_swim = swim_times[sorted_idx]
+        has_t1 = "pred_t1_sec" in sim_df.columns and sim_df["pred_t1_sec"].notna().all()
+        if has_t1:
+            bike_entry_times = swim_times + sim_df["pred_t1_sec"].values
+            pack_basis_label = "swim + T1"
+        else:
+            bike_entry_times = swim_times
+            pack_basis_label = "swim only (no T1 predictions)"
+
+        sorted_idx = bike_entry_times.argsort()
+        sorted_entry = bike_entry_times[sorted_idx]
         sorted_names = sim_df["athlete_full_name"].values[sorted_idx]
+        sorted_swim = swim_times[sorted_idx]
 
-        pack_ids = assign_packs_chain(sorted_swim, max_gap_sec=pack_params.max_gap_sec)
+        pack_ids = assign_packs_chain(sorted_entry, max_gap_sec=pack_params.max_gap_sec)
 
-        print("\n--- Predicted Pack Formations (from deterministic swim predictions) ---")
+        print(f"\n--- Predicted Pack Formations (based on {pack_basis_label}) ---")
         print(f"  Pack gap threshold: {pack_params.max_gap_sec:.1f}s")
 
         n_packs = pack_ids.max() + 1 if len(pack_ids) > 0 else 0
@@ -123,9 +138,20 @@ def print_race_context(
             if len(pack_athletes) > display_limit:
                 print(f"    ... and {len(pack_athletes) - display_limit} more")
 
-        # ── Pack effect on bike ──
-        bike_effects = continuous_gap_bike_effect(swim_times, pack_params)
-        print(f"\n--- Pack Effect on Bike ---")
+        # ── Pack effect on bike (based on bike entry times = swim + T1) ──
+        # Use apply_pack_merges (matching simulation) when merge_params available,
+        # otherwise fall back to continuous_gap_bike_effect
+        if merge_params is not None:
+            rng_display = np.random.default_rng(42)
+            bike_effects = apply_pack_merges(
+                bike_entry_times, pack_params, merge_params, rng_display, breakaway_bias
+            )
+            effect_label = "Pack Effect on Bike (with dynamic merging)"
+        else:
+            bike_effects = continuous_gap_bike_effect(bike_entry_times, pack_params)
+            effect_label = "Pack Effect on Bike (static)"
+
+        print(f"\n--- {effect_label} ---")
         for p in range(min(n_packs, 5)):
             p_mask = pack_ids == p
             if not p_mask.any():
@@ -177,7 +203,9 @@ def print_race_context(
     )
     print(f"  Sigma multiplier:     {dist_mult:.2f} "
           f"(swim={DEFAULT_SIGMA_SWIM * dist_mult:.0f}s, "
+          f"T1={DEFAULT_SIGMA_T1 * dist_mult:.0f}s, "
           f"bike={DEFAULT_SIGMA_BIKE * dist_mult:.0f}s, "
+          f"T2={DEFAULT_SIGMA_T2 * dist_mult:.0f}s, "
           f"run={DEFAULT_SIGMA_RUN * dist_mult:.0f}s)")
     print(f"  Form share:           {DEFAULT_FORM_SHARE:.0%}")
     print(f"  Pack bonus (front):   {pack_params.front_pack_bonus_sec:.1f}s")
@@ -212,6 +240,204 @@ def print_race_context(
             print(f"  Breakaway bias:       {breakaway_bias:+.1f} (coach override)")
     else:
         print(f"\n--- Pack Merging: disabled (no merge params in model) ---")
+
+    print("=" * 80 + "\n")
+
+
+def print_simulation_diagnostics(
+    sim_df: pd.DataFrame,
+    n_sims: int,
+    top_n: int = 25,
+):
+    """
+    Print detailed diagnostics explaining how E[Rank] is derived from simulations.
+
+    Shows per-athlete breakdown of:
+    - Deterministic vs simulation ranking and what drives the difference
+    - Split predictions (moved from main display)
+    - Pack dynamics contribution
+    - Uncertainty profile
+    - Rank distribution across simulations
+    """
+    from tri_analysis.prediction.utils_time import seconds_to_hms
+    from tri_analysis.prediction.simulate import DEFAULT_FORM_SHARE
+
+    print("\n" + "=" * 80)
+    print("SIMULATION DIAGNOSTICS")
+    print("=" * 80)
+
+    # ── 1. Methodology Explanation ──
+    form_pct = f"{DEFAULT_FORM_SHARE:.0%}"
+    noise_pct = f"{1 - DEFAULT_FORM_SHARE:.0%}"
+    median_sigma = f"{sim_df['sigma_total'].median():.0f}" if "sigma_total" in sim_df.columns else "?"
+    print(f"""
+--- How E[Rank] is Computed ---
+  1. DETERMINISTIC PREDICTION: Model predicts split times (swim, T1, bike, T2, run)
+     and a total time. Det. Rank = rank by predicted total (or percentile model).
+  2. MONTE CARLO ({n_sims:,} sims): Each sim perturbs all splits with:
+     - Shared form factor ({median_sigma}s σ_total for median athlete)
+       → Good/bad day correlation across splits ({form_pct} of variance)
+     - Per-split noise (independent, remaining {noise_pct})
+     - Causal pack formation: sim_swim + sim_t1 → bike entry → pack assignment → bike effect
+  3. RANK: In each sim, athletes are ranked by sim_total = swim + T1 + bike + T2 + run.
+     E[Rank] = average rank across all {n_sims:,} simulations.
+  4. WHY E[Rank] ≠ Det. Rank:
+     - Pack dynamics: strong swimmers get front pack MORE often → consistent bike advantage
+     - Uncertainty: athletes with low σ (consistent) hold rank; high σ = volatile
+     - Non-linearity: rank is ordinal — a 2s gap means nothing if 5 athletes are within it
+""")
+
+    # ── 2. Per-Athlete Diagnostics Table ──
+    subset = sim_df.head(top_n).copy()
+
+    print(f"--- Per-Athlete Breakdown (Top {top_n}) ---\n")
+
+    # Table header
+    header = (
+        f"{'Det.Rk':>6} {'E[Rk]':>6} {'Δ':>5} │ "
+        f"{'Rk p10':>6} {'Rk p50':>6} {'Rk p90':>6} │ "
+        f"{'FPk%':>5} {'AvgPkFx':>8} │ "
+        f"{'σ_total':>7} │ "
+        f"{'Swim':>8} {'T1':>6} {'Bike':>9} {'T2':>6} {'Run':>8} {'Total':>9} │ "
+        f"{'Athlete'}"
+    )
+    print(header)
+    print("─" * len(header))
+
+    for _, row in subset.iterrows():
+        det_rank = int(row.get("predicted_rank", 0))
+        e_rank = row.get("expected_rank", 0)
+        delta = e_rank - det_rank
+
+        rank_p10 = int(row.get("rank_p10", 0))
+        rank_p50 = int(row.get("rank_p50", 0))
+        rank_p90 = int(row.get("rank_p90", 0))
+
+        fpk_pct = row.get("sim_front_pack_pct", 0) * 100 if "sim_front_pack_pct" in row.index else 0
+        avg_pk = row.get("sim_avg_pack_effect", 0) if "sim_avg_pack_effect" in row.index else 0
+
+        sigma_t = row.get("sigma_total", 0)
+
+        # Split predictions
+        swim = seconds_to_hms(int(row["pred_swim_sec"])) if pd.notna(row.get("pred_swim_sec")) else "-"
+        t1 = seconds_to_hms(int(row["pred_t1_sec"])) if pd.notna(row.get("pred_t1_sec")) else "-"
+        bike = seconds_to_hms(int(row["pred_bike_sec"])) if pd.notna(row.get("pred_bike_sec")) else "-"
+        t2 = seconds_to_hms(int(row["pred_t2_sec"])) if pd.notna(row.get("pred_t2_sec")) else "-"
+        run = seconds_to_hms(int(row["pred_run_sec"])) if pd.notna(row.get("pred_run_sec")) else "-"
+        total = seconds_to_hms(int(row["pred_total_sec"])) if pd.notna(row.get("pred_total_sec")) else "-"
+
+        name = row.get("athlete_full_name", "Unknown")[:25]
+
+        delta_str = f"{delta:+.1f}" if abs(delta) >= 0.5 else f"{delta:+.1f}"
+
+        print(
+            f"{det_rank:>6} {e_rank:>6.1f} {delta_str:>5} │ "
+            f"{rank_p10:>6} {rank_p50:>6} {rank_p90:>6} │ "
+            f"{fpk_pct:>5.0f} {avg_pk:>+8.1f} │ "
+            f"{sigma_t:>7.0f} │ "
+            f"{swim:>8} {t1:>6} {bike:>9} {t2:>6} {run:>8} {total:>9} │ "
+            f"{name}"
+        )
+
+    # ── 3. Rank Movement Analysis ──
+    print(f"\n--- Rank Movement Analysis ---")
+    subset["rank_delta"] = subset["expected_rank"] - subset["predicted_rank"]
+    risers = subset.nsmallest(5, "rank_delta")
+    fallers = subset.nlargest(5, "rank_delta")
+
+    print("\n  Biggest risers (E[Rank] < Det. Rank → simulation favors them):")
+    for _, row in risers.iterrows():
+        name = row.get("athlete_full_name", "?")[:25]
+        det_r = int(row["predicted_rank"])
+        e_r = row["expected_rank"]
+        fpk = row.get("sim_front_pack_pct", 0) * 100 if "sim_front_pack_pct" in row.index else 0
+        sigma = row.get("sigma_total", 0)
+        reasons = []
+        if fpk > 60:
+            reasons.append(f"front pack {fpk:.0f}% of sims")
+        if sigma < 60:
+            reasons.append(f"low uncertainty (σ={sigma:.0f}s)")
+        if "front_pack_rate" in row.index and pd.notna(row.get("front_pack_rate")) and row["front_pack_rate"] > 0.6:
+            reasons.append(f"historically strong swimmer (FPR={row['front_pack_rate']:.2f})")
+        reason_str = "; ".join(reasons) if reasons else "small sim variance"
+        print(f"    {name:25s}: {det_r:>3} → {e_r:.1f} ({row['rank_delta']:+.1f}) — {reason_str}")
+
+    print("\n  Biggest fallers (E[Rank] > Det. Rank → simulation hurts them):")
+    for _, row in fallers.iterrows():
+        name = row.get("athlete_full_name", "?")[:25]
+        det_r = int(row["predicted_rank"])
+        e_r = row["expected_rank"]
+        fpk = row.get("sim_front_pack_pct", 0) * 100 if "sim_front_pack_pct" in row.index else 0
+        sigma = row.get("sigma_total", 0)
+        reasons = []
+        if fpk < 30:
+            reasons.append(f"front pack only {fpk:.0f}% of sims")
+        if sigma > 100:
+            reasons.append(f"high uncertainty (σ={sigma:.0f}s)")
+        if "front_pack_rate" in row.index and pd.notna(row.get("front_pack_rate")) and row["front_pack_rate"] < 0.3:
+            reasons.append(f"historically weak swimmer (FPR={row['front_pack_rate']:.2f})")
+        reason_str = "; ".join(reasons) if reasons else "large sim variance / crowded field"
+        print(f"    {name:25s}: {det_r:>3} → {e_r:.1f} ({row['rank_delta']:+.1f}) — {reason_str}")
+
+    # ── 4. Split-Total Accounting ──
+    print(f"\n--- Split-Total Accounting ---")
+    if all(c in sim_df.columns for c in ["pred_swim_sec", "pred_t1_sec", "pred_bike_sec", "pred_t2_sec", "pred_run_sec", "pred_total_sec"]):
+        split_sum = (
+            sim_df["pred_swim_sec"] + sim_df["pred_t1_sec"] +
+            sim_df["pred_bike_sec"] + sim_df["pred_t2_sec"] +
+            sim_df["pred_run_sec"]
+        )
+        delta = sim_df["pred_total_sec"] - split_sum
+        print(f"  Total model vs sum-of-splits: mean Δ={delta.mean():.1f}s, median={delta.median():.1f}s")
+        print(f"  Range: [{delta.min():.1f}s, {delta.max():.1f}s]")
+        if abs(delta.mean()) > 60:
+            print(f"  ⚠ Large gap — total model includes time not accounted for by split models")
+    else:
+        print("  (not all split columns available)")
+
+    # ── 5. Simulation vs Deterministic Consistency ──
+    print(f"\n--- Simulation vs Deterministic Consistency ---")
+    if "total_p50" in sim_df.columns and "pred_total_sec" in sim_df.columns:
+        sim_median = sim_df["total_p50"]
+        pred_total = sim_df["pred_total_sec"]
+        offset = sim_median - pred_total
+        print(f"  Sim median vs pred total: mean offset={offset.mean():.1f}s, std={offset.std():.1f}s")
+        if abs(offset.mean()) > 10:
+            print(f"  ⚠ Simulation median is biased relative to deterministic prediction")
+        else:
+            print(f"  ✓ Simulation median closely matches deterministic prediction (well-calibrated)")
+
+    # ── 6. Uncertainty Profile ──
+    print(f"\n--- Uncertainty Profile ---")
+    if "sigma_total" in sim_df.columns:
+        sigma = sim_df["sigma_total"]
+        print(f"  σ_total: mean={sigma.mean():.0f}s, min={sigma.min():.0f}s, max={sigma.max():.0f}s")
+        low_sigma = (sigma < 50).sum()
+        high_sigma = (sigma > 120).sum()
+        print(f"  Low uncertainty (<50s): {low_sigma} athletes  |  High uncertainty (>120s): {high_sigma} athletes")
+
+    # ── 7. Sim Front Pack vs Historical ──
+    if "sim_front_pack_pct" in sim_df.columns and "front_pack_rate" in sim_df.columns:
+        print(f"\n--- Sim Front Pack % vs Historical Front Pack Rate ---")
+        valid = sim_df[["sim_front_pack_pct", "front_pack_rate"]].dropna()
+        if len(valid) > 0:
+            corr = valid["sim_front_pack_pct"].corr(valid["front_pack_rate"])
+            diff = (valid["sim_front_pack_pct"] - valid["front_pack_rate"]).abs()
+            print(f"  Correlation: {corr:.3f}")
+            print(f"  Mean |sim - historical|: {diff.mean():.2f}")
+            # Flag large divergences
+            big_diff = sim_df[
+                (sim_df["sim_front_pack_pct"] - sim_df["front_pack_rate"]).abs() > 0.3
+            ].head(5)
+            if len(big_diff) > 0:
+                print(f"  Athletes with largest divergence (>30pp):")
+                for _, row in big_diff.iterrows():
+                    name = row.get("athlete_full_name", "?")[:25]
+                    sim_fp = row["sim_front_pack_pct"] * 100
+                    hist_fp = row["front_pack_rate"] * 100
+                    print(f"    {name:25s}: sim={sim_fp:.0f}%, hist={hist_fp:.0f}%")
+            else:
+                print(f"  ✓ No large divergences (all within 30pp)")
 
     print("=" * 80 + "\n")
 
@@ -314,32 +540,29 @@ def main():
     if not args.no_mc:
         logger.info(f"Running {args.n_sims} Monte Carlo simulations...")
 
-        # Load learned pack effect params from bundle if available
-        pack_params = None
-        pack_params_dict = bundle.metadata.get("pack_effect_params")
-        if pack_params_dict:
-            pack_params = pack_params_from_dict(pack_params_dict)
-            logger.info(
-                f"Using learned pack effects: bonus={pack_params.front_pack_bonus_sec:.1f}s, "
-                f"penalty={pack_params.chase_penalty_sec:.1f}s"
-            )
-        else:
-            pack_params = PackEffectParams()
-            logger.info("No learned pack effects in bundle, using defaults")
+        # Load distance-specific pack effect params (falls back to overall)
+        pack_params = get_distance_pack_params(bundle.metadata, distance_cat)
+        if pack_params is None:
+            # Non-drafting distance or no params at all
+            dist_norm = (distance_cat or "").lower().strip()
+            if dist_norm and dist_norm not in DRAFT_LEGAL_DISTANCES:
+                logger.info(f"Non-drafting distance '{distance_cat}', disabling pack effects")
+                pack_params = PackEffectParams(front_pack_bonus_sec=0.0, chase_penalty_sec=0.0)
+            else:
+                pack_params = PackEffectParams()
+                logger.info("No learned pack effects in bundle, using defaults")
 
-        # Load learned merge params from bundle if available
-        merge_params = None
-        merge_params_dict = bundle.metadata.get("merge_params")
-        if merge_params_dict:
-            merge_params = merge_params_from_dict(merge_params_dict)
+        # Load distance-specific merge params (falls back to overall)
+        merge_params = get_distance_merge_params(bundle.metadata, distance_cat)
+        if merge_params is not None:
             logger.info(
-                f"Using learned merge params: beta_0={merge_params.beta_0:.2f}, "
+                f"Merge params: beta_0={merge_params.beta_0:.2f}, "
                 f"beta_gap={merge_params.beta_gap:.3f}, "
                 f"beta_chase_size={merge_params.beta_chase_size:.3f} "
                 f"({merge_params.n_observations} obs)"
             )
         else:
-            logger.info("No merge params in bundle, using static pack effects")
+            logger.info("No merge params available, using static pack effects")
 
         if args.breakaway_bias != 0.0:
             logger.info(f"Breakaway bias: {args.breakaway_bias:+.1f}")
@@ -360,13 +583,13 @@ def main():
         output_df = pred_df
         display_df = format_prediction_output(pred_df)
 
-    # Print top 20 to console
+    # Print top 65 to console  
     print("\n" + "=" * 80)
     print(f"PREDICTIONS: {event_meta.get('prog_name', 'Unknown')} - {event_meta.get('event_date')}")
     print("=" * 80)
     pd.set_option('display.max_columns', 20)
     pd.set_option('display.width', 200)
-    print(display_df.head(50).to_string(index=False))
+    print(display_df.head(65).to_string(index=False))
     print("=" * 80)
 
     # Print race context section (only with Monte Carlo)
@@ -378,6 +601,13 @@ def main():
             event_meta=event_meta,
             merge_params=merge_params,
             breakaway_bias=args.breakaway_bias,
+        )
+
+        # Print detailed simulation diagnostics
+        print_simulation_diagnostics(
+            sim_df=sim_df,
+            n_sims=args.n_sims,
+            top_n=25,
         )
 
     # Save full results to CSV

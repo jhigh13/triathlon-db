@@ -1,6 +1,8 @@
-# --- New script: Data_Import/rankings_import.py ---
+# --- Rankings import: fetch World Triathlon rankings and upsert to DB ---
 import sys
 import os
+from datetime import datetime
+
 import requests
 import pandas as pd
 from dotenv import load_dotenv
@@ -11,7 +13,30 @@ from Data_Import.database import get_engine
 load_dotenv()
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-def fetch_rankings(ranking_cat_id: int, limit: int = 200) -> pd.DataFrame:
+# Ranking category IDs to import
+# 13-16: World Triathlon global rankings (Elite Men/Women, U23, Junior)
+# 35-44: Continental Points Lists (Europe, Americas, Africa, Asia, Oceania x Men/Women)
+RANKING_CATEGORIES = {
+    # Global
+    13: "World Rankings - Elite Men",
+    14: "World Rankings - Elite Women",
+    15: "World Rankings - U23 Men",
+    16: "World Rankings - U23 Women",
+    # Continental Points Lists
+    35: "Continental Points List - Europe Elite Men",
+    36: "Continental Points List - Europe Elite Women",
+    37: "Continental Points List - Americas Elite Men",
+    38: "Continental Points List - Americas Elite Women",
+    39: "Continental Points List - Africa Elite Men",
+    40: "Continental Points List - Africa Elite Women",
+    41: "Continental Points List - Asia Elite Men",
+    42: "Continental Points List - Asia Elite Women",
+    43: "Continental Points List - Oceania Elite Men",
+    44: "Continental Points List - Oceania Elite Women",
+}
+
+
+def fetch_rankings(ranking_cat_id: int, limit: int = 500) -> pd.DataFrame:
     """
     Pulls the ranking snapshot for a given category, returns a normalized DataFrame.
     """
@@ -19,6 +44,9 @@ def fetch_rankings(ranking_cat_id: int, limit: int = 200) -> pd.DataFrame:
     resp = requests.get(url, headers=HEADERS, params={'limit': limit})
     resp.raise_for_status()
     js = resp.json()['data']
+
+    published_date = pd.to_datetime(js['published']).date()
+    ranking_year = published_date.year
 
     # build records list
     records = []
@@ -30,8 +58,8 @@ def fetch_rankings(ranking_cat_id: int, limit: int = 200) -> pd.DataFrame:
             'ranking_cat_id': js['ranking_id'],
             'rank_position':  r['rank'],
             'total_points':   r['total'],
-            'year':           2025,  # Assuming all rankings are for the year 2025
-            'retrieved_at':   pd.to_datetime(js['published']).date()
+            'year':           ranking_year,
+            'retrieved_at':   published_date,
         })
     return pd.DataFrame(records)
 
@@ -59,24 +87,45 @@ def upsert_rankings(df: pd.DataFrame, engine):
         conn.execute(insert_sql, df.to_dict(orient='records'))
 
 
-def import_rankings():
+def import_rankings(category_ids: list[int] | None = None, limit: int = 500):
     """
     Fetch and persist rankings for each desired ranking category.
+
+    Args:
+        category_ids: Specific category IDs to import. Defaults to all in RANKING_CATEGORIES.
+        limit: Max athletes per category (default 500).
     """
     engine = get_engine()
-    # list of ranking_cat_ids to import (e.g. 13 for Elite Men, 14 for Elite Women)
-    ranking_ids = [13, 14, 15, 16]
+    ids_to_fetch = category_ids or list(RANKING_CATEGORIES.keys())
+
     all_dfs = []
-    for cat in ranking_ids:
-        df = fetch_rankings(cat)
-        all_dfs.append(df)
+    for cat_id in ids_to_fetch:
+        label = RANKING_CATEGORIES.get(cat_id, f"Category {cat_id}")
+        try:
+            df = fetch_rankings(cat_id, limit=limit)
+            if not df.empty:
+                year = df["year"].iloc[0]
+                print(f"  [{cat_id}] {label}: {len(df)} athletes (year={year})")
+                all_dfs.append(df)
+            else:
+                print(f"  [{cat_id}] {label}: empty response")
+        except Exception as e:
+            print(f"  [{cat_id}] {label}: ERROR - {e}")
 
     if not all_dfs:
         print("No ranking data fetched.")
         return
+
     full = pd.concat(all_dfs, ignore_index=True)
+
+    # Keep all rankings — athletes will have both world and continental entries.
+    # The SQL layer pivots these into separate columns (wt_rank_position vs
+    # wt_continental_rank) so both signals are available to the model.
+    n_athletes = full["athlete_id"].nunique()
+
     upsert_rankings(full, engine)
-    print(f"Imported {len(full)} ranking records.")
+    print(f"Imported {len(full)} ranking records ({n_athletes} unique athletes) across {len(ids_to_fetch)} categories.")
+
 
 if __name__ == '__main__':
     import_rankings()

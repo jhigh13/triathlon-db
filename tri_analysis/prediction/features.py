@@ -88,6 +88,102 @@ def classify_event_tier(event_name: str) -> int:
 # Default uncertainty for athletes with sparse history (seconds)
 DEFAULT_SIGMA_TOTAL = 120.0
 
+# Plausible split time ranges per distance category (seconds).
+# Used to filter out races from matched_history that have split times
+# inconsistent with the target distance (e.g., super-sprint results
+# mislabeled as sprint). Tighter than SPLIT_OUTLIER_THRESHOLDS in train.py
+# because these validate individual race times used for EMA computation.
+EMA_SPLIT_PLAUSIBLE_RANGES = {
+    "super-sprint": {
+        "swimtime_sec": (50, 600),       # ~300m: 0:50 - 10:00
+        "t1time_sec":   (5, 180),        # 0:05 - 3:00
+        "biketime_sec": (300, 1500),     # ~8km: 5:00 - 25:00
+        "t2time_sec":   (5, 120),        # 0:05 - 2:00
+        "runtime_sec":  (300, 1200),     # ~2km: 5:00 - 20:00
+    },
+    "super_sprint": {
+        "swimtime_sec": (50, 600),
+        "t1time_sec":   (5, 180),
+        "biketime_sec": (300, 1500),
+        "t2time_sec":   (5, 120),
+        "runtime_sec":  (300, 1200),
+    },
+    "sprint": {
+        "swimtime_sec": (400, 1200),     # 750m: 6:40 - 20:00
+        "t1time_sec":   (5, 180),        # 0:05 - 3:00
+        "biketime_sec": (1100, 2800),    # 20km: 18:20 - 46:40
+        "t2time_sec":   (5, 120),        # 0:05 - 2:00
+        "runtime_sec":  (700, 2000),     # 5km: 11:40 - 33:20
+    },
+    "standard": {
+        "swimtime_sec": (800, 2400),     # 1500m: 13:20 - 40:00
+        "t1time_sec":   (5, 240),        # 0:05 - 4:00
+        "biketime_sec": (2400, 5400),    # 40km: 40:00 - 90:00
+        "t2time_sec":   (5, 180),        # 0:05 - 3:00
+        "runtime_sec":  (1500, 3600),    # 10km: 25:00 - 60:00
+    },
+    "olympic": {
+        "swimtime_sec": (800, 2400),
+        "t1time_sec":   (5, 240),
+        "biketime_sec": (2400, 5400),
+        "t2time_sec":   (5, 180),
+        "runtime_sec":  (1500, 3600),
+    },
+}
+
+
+def _filter_plausible_history(
+    history_df: pd.DataFrame,
+    distance_category: str,
+) -> pd.DataFrame:
+    """
+    Remove races from history where split times are outside plausible range
+    for the target distance.
+
+    Catches mislabeled races (e.g., super-sprint results tagged as sprint).
+    Only filters on splits that are present and non-null in each row;
+    missing splits do not disqualify a race.
+
+    Args:
+        history_df: Athlete race history DataFrame
+        distance_category: Target distance category (e.g., "sprint")
+
+    Returns:
+        Filtered DataFrame with implausible races removed.
+    """
+    dist_key = distance_category.lower().strip()
+    ranges = EMA_SPLIT_PLAUSIBLE_RANGES.get(dist_key)
+    if ranges is None:
+        return history_df  # No ranges defined for this distance
+
+    df = history_df.copy()
+
+    # Parse split times to seconds if not already done
+    for col_base in ["swimtime", "biketime", "runtime"]:
+        sec_col = col_base + "_sec"
+        if sec_col not in df.columns and col_base in df.columns:
+            df[sec_col] = df[col_base].apply(parse_time_to_seconds)
+
+    # Build a mask: True = keep this race (all available splits are in range)
+    keep = pd.Series(True, index=df.index)
+
+    for sec_col, (lo, hi) in ranges.items():
+        if sec_col in df.columns:
+            vals = df[sec_col]
+            # Only check rows with non-null values
+            has_val = vals.notna()
+            out_of_range = has_val & ((vals < lo) | (vals > hi))
+            keep = keep & ~out_of_range
+
+    n_removed = (~keep).sum()
+    if n_removed > 0:
+        logger.debug(
+            f"Plausibility filter ({dist_key}): removed {n_removed}/{len(df)} "
+            f"races with split times outside expected range"
+        )
+
+    return df[keep]
+
 
 def compute_athlete_form_features(history_df: pd.DataFrame, event_date: date) -> dict:
     """
@@ -102,12 +198,13 @@ def compute_athlete_form_features(history_df: pd.DataFrame, event_date: date) ->
 
     Features computed:
         - ema_swim_sec_5, ema_bike_sec_5, ema_run_sec_5, ema_total_sec_5: EWMA over last 5
+        - ema_t1_sec_5, ema_t2_sec_5, ema_t1t2_sec_5: EWMA of transition times over last 5
+        - std_t1t2_sec_24m: Std dev of combined T1+T2 in last 24 months
         - last_total_sec: Most recent total time
         - best_total_sec_24m: Best total in last 24 months
         - std_total_sec_24m: Std dev of total in last 24 months
         - days_since_last_race: Days from last race to event_date
         - races_12m: Number of races in last 12 months
-        - dnf_rate_24m: DNF rate (we don't have DNFs in history_df since it filters to finishers)
         
     Athlete tier features (competition level indicators):
         - athlete_avg_tier: Average tier of races competed (1=WTCS, 2=WorldCup, 3=Regional, 4=Other)
@@ -125,6 +222,11 @@ def compute_athlete_form_features(history_df: pd.DataFrame, event_date: date) ->
         "ema_bike_sec_5": None,
         "ema_run_sec_5": None,
         "ema_total_sec_5": None,
+        # Transition features
+        "ema_t1_sec_5": None,
+        "ema_t2_sec_5": None,
+        "ema_t1t2_sec_5": None,
+        "std_t1t2_sec_24m": None,
         "last_total_sec": None,
         "best_total_sec_24m": None,
         "std_total_sec_24m": None,
@@ -150,7 +252,7 @@ def compute_athlete_form_features(history_df: pd.DataFrame, event_date: date) ->
 
     # Parse time columns to seconds
     df = history_df.copy()
-    for col in ["swimtime", "biketime", "runtime", "total_time"]:
+    for col in ["swimtime", "t1time", "biketime", "t2time", "runtime", "total_time"]:
         if col in df.columns:
             df[col + "_sec"] = df[col].apply(parse_time_to_seconds)
 
@@ -206,17 +308,28 @@ def compute_athlete_form_features(history_df: pd.DataFrame, event_date: date) ->
         days_since = (pd.Timestamp(event_date) - last_race_date).days
         features["days_since_last_race"] = max(0, days_since)
 
-    # Last total
-    features["last_total_sec"] = int(valid_df["total_time_sec"].iloc[0])
+    # Last total — guard against non-numeric values from parse_time_to_seconds
+    last_total = valid_df["total_time_sec"].iloc[0]
+    if pd.notna(last_total):
+        features["last_total_sec"] = int(last_total)
 
     # 24-month window
     cutoff_24m = pd.Timestamp(event_date) - timedelta(days=730)
     df_24m = valid_df[valid_df["event_date"] >= cutoff_24m]
 
     if not df_24m.empty:
-        features["best_total_sec_24m"] = int(df_24m["total_time_sec"].min())
-        features["std_total_sec_24m"] = float(df_24m["total_time_sec"].std())
+        best_24m = df_24m["total_time_sec"].min()
+        if pd.notna(best_24m):
+            features["best_total_sec_24m"] = int(best_24m)
+        std_24m = df_24m["total_time_sec"].std()
+        features["std_total_sec_24m"] = float(std_24m) if pd.notna(std_24m) else None
         features["races_24m"] = len(df_24m)
+
+        # T1+T2 variability over 24 months
+        if "t1time_sec" in df_24m.columns and "t2time_sec" in df_24m.columns:
+            t1t2_24m = df_24m["t1time_sec"].add(df_24m["t2time_sec"]).dropna()
+            if len(t1t2_24m) >= 2:
+                features["std_t1t2_sec_24m"] = float(t1t2_24m.std())
 
     # 12-month window
     cutoff_12m = pd.Timestamp(event_date) - timedelta(days=365)
@@ -231,7 +344,9 @@ def compute_athlete_form_features(history_df: pd.DataFrame, event_date: date) ->
 
         for split, col in [
             ("swim", "swimtime_sec"),
+            ("t1", "t1time_sec"),
             ("bike", "biketime_sec"),
+            ("t2", "t2time_sec"),
             ("run", "runtime_sec"),
             ("total", "total_time_sec"),
         ]:
@@ -241,6 +356,15 @@ def compute_athlete_form_features(history_df: pd.DataFrame, event_date: date) ->
                     # EWMA with span=5
                     ema_val = vals.ewm(span=5, min_periods=1).mean().iloc[-1]
                     features[f"ema_{split}_sec_5"] = float(ema_val)
+
+        # Combined T1+T2 EWMA
+        if "t1time_sec" in last_5_chrono.columns and "t2time_sec" in last_5_chrono.columns:
+            t1t2 = last_5_chrono["t1time_sec"].add(last_5_chrono["t2time_sec"])
+            t1t2_vals = t1t2.dropna()
+            if len(t1t2_vals) >= 1:
+                features["ema_t1t2_sec_5"] = float(
+                    t1t2_vals.ewm(span=5, min_periods=1).mean().iloc[-1]
+                )
 
     # ---- Finish Percentile EMA (distance-agnostic, multi-span) ----
     # finish_pct = finish_position / n_finishers (0 = best, 1 = last)
@@ -687,7 +811,8 @@ def compute_field_context_features(
     if not athlete_row.empty:
         features["seed_total_rank"] = int(athlete_row["seed_rank"].iloc[0])
         athlete_val = athlete_row[seed_col].iloc[0]
-        features["seed_total_gap_to_best"] = float(athlete_val - best_seed)
+        if pd.notna(athlete_val) and pd.notna(best_seed):
+            features["seed_total_gap_to_best"] = float(athlete_val - best_seed)
 
     return features
 
@@ -697,7 +822,8 @@ def build_features_for_program(
     key: ProgramKey,
     use_start_list: bool = True,
     match_distance: bool = True,
-    elite_only: bool = True
+    elite_only: bool = True,
+    athlete_ids_override: list[int] | None = None,
 ) -> pd.DataFrame:
     """
     Build feature matrix for all athletes in an upcoming program.
@@ -737,7 +863,14 @@ def build_features_for_program(
     logger.info(f"Building features for {key}, event_date={event_date}, distance={distance_category}, elite_only={elite_only}")
 
     # Get athlete list
-    if use_start_list:
+    if athlete_ids_override is not None:
+        from .sql import fetch_athletes_by_ids
+        athletes_df = fetch_athletes_by_ids(engine, athlete_ids_override)
+        if athletes_df.empty:
+            logger.warning(f"No athletes found for override IDs: {athlete_ids_override}")
+            return pd.DataFrame()
+        logger.info(f"Using custom athlete list: {len(athletes_df)} athletes")
+    elif use_start_list:
         athletes_df = fetch_start_list(engine, key)
         if athletes_df.empty:
             logger.warning(f"No start list found for {key}")
@@ -771,14 +904,34 @@ def build_features_for_program(
         )
 
         # Filter to matching distance in Python for distance-specific features
+        used_fallback = True  # Assume fallback unless we get a clean match
         if distance_category and not all_history_df.empty and "prog_distance_category" in all_history_df.columns:
             matched_history = all_history_df[
                 all_history_df["prog_distance_category"].str.lower() == distance_category.lower()
             ].copy()
             if matched_history.empty:
                 matched_history = all_history_df  # Fallback to all distances
+            else:
+                used_fallback = False
         else:
             matched_history = all_history_df
+
+        # Filter out races with split times implausible for the target distance
+        # (catches mislabeled races, e.g. super-sprint results tagged as sprint)
+        if distance_category and not matched_history.empty:
+            n_before = len(matched_history)
+            matched_history = _filter_plausible_history(matched_history, distance_category)
+            if matched_history.empty:
+                # All matched races had implausible times — fall back
+                matched_history = all_history_df
+                used_fallback = True
+            elif not used_fallback and len(matched_history) < n_before:
+                logger.debug(
+                    f"Athlete {athlete_id}: {n_before - len(matched_history)} "
+                    f"implausible {distance_category} races filtered out"
+                )
+
+        n_matched_races = len(matched_history) if not used_fallback else 0
 
         # Fetch precomputed race metrics (split ranks, n_finishers, median)
         # from position_metrics table — much faster than fetching full race fields
@@ -820,6 +973,8 @@ def build_features_for_program(
             "event_name": event_meta.get("event_name"),
             "event_tier": classify_event_tier(event_meta.get("event_name", "")),
             "wetsuit": int(bool(event_meta.get("wetsuit"))) if event_meta.get("wetsuit") is not None else 0,
+            "ema_distance_match": 0 if used_fallback else 1,
+            "n_matched_races": n_matched_races,
             **form_feats,
             **pack_feats,
             **race_relative_feats,
@@ -870,25 +1025,38 @@ def build_features_for_program(
             )
 
         if not wt_df.empty:
-            wt_df = wt_df[["athlete_id", "rank_position", "total_points"]].copy()
+            wt_df = wt_df[[
+                "athlete_id", "rank_position", "total_points",
+                "continental_rank_position", "continental_total_points",
+            ]].copy()
             wt_df = wt_df.rename(columns={
                 "rank_position": "wt_rank_position",
                 "total_points": "wt_total_points",
+                "continental_rank_position": "wt_continental_rank",
+                "continental_total_points": "wt_continental_points",
             })
             features_df = features_df.merge(wt_df, on="athlete_id", how="left")
         else:
             features_df["wt_rank_position"] = None
             features_df["wt_total_points"] = None
+            features_df["wt_continental_rank"] = None
+            features_df["wt_continental_points"] = None
     except Exception as e:
         logger.warning(f"Could not fetch WT rankings: {e}")
         features_df["wt_rank_position"] = None
         features_df["wt_total_points"] = None
+        features_df["wt_continental_rank"] = None
+        features_df["wt_continental_points"] = None
 
     # Compute tier_delta: event_tier - athlete_avg_tier
     # Positive value means athlete is "stepping down" to a lower-tier race (advantage)
     # e.g., WTCS athlete (avg_tier ~1.5) at World Cup (tier 2) → tier_delta ≈ +0.5
     if "event_tier" in features_df.columns and "athlete_avg_tier" in features_df.columns:
-        features_df["tier_delta"] = features_df["event_tier"] - features_df["athlete_avg_tier"]
+        # Force numeric dtype to prevent TypeError from mixed int/None object columns
+        features_df["tier_delta"] = (
+            pd.to_numeric(features_df["event_tier"], errors="coerce") -
+            pd.to_numeric(features_df["athlete_avg_tier"], errors="coerce")
+        ).fillna(0.0)
     else:
         features_df["tier_delta"] = 0.0
 
@@ -905,11 +1073,22 @@ def build_features_for_program(
     return features_df
 
 
-def get_feature_columns() -> list[str]:
+def get_split_feature_columns() -> list[str]:
     """
-    Return the list of feature column names used for modeling.
+    Return the reduced feature set for distance-specific split models.
 
-    These are the columns that should be passed to the model for training/prediction.
+    Split models predict absolute seconds (swim_sec, bike_sec, run_sec) for
+    individual athletes. They should only use features that reflect the
+    athlete's own ability and form — NOT field-context or ranking features
+    which cause the model to learn "big field → fast times" shortcuts instead
+    of "this athlete runs X:XX".
+
+    Excluded from the full feature set:
+    - n_entrants, seed_total_rank: field composition doesn't cause faster times
+    - elo_rating, elo_peak, elo_races: ranking proxy, causes inverse correlation
+    - wt_rank_position, wt_total_points, wt_continental_*: ranking features
+    - event_tier: event prestige doesn't change individual split times
+    - distance_category_encoded: constant within each distance model
     """
     return [
         # Athlete form features (absolute, distance-specific)
@@ -917,6 +1096,64 @@ def get_feature_columns() -> list[str]:
         "ema_bike_sec_5",
         "ema_run_sec_5",
         "ema_total_sec_5",
+        # Transition features
+        "ema_t1_sec_5",
+        "ema_t2_sec_5",
+        "ema_t1t2_sec_5",
+        "std_t1t2_sec_24m",
+        "std_total_sec_24m",
+        "days_since_last_race",
+        "races_12m",
+        # Distance-agnostic performance features
+        "ema_finish_pct_3",
+        "ema_finish_pct_5",
+        "ema_finish_pct_12",
+        "form_trend",
+        "ema_perf_ratio_5",
+        # Per-split percentiles (cross-discipline signal: fast swim → bike pack → run)
+        "ema_swim_split_pct_5",
+        "ema_bike_split_pct_5",
+        "ema_run_split_pct_5",
+        # Cross-distance form
+        "ema_finish_pct_sprint",
+        "ema_finish_pct_standard",
+        # Competition level (relative, not absolute ranking)
+        "athlete_t1t2_rate",
+        "tier_delta",
+        # Pack dynamics (affect bike/run interaction)
+        "ema_swim_pos_pct_7",
+        "ema_bike_pos_pct_7",
+        "ema_swim_pack_7",
+        "ema_bike_pack_7",
+        "ema_swim_gap_sec_7",
+        "ema_bike_gap_sec_7",
+        # Race conditions
+        "wetsuit",
+        # Distance match quality
+        "ema_distance_match",
+        "n_matched_races",
+    ]
+
+
+def get_feature_columns() -> list[str]:
+    """
+    Return the full list of feature column names used for modeling.
+
+    This is the full feature set used by the unified models (total time,
+    percentile/ranking). Distance-specific split models use the reduced
+    set from get_split_feature_columns().
+    """
+    return [
+        # Athlete form features (absolute, distance-specific)
+        "ema_swim_sec_5",
+        "ema_bike_sec_5",
+        "ema_run_sec_5",
+        "ema_total_sec_5",
+        # Transition features
+        "ema_t1_sec_5",             # EWMA of T1 transition time
+        "ema_t2_sec_5",             # EWMA of T2 transition time
+        "ema_t1t2_sec_5",           # EWMA of combined T1+T2
+        "std_t1t2_sec_24m",         # Std dev of T1+T2 in last 24 months
         "std_total_sec_24m",
         "days_since_last_race",
         "races_12m",
@@ -947,8 +1184,10 @@ def get_feature_columns() -> list[str]:
         "elo_peak",                 # All-time peak Elo rating
         "elo_races",                # Number of races in Elo history
         # World Triathlon ranking features
-        "wt_rank_position",         # WT ranking position (1 = best)
-        "wt_total_points",          # WT ranking points
+        "wt_rank_position",         # WT world ranking position (1 = best)
+        "wt_total_points",          # WT world ranking points
+        "wt_continental_rank",      # WT continental ranking position (1 = best)
+        "wt_continental_points",    # WT continental ranking points
         # Field context
         "seed_total_rank",
         "n_entrants",
@@ -956,6 +1195,9 @@ def get_feature_columns() -> list[str]:
         "event_tier",
         "distance_category_encoded",  # Integer encoding of prog_distance_category
         "wetsuit",                    # 1 = wetsuit race, 0 = non-wetsuit
+        # Distance match quality
+        "ema_distance_match",         # 1 = EMA from matching distance, 0 = fallback
+        "n_matched_races",            # Number of plausible matching-distance races
     ]
 
 
@@ -972,44 +1214,63 @@ def fill_missing_features(df: pd.DataFrame, feature_cols: list[str]) -> pd.DataF
     """
     df = df.copy()
 
-    # Default values for missing features
+    # Default values for missing features.
+    # Philosophy: unknown athletes should get CONSERVATIVE (below-average) defaults
+    # for ability features. Using field median is too generous — an athlete with no
+    # data is more likely below-average than exactly average.
+
+    # Helper: 75th percentile of a column (worse than median for "lower is better" features)
+    def _q75(col):
+        if col in df.columns and df[col].notna().any():
+            return float(df[col].quantile(0.75))
+        return None
+
+    # Helper: 25th percentile (worse than median for "higher is better" features)
+    def _q25(col):
+        if col in df.columns and df[col].notna().any():
+            return float(df[col].quantile(0.25))
+        return None
+
     defaults = {
-        "ema_swim_sec_5": df["ema_swim_sec_5"].median() if "ema_swim_sec_5" in df.columns else 1200,
-        "ema_bike_sec_5": df["ema_bike_sec_5"].median() if "ema_bike_sec_5" in df.columns else 3600,
-        "ema_run_sec_5": df["ema_run_sec_5"].median() if "ema_run_sec_5" in df.columns else 1800,
-        "ema_total_sec_5": df["ema_total_sec_5"].median() if "ema_total_sec_5" in df.columns else 6600,
+        # Absolute form: use field 75th percentile (slower = conservative)
+        "ema_swim_sec_5": _q75("ema_swim_sec_5") or 1200,
+        "ema_bike_sec_5": _q75("ema_bike_sec_5") or 3600,
+        "ema_run_sec_5": _q75("ema_run_sec_5") or 1800,
+        "ema_total_sec_5": _q75("ema_total_sec_5") or 6600,
         "std_total_sec_24m": DEFAULT_SIGMA_TOTAL,
-        "days_since_last_race": 60,  # Assume moderate layoff
+        "days_since_last_race": 90,  # Assume long layoff (conservative)
         "races_12m": 0,
-        # Distance-agnostic performance features (multi-span)
-        "ema_finish_pct_3": 0.5,   # Mid-field default
-        "ema_finish_pct_5": 0.5,   # Mid-field default
-        "ema_finish_pct_12": 0.5,  # Mid-field default
+        # Distance-agnostic performance features — 0.65 = below mid-field
+        "ema_finish_pct_3": 0.65,
+        "ema_finish_pct_5": 0.65,
+        "ema_finish_pct_12": 0.65,
         "form_trend": 0.0,         # Neutral (no trend)
-        "ema_perf_ratio_5": 1.0,   # Exactly at race median
-        "ema_swim_split_pct_5": 0.5,  # Mid-field swimmer
-        "ema_bike_split_pct_5": 0.5,  # Mid-field biker
-        "ema_run_split_pct_5": 0.5,  # Mid-field runner
+        "ema_perf_ratio_5": 1.05,  # Slightly slower than race median
+        "ema_swim_split_pct_5": 0.65,
+        "ema_bike_split_pct_5": 0.65,
+        "ema_run_split_pct_5": 0.65,
         # Cross-distance features
-        "ema_finish_pct_sprint": 0.5,  # Mid-field default
-        "ema_finish_pct_standard": 0.5,  # Mid-field default
+        "ema_finish_pct_sprint": 0.65,
+        "ema_finish_pct_standard": 0.65,
         # Athlete competition level features
         "athlete_t1t2_rate": 0.0,
         "tier_delta": 0.0,  # Neutral (racing at typical level)
-        # New EMA pack features (span=7)
-        "ema_swim_pos_pct_7": 0.5,  # Mid-pack default
-        "ema_bike_pos_pct_7": 0.5,
-        "ema_swim_pack_7": 3.0,  # Pack 3 = mid-field
-        "ema_bike_pack_7": 3.0,
-        "ema_swim_gap_sec_7": 30.0,  # 30 sec default gap
-        "ema_bike_gap_sec_7": 60.0,  # 60 sec default gap at bike
-        # Elo rating features
-        "elo_rating": 1500.0,  # Starting Elo (unknown athlete)
-        "elo_peak": 1500.0,
+        # EMA pack features (span=7)
+        "ema_swim_pos_pct_7": 0.65,  # Below mid-pack
+        "ema_bike_pos_pct_7": 0.65,
+        "ema_swim_pack_7": 4.0,  # Pack 4 = back of field
+        "ema_bike_pack_7": 4.0,
+        "ema_swim_gap_sec_7": 40.0,  # 40 sec gap (back of field)
+        "ema_bike_gap_sec_7": 80.0,  # 80 sec gap
+        # Elo rating features — below-average for unknown athletes
+        "elo_rating": _q25("elo_rating") or 1400.0,
+        "elo_peak": _q25("elo_peak") or 1400.0,
         "elo_races": 0,
-        # World Triathlon ranking features
-        "wt_rank_position": df["wt_rank_position"].max() if "wt_rank_position" in df.columns and df["wt_rank_position"].notna().any() else 200,
-        "wt_total_points": 0.0,  # No ranking points
+        # World Triathlon ranking features — worst in field or large fallback
+        "wt_rank_position": df["wt_rank_position"].max() if "wt_rank_position" in df.columns and df["wt_rank_position"].notna().any() else 500,
+        "wt_total_points": 0.0,
+        "wt_continental_rank": df["wt_continental_rank"].max() if "wt_continental_rank" in df.columns and df["wt_continental_rank"].notna().any() else 300,
+        "wt_continental_points": 0.0,
         # Field context
         "seed_total_rank": df["seed_total_rank"].max() if "seed_total_rank" in df.columns else 50,
         "n_entrants": df["n_entrants"].median() if "n_entrants" in df.columns else 50,
@@ -1017,8 +1278,27 @@ def fill_missing_features(df: pd.DataFrame, feature_cols: list[str]) -> pd.DataF
         "event_tier": 2,  # Default to World Cup tier (mid-level)
         "distance_category_encoded": -1,  # Unknown distance
         "wetsuit": 0,  # Default to non-wetsuit
+        # Distance match quality
+        "ema_distance_match": 0,    # Assume fallback if unknown
+        "n_matched_races": 0,
+        # T1/T2 features (added in Phase 1)
+        "ema_t1_sec_5": _q75("ema_t1_sec_5") or 40,
+        "ema_t2_sec_5": _q75("ema_t2_sec_5") or 35,
+        "ema_t1t2_sec_5": _q75("ema_t1t2_sec_5") or 75,
+        "std_t1t2_sec_24m": 8.0,  # Moderate variability default
+        # Pack features
+        "front_pack_rate": 0.1,  # Conservative: rarely in front pack
     }
 
+    # First pass: convert any Python None to NaN across all feature columns.
+    # Features from compute_athlete_form_features() may return None for missing
+    # values which pandas preserves as object dtype. fillna() handles NaN but
+    # not always object-dtype None, so we explicitly convert first.
+    for col in feature_cols:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    # Second pass: fill NaN with defaults
     for col in feature_cols:
         if col in df.columns:
             default_val = defaults.get(col, 0)

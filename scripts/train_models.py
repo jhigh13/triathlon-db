@@ -271,11 +271,13 @@ def main():
                     mlflow.log_metric(f"train_n_{name}", metrics.get("n_samples", 0))
 
             # Train distance-specific split models (swim, bike, run per distance)
+            # Uses reduced feature set focused on individual athlete ability
             logger.info("Training distance-specific split models...")
-            dist_split_models = train_distance_split_models(
+            dist_split_models, split_feature_cols = train_distance_split_models(
                 train_df, feature_cols, model_params=model_params
             )
             bundle.distance_split_models = dist_split_models
+            bundle.split_feature_columns = split_feature_cols
             if dist_split_models:
                 mlflow.set_tag("distance_split_distances", ",".join(dist_split_models.keys()))
                 for dist, models in dist_split_models.items():
@@ -285,6 +287,7 @@ def main():
                 logger.info("No distance-specific split models trained (insufficient data)")
 
             # Learn pack effects from historical data and store in bundle
+            # Overall params (all distances combined) for backward compatibility
             logger.info("Learning pack effects from historical data...")
             pack_data = fetch_pack_effect_data(
                 engine,
@@ -302,11 +305,42 @@ def main():
                     "pack_n_races": learned_pack_params.n_races,
                 })
                 logger.info(
-                    f"Learned pack effects: bonus={learned_pack_params.front_pack_bonus_sec:.1f}s, "
+                    f"Learned pack effects (overall): bonus={learned_pack_params.front_pack_bonus_sec:.1f}s, "
                     f"penalty={learned_pack_params.chase_penalty_sec:.1f}s "
                     f"(from {learned_pack_params.n_observations} observations, "
                     f"{learned_pack_params.n_races} races)"
                 )
+
+                # Distance-specific pack params — draft-legal distances only
+                pack_params_by_distance = {}
+                for dist_cat in ["sprint", "standard"]:
+                    dist_pack_data = fetch_pack_effect_data(
+                        engine,
+                        start_date=args.start_date,
+                        end_date=args.end_date,
+                        elite_only=elite_only,
+                        distance_category=dist_cat,
+                    )
+                    if not dist_pack_data.empty and len(dist_pack_data) >= 100:
+                        dist_params = learn_pack_effects_from_data(dist_pack_data)
+                        dist_params.distance_category = dist_cat
+                        pack_params_by_distance[dist_cat] = pack_params_to_dict(dist_params)
+                        mlflow.log_metrics({
+                            f"pack_{dist_cat}_front_bonus": dist_params.front_pack_bonus_sec,
+                            f"pack_{dist_cat}_chase_penalty": dist_params.chase_penalty_sec,
+                            f"pack_{dist_cat}_n_obs": dist_params.n_observations,
+                        })
+                        logger.info(
+                            f"  {dist_cat}: bonus={dist_params.front_pack_bonus_sec:.1f}s, "
+                            f"penalty={dist_params.chase_penalty_sec:.1f}s "
+                            f"({dist_params.n_observations} obs, {dist_params.n_races} races)"
+                        )
+                    else:
+                        n = len(dist_pack_data) if not dist_pack_data.empty else 0
+                        logger.info(f"  {dist_cat}: insufficient data ({n} rows), will use overall")
+
+                if pack_params_by_distance:
+                    bundle.metadata["pack_effect_params_by_distance"] = pack_params_by_distance
             else:
                 logger.warning("No pack effect data available, using defaults")
 
@@ -329,12 +363,42 @@ def main():
                     "merge_n_races": learned_merge_params.n_races,
                 })
                 logger.info(
-                    f"Learned merge params: beta_0={learned_merge_params.beta_0:.3f}, "
+                    f"Learned merge params (overall): beta_0={learned_merge_params.beta_0:.3f}, "
                     f"beta_gap={learned_merge_params.beta_gap:.3f}, "
                     f"beta_chase_size={learned_merge_params.beta_chase_size:.3f} "
                     f"(from {learned_merge_params.n_observations} merge situations, "
                     f"{learned_merge_params.n_races} races)"
                 )
+
+                # Distance-specific merge params
+                merge_params_by_distance = {}
+                for dist_cat in ["sprint", "standard"]:
+                    dist_trans_data = fetch_swim_to_bike_transitions(
+                        engine,
+                        start_date=args.start_date,
+                        end_date=args.end_date,
+                        elite_only=elite_only,
+                        distance_category=dist_cat,
+                    )
+                    if not dist_trans_data.empty and len(dist_trans_data) >= 50:
+                        dist_merge = learn_merge_params_from_data(dist_trans_data)
+                        merge_params_by_distance[dist_cat] = merge_params_to_dict(dist_merge)
+                        mlflow.log_metrics({
+                            f"merge_{dist_cat}_beta_0": dist_merge.beta_0,
+                            f"merge_{dist_cat}_beta_gap": dist_merge.beta_gap,
+                            f"merge_{dist_cat}_n_obs": dist_merge.n_observations,
+                        })
+                        logger.info(
+                            f"  {dist_cat}: beta_0={dist_merge.beta_0:.3f}, "
+                            f"beta_gap={dist_merge.beta_gap:.3f} "
+                            f"({dist_merge.n_observations} obs)"
+                        )
+                    else:
+                        n = len(dist_trans_data) if not dist_trans_data.empty else 0
+                        logger.info(f"  {dist_cat}: insufficient data ({n} rows), will use overall")
+
+                if merge_params_by_distance:
+                    bundle.metadata["merge_params_by_distance"] = merge_params_by_distance
             else:
                 logger.warning("No transition data available, merge params will use defaults")
 
@@ -372,6 +436,7 @@ def main():
                 print(f"  {name}: MAE={fmt}{unit}, n={metrics.get('n_samples', 'N/A')}")
         if bundle.distance_split_models:
             print(f"Distance-specific split models: {list(bundle.distance_split_models.keys())}")
+            print(f"Split model features: {len(bundle.split_feature_columns)} (reduced from {len(feature_cols)})")
         print(f"\nModel saved to: {out_path}")
         print(f"\nView experiment: mlflow ui --backend-store-uri file:///{os.path.join(project_root, 'mlruns').replace(os.sep, '/')}")
         print("\nTo run predictions:")

@@ -1,0 +1,45 @@
+# Virtual environment
+.venv/
+venv/
+
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+
+# Test caches
+.pytest_cache/
+htmlcov/
+.coverage
+
+# MLflow experiment tracking (large)
+mlruns/
+
+# Trained model bundles (binary)
+models/*.joblib
+
+# Data files (large binary)
+data/*.parquet
+data/*.xlsx
+
+# Power BI reports (binary)
+docs/*.pbix
+
+# IDE
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+*.egg-info/
+dist/
+build/
+
+# Logs
+*.log
+
+# Outputs (generated CSVs)
+outputs/
