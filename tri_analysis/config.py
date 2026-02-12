@@ -46,13 +46,15 @@ RACE_RESULTS_TABLE_NAME  = os.getenv('RACE_RESULTS_TABLE_NAME', 'race_results')
 RANKINGS_RESULTS_TABLE_NAME  = os.getenv('RANKINGS_RESULTS_TABLE_NAME', 'rankings')
 METRICS_TABLE_NAME        = os.getenv('METRICS_TABLE_NAME', 'metrics')
 
-# ID for filtering events
-CATEGORY_IDS = "340|341|342|623|343|352|347|640|624|351|348|349|623|449|448|350" #Add Para afterwards
-SPEC_IDS = "356|357"
 # ID for filtering events (allow env overrides so we can run para-only backfills)
+# Para Category IDs:
+#   343 = Major Games (includes Paralympic Games and Para World Championships)
+#   449 = Para Cup
+#   448 = Para Series
+# Elite/U23/Junior/Mixed Relay IDs: 340|341|342|623|352|347|640|624|351|348|349|350
 CATEGORY_IDS = os.getenv(
     "CATEGORY_IDS",
-    "340|341|342|623|343|352|347|640|624|351|348|349|623|449|448|350"  # Elite/U23/Junior/MR defaults; extend with para via env
+    "340|341|342|623|343|352|347|640|624|351|348|349|449|448|350"  # Elite/U23/Junior/MR + Para defaults
 )
 SPEC_IDS = os.getenv(
     "SPEC_IDS",

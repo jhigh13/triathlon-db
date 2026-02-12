@@ -31,19 +31,21 @@ DEFAULT_MAJOR_CAT_PATTERNS = [
     "%Para Championship%",
     "%Para Championships%",
     "%World Triathlon Para%",
+    "%World Championships%",  # Covers para world championships (e.g., Wollongong 2025)
 ]
 
-# Additional top contenders (beyond Paris medalists) to include in benchmarks.
-# These are athletes who didn't medal at Paris but are considered top-tier competitors.
+# Additional top contenders (beyond benchmark medalists) to include in benchmarks.
+# These are athletes who didn't medal at the benchmark event but are considered top-tier competitors.
+# Note: PTS3 Women uses Pontevedra 2023 as benchmark (not contested at Paris 2024).
 ADDITIONAL_BENCHMARK_ATHLETES = {
-    "PTS2 Men": ["Maurits Morsink", "Lionel Morales", "Wim DePaepe"],
-    "PTS3 Men": ["Henry Urand", "Cedric Denuziere"],
+    "PTS2 Men": ["Maurits Morsink", "Lionel Morales", "Wim De Paepe"],
+    "PTS3 Men": ["Henry Urand", "Cedric Denuziere"],  # Paris 2024 benchmark
     "PTS4 Men": ["Pierre-Antoine Baele", "Gregoire Berthon"],
     "PTS5 Men": ["Stefan Daniel", "Bence Mocsari"],
-    "PTVI Men": ["Owen Cravens", "Hector Catala Laparra"],
+    "PTVI Men": ["Owen Cravens", "Héctor Catalá Laparra"],
     "PTWC Women": ["Jessica Ferreira"],
     "PTS2 Women": ["Anu Francis"],
-    "PTS3 Women": ["Elise Marc", "Kenia Villalobos", "Sanne Koopman"],  # Pontevedra 2023 podium (PTS3 wasn't a Paris medal event)
+    "PTS3 Women": [],  # Pontevedra 2023 top 3 are already benchmark medalists (Elise Marc, Kenia Villalobos, Sanne Koopman)
     "PTS4 Women": ["Kelly Elmlinger", "Grace Brimelow"],
     "PTS5 Women": ["Kamylle Frenette"],
     "PTVI Women": ["Leticia Freitas", "Alison Peasgood", "Chloe MacCombe", "Judith MacCombe"],
@@ -183,6 +185,7 @@ def select_usa_athlete_from_category(
     since: str,
     major_cat_patterns: list[str],
     typed_name: Optional[str] = None,
+    auto_select_first: bool = False,
 ) -> tuple[int, str]:
     """Resolve a USA athlete either by name, or by prompting from category participants.
 
@@ -215,6 +218,11 @@ def select_usa_athlete_from_category(
     for i, (_, r) in enumerate(options.iterrows(), start=1):
         print(f"  {i}. {r['full_name']} (athlete_id={r['athlete_id']}, events={r['events']}, starts={r['starts']})")
 
+    if auto_select_first:
+        chosen = options.iloc[0]
+        print(f"Auto-selected: {chosen['full_name']} (athlete_id={int(chosen['athlete_id'])})")
+        return int(chosen["athlete_id"]), str(chosen["full_name"])
+
     while True:
         try:
             sel = input("Select athlete number: ").strip()
@@ -235,6 +243,13 @@ def find_paris_benchmark_event(
     benchmark_city: str,
     major_cat_patterns: list[str],
 ) -> BenchmarkEvent:
+    # Special handling for PTS3 Women: use Pontevedra 2023 instead of Paris 2024
+    # (PTS3 Women was not a medal event at Paris 2024)
+    if category == "PTS3 Women":
+        benchmark_year = 2023
+        benchmark_city = "Pontevedra"
+        print(f"Note: Using Pontevedra 2023 as benchmark for {category} (PTS3 Women not contested at Paris 2024)")
+    
     year_start = f"{benchmark_year}-01-01"
     year_end = f"{benchmark_year + 1}-01-01"
 
@@ -274,12 +289,12 @@ def find_paris_benchmark_event(
 
     if df.empty:
         raise SystemExit(
-            "Could not find a Paris benchmark race in the DB for the selected category. "
-            "Ensure Paris 2024 para events are imported for this program name."  # noqa: EM102
+            f"Could not find a {benchmark_city} {benchmark_year} benchmark race in the DB for the selected category. "
+            f"Ensure {benchmark_city} {benchmark_year} para events are imported for this program name."  # noqa: EM102
         )
 
     if len(df) > 1:
-        print("Warning: multiple Paris benchmark events found; using the latest by date:")
+        print(f"Warning: multiple {benchmark_city} {benchmark_year} benchmark events found; using the latest by date:")
         for _, r in df.head(5).iterrows():
             print(f"  - {r['event_date']}: {r['event_name']} (event_id={r['event_id']}, prog_id={r['prog_id']})")
 
@@ -465,6 +480,124 @@ def _infer_distance_panel_from_distances(
         return "Standard"
 
     return "Other"
+
+
+# ------------------------------------------------------------------
+# Outlier Detection
+# ------------------------------------------------------------------
+# Para triathlon has a wide range of times due to different impairments.
+# However, extreme outliers (e.g., data errors, equipment issues) can
+# distort charts and analysis. These thresholds are intentionally high
+# to avoid removing legitimate variation while flagging likely errors.
+
+# Relative thresholds: flag if value > global_median * threshold
+OUTLIER_THRESHOLDS = {
+    # Swim/Bike/Run: flag if value > median * 3.0 (200% above median)
+    "swimtime_sec": 3.0,
+    "biketime_sec": 3.0,
+    "runtime_sec": 3.0,
+    "swim_pace_s_per_100m": 3.0,
+    "bike_pace_s_per_km": 3.0,
+    "run_pace_s_per_km": 3.0,
+    "bike_speed_kmh": 0.33,  # For speed, outlier is < median * 0.33 (inverted)
+    # T1/T2: flag if value > median * 5.0 (400% above median)
+    "t1time_sec": 5.0,
+    "t2time_sec": 5.0,
+}
+
+# Absolute bounds: hard limits for clearly impossible values (safety net)
+# These catch data errors even when median-based detection fails
+ABSOLUTE_BOUNDS = {
+    # Paces: upper bounds (seconds) - anything slower is clearly wrong
+    "swim_pace_s_per_100m": (None, 300),      # Max 5:00/100m (very slow but possible)
+    "run_pace_s_per_km": (None, 900),          # Max 15:00/km (very slow but possible for some para classes)
+    "bike_pace_s_per_km": (None, 300),         # Max 5:00/km = 12 km/h (very slow)
+    # Speeds: lower bounds (km/h)
+    "bike_speed_kmh": (8, None),               # Min 8 km/h (anything slower is likely error)
+    # Split times: upper bounds (seconds)
+    "swimtime_sec": (None, 3600),              # Max 1 hour swim
+    "biketime_sec": (None, 7200),              # Max 2 hour bike
+    "runtime_sec": (None, 5400),               # Max 1.5 hour run
+    "t1time_sec": (None, 600),                 # Max 10 min T1
+    "t2time_sec": (None, 600),                 # Max 10 min T2
+}
+
+
+def flag_outliers(
+    df: pd.DataFrame,
+    thresholds: dict[str, float] = OUTLIER_THRESHOLDS,
+    absolute_bounds: dict[str, tuple] = ABSOLUTE_BOUNDS,
+    nullify: bool = True,
+) -> pd.DataFrame:
+    """
+    Flag and optionally nullify outlier values using two methods:
+    1. Relative: values outside median * threshold (computed globally)
+    2. Absolute: values outside hard bounds (catches clear data errors)
+    
+    For 'lower is better' metrics (times/paces), an outlier is a value > median * threshold.
+    For 'higher is better' metrics (speed), an outlier is a value < median * threshold.
+    
+    Creates a new column '{col}_outlier' (bool) for each flagged column.
+    If nullify=True, also sets the original column to NaN for outliers.
+    """
+    if df.empty:
+        return df
+    
+    out = df.copy()
+    outlier_counts = {}
+    
+    # Combine all columns to check
+    all_cols = set(thresholds.keys()) | set(absolute_bounds.keys())
+    
+    for col in all_cols:
+        if col not in out.columns:
+            continue
+        
+        out[f"{col}_outlier"] = False
+        values = pd.to_numeric(out[col], errors="coerce")
+        
+        if values.isna().all():
+            continue
+        
+        # For bike speed, lower values are outliers (inverted logic)
+        is_speed_metric = col in ["bike_speed_kmh", "bike_speed_mph"]
+        
+        # Step 1: Check absolute bounds first (catches clear errors)
+        if col in absolute_bounds:
+            lower, upper = absolute_bounds[col]
+            if lower is not None:
+                out.loc[values < lower, f"{col}_outlier"] = True
+            if upper is not None:
+                out.loc[values > upper, f"{col}_outlier"] = True
+        
+        # Step 2: Check relative threshold using GLOBAL median (more robust than per-event)
+        if col in thresholds:
+            threshold = thresholds[col]
+            # Use global median across all non-outlier values
+            non_outlier_values = values[~out[f"{col}_outlier"]]
+            median = non_outlier_values.median()
+            
+            if pd.notna(median) and median > 0:
+                if is_speed_metric:
+                    # For speed: outlier if value < median * threshold (very slow)
+                    relative_outliers = values < (median * threshold)
+                else:
+                    # For time/pace: outlier if value > median * threshold (very slow)
+                    relative_outliers = values > (median * threshold)
+                
+                out.loc[relative_outliers, f"{col}_outlier"] = True
+        
+        # Count and optionally nullify
+        n_outliers = out[f"{col}_outlier"].sum()
+        if n_outliers > 0:
+            outlier_counts[col] = n_outliers
+            if nullify:
+                out.loc[out[f"{col}_outlier"], col] = pd.NA
+    
+    if outlier_counts:
+        print(f"  Outliers flagged (nullified): {outlier_counts}")
+    
+    return out
 
 
 def compute_metrics(df: pd.DataFrame, normalize_time_factor: bool = True) -> pd.DataFrame:
@@ -657,6 +790,9 @@ def compute_metrics(df: pd.DataFrame, normalize_time_factor: bool = True) -> pd.
     # X-axis label: show event names, but keep chronological ordering via event_date.
     out["event_label"] = out["event_name"].fillna("").astype(str)
 
+    # Flag and nullify extreme outliers (likely data errors)
+    out = flag_outliers(out, nullify=True)
+
     return out
 
 
@@ -685,9 +821,47 @@ def _ordered_event_labels(df: pd.DataFrame) -> list[str]:
 def _summary_table_html(title: str, summary: pd.DataFrame) -> str:
     if summary.empty:
         return f"<p><b>{title}:</b> (no comparable FINISH rows)</p>"
-    cols = ["opponent", "usa_faster", "usa_slower", "avg_diff", "min_diff", "max_diff"]
-    safe = summary[cols].copy()
-    table_html = safe.to_html(index=False, escape=True)
+    
+    # Calculate total races per opponent and create beat_rate column
+    safe = summary.copy()
+    safe["total_races"] = safe["usa_faster"] + safe["usa_slower"]
+    safe["beat_rate"] = safe.apply(
+        lambda r: f"{int(r['usa_faster'])}/{int(r['total_races'])}" if r['total_races'] > 0 else "0/0",
+        axis=1,
+    )
+    
+    cols = ["opponent", "beat_rate", "avg_diff", "min_diff", "max_diff"]
+    safe = safe[cols].rename(
+        columns={
+            "opponent": "Opponent",
+            "beat_rate": "# of Races Target Athlete beat Opponent",
+            "avg_diff": "Average Time Difference between Target Athlete and Opponent",
+            "min_diff": "Best Time Difference between Target Athlete and Opponent",
+            "max_diff": "Worst Time Difference between Target Athlete and Opponent",
+        }
+    )
+    
+    # Generate custom HTML table with color-coded beat_rate column
+    table_html = "<table><thead><tr>"
+    for col in safe.columns:
+        table_html += f"<th>{col}</th>"
+    table_html += "</tr></thead><tbody>"
+    
+    for _, row in safe.iterrows():
+        table_html += "<tr>"
+        for col in safe.columns:
+            cell_value = row[col]
+            if col == "# of Races Target Athlete beat Opponent":
+                # Apply color-coding to beat rate column
+                cell_value = _color_code_beat_rate(str(cell_value))
+                table_html += f"<td>{cell_value}</td>"
+            else:
+                # Escape other cells for safety
+                import html
+                table_html += f"<td>{html.escape(str(cell_value))}</td>"
+        table_html += "</tr>"
+    table_html += "</tbody></table>"
+    
     return f"<div class='summary-block'><p><b>{title}</b></p>{table_html}</div>"
 
 
@@ -849,13 +1023,13 @@ def _default_medalist_weights(medalists: pd.DataFrame) -> dict[int, float]:
         if pos in pos_weights:
             weights[athlete_id] = float(pos_weights[pos])
         elif pos >= 4:
-            # Additional benchmark contenders (not Paris medalists but top-tier)
+            # Additional benchmark contenders (not benchmark medalists but top-tier)
             weights[athlete_id] = 0.15
     return weights
 
 
 def _winner_only_weights(medalists: pd.DataFrame) -> dict[int, float]:
-    """Return athlete_id -> 1.0 for the Paris winner (finish_position==1)."""
+    """Return athlete_id -> 1.0 for the benchmark winner (finish_position==1)."""
     if medalists is None or medalists.empty:
         return {}
     try:
@@ -1219,6 +1393,109 @@ def _projection_table_html(
     )
 
 
+def _color_code_beat_rate(beat_rate_str: str) -> str:
+    """
+    Apply color-coding to beat_rate cell based on percentage.
+    100% = light green bg / dark green text
+    50% = light yellow bg / dark yellow-brown text
+    0% = light red bg / dark red text
+    Interpolates linearly between these points.
+    """
+    if not beat_rate_str or "/" not in beat_rate_str:
+        return beat_rate_str
+    
+    try:
+        beats, events = beat_rate_str.split("/")
+        beats = int(beats)
+        events = int(events)
+        if events == 0:
+            return beat_rate_str
+        
+        percentage = beats / events
+        
+        # Color interpolation: 0% (red) -> 50% (yellow) -> 100% (green)
+        if percentage >= 0.5:
+            # Interpolate between yellow (50%) and green (100%)
+            t = (percentage - 0.5) / 0.5  # 0 at 50%, 1 at 100%
+            # Background: #fff3cd (yellow) -> #d4edda (green)
+            bg_r = int(255 + (212 - 255) * t)
+            bg_g = int(243 + (237 - 243) * t)
+            bg_b = int(205 + (218 - 205) * t)
+            # Text: #856404 (yellow-brown) -> #155724 (green)
+            fg_r = int(133 + (21 - 133) * t)
+            fg_g = int(100 + (87 - 100) * t)
+            fg_b = int(4 + (36 - 4) * t)
+        else:
+            # Interpolate between red (0%) and yellow (50%)
+            t = percentage / 0.5  # 0 at 0%, 1 at 50%
+            # Background: #f8d7da (red) -> #fff3cd (yellow)
+            bg_r = int(248 + (255 - 248) * t)
+            bg_g = int(215 + (243 - 215) * t)
+            bg_b = int(218 + (205 - 218) * t)
+            # Text: #721c24 (red) -> #856404 (yellow-brown)
+            fg_r = int(114 + (133 - 114) * t)
+            fg_g = int(28 + (100 - 28) * t)
+            fg_b = int(36 + (4 - 36) * t)
+        
+        bg_color = f"#{bg_r:02x}{bg_g:02x}{bg_b:02x}"
+        fg_color = f"#{fg_r:02x}{fg_g:02x}{fg_b:02x}"
+        
+        return f'<span style="background-color: {bg_color}; color: {fg_color}; padding: 4px 8px; display: inline-block; border-radius: 3px; font-weight: 600;">{beat_rate_str}</span>'
+    except (ValueError, ZeroDivisionError):
+        return beat_rate_str
+
+
+def _color_code_composite_score(score_value: float) -> str:
+    """
+    Apply color-coding to composite score based on value.
+    Negative (better) = green shades
+    Positive (worse) = red shades
+    Zero = neutral yellow
+    Color intensity increases with absolute value magnitude.
+    """
+    try:
+        score = float(score_value)
+        
+        # Clamp to reasonable range for color scaling (-5 to +5)
+        clamped = max(-5, min(5, score))
+        
+        if score < 0:
+            # Negative = better = green
+            # Scale from 0 (yellow) to -5 (bright green)
+            intensity = abs(clamped) / 5.0  # 0 to 1
+            # Background: #fff3cd (yellow) -> #d4edda (green)
+            bg_r = int(255 - (255 - 212) * intensity)
+            bg_g = int(243 - (243 - 237) * intensity)
+            bg_b = int(205 + (218 - 205) * intensity)
+            # Text: #856404 (yellow-brown) -> #155724 (green)
+            fg_r = int(133 - (133 - 21) * intensity)
+            fg_g = int(100 - (100 - 87) * intensity)
+            fg_b = int(4 + (36 - 4) * intensity)
+        elif score > 0:
+            # Positive = worse = red
+            # Scale from 0 (yellow) to +5 (bright red)
+            intensity = clamped / 5.0  # 0 to 1
+            # Background: #fff3cd (yellow) -> #f8d7da (red)
+            bg_r = int(255 - (255 - 248) * intensity)
+            bg_g = int(243 - (243 - 215) * intensity)
+            bg_b = int(205 + (218 - 205) * intensity)
+            # Text: #856404 (yellow-brown) -> #721c24 (red)
+            fg_r = int(133 - (133 - 114) * intensity)
+            fg_g = int(100 - (100 - 28) * intensity)
+            fg_b = int(4 - (4 - 36) * intensity)
+        else:
+            # Zero = neutral yellow
+            bg_r, bg_g, bg_b = 255, 243, 205
+            fg_r, fg_g, fg_b = 133, 100, 4
+        
+        bg_color = f"#{bg_r:02x}{bg_g:02x}{bg_b:02x}"
+        fg_color = f"#{fg_r:02x}{fg_g:02x}{fg_b:02x}"
+        
+        return f'<span style="background-color: {bg_color}; color: {fg_color}; padding: 4px 8px; display: inline-block; border-radius: 3px; font-weight: 600;">{score_value:.3f}</span>'
+    except (ValueError, TypeError):
+        return str(score_value)
+
+
 def _benchmark_scoreboard_html(
     df: pd.DataFrame,
     usa_athlete_id: int,
@@ -1368,25 +1645,52 @@ def _benchmark_scoreboard_html(
             lambda r: f"{int(r['beats'])}/{int(r['events'])}" if r.get("events") else "",
             axis=1,
         )
-        cols = ["metric", "beat_rate", "usa_avg", "bench_avg", "avg_delta", "min_delta", "max_delta"]
+        cols = ["metric", "beat_rate", "usa_avg", "bench_avg", "avg_delta"]
         scoreboard = scoreboard[cols].rename(
             columns={
                 "metric": "Metric",
-                "beat_rate": "USA meets benchmark",
-                "usa_avg": "USA avg",
-                "bench_avg": "Benchmark avg",
-                "avg_delta": "Avg (USA - Bench)",
-                "min_delta": "Min (USA - Bench)",
-                "max_delta": "Max (USA - Bench)",
+                "beat_rate": "# of races Athlete faster than Benchmark",
+                "usa_avg": "Athlete Avg.",
+                "bench_avg": "Benchmark Avg.",
+                "avg_delta": "Athlete Average Time Relative To Benchmark",
             }
         )
+
+        # Generate custom HTML table with color-coded beat_rate column
+        table_html = "<table><thead><tr>"
+        for col in scoreboard.columns:
+            table_html += f"<th>{col}</th>"
+        table_html += "</tr></thead><tbody>"
+        
+        for _, row in scoreboard.iterrows():
+            table_html += "<tr>"
+            for col in scoreboard.columns:
+                cell_value = row[col]
+                if col == "# of races Athlete faster than Benchmark":
+                    # Apply color-coding to beat rate column
+                    cell_value = _color_code_beat_rate(str(cell_value))
+                    table_html += f"<td>{cell_value}</td>"
+                elif col == "Athlete Average Time Relative To Benchmark" and row.get("Metric") == "Composite score (unitless)":
+                    # Apply color-coding to composite score value (negative = better = green)
+                    if cell_value != "" and pd.notna(cell_value):
+                        cell_value = _color_code_composite_score(float(cell_value))
+                        table_html += f"<td>{cell_value}</td>"
+                    else:
+                        import html
+                        table_html += f"<td>{html.escape(str(cell_value))}</td>"
+                else:
+                    # Escape other cells for safety
+                    import html
+                    table_html += f"<td>{html.escape(str(cell_value))}</td>"
+            table_html += "</tr>"
+        table_html += "</tbody></table>"
 
         block_html = (
             "<div class='summary-block'>"
             f"<h2>{title}</h2>"
             f"<p>{description}</p>"
-            "<p><b>Composite score:</b> weighted, IQR-normalized advantage across swim pace, bike speed, run pace, T1, T2. Positive = better than benchmark.</p>"
-            + scoreboard.to_html(index=False, escape=True)
+            "<p><b>Composite score:</b> weighted, IQR-normalized advantage across swim pace, bike speed, run pace, T1, T2. Negative = better than benchmark.</p>"
+            + table_html
             + "</div>"
         )
 
@@ -1399,12 +1703,12 @@ def _benchmark_scoreboard_html(
     html = ""
     html += _build_block(
         "Win Gold Benchmark",
-        "Benchmark = Paris gold medalist only (top finisher).",
+        "Benchmark = benchmark gold medalist only (top finisher).",
         win_weights,
     )
     html += _build_block(
         "Gold Contention Benchmark",
-        "Benchmark = weighted average of Paris medalists (1/2/3 weights = 0.5/0.3/0.2) plus additional top contenders (weight = 0.15 each), computed per event and summarized across events.",
+        "Benchmark = weighted average of benchmark medalists (1/2/3 weights = 0.5/0.3/0.2) plus additional top contenders (weight = 0.15 each), computed per event and summarized across events.",
         contend_weights,
     )
     return html
@@ -1618,6 +1922,7 @@ def make_panel_figure(
         category_orders={"event_label": event_order},
         title=title,
         labels={y_col: y_label, "event_label": "Event"},
+        height=600,  # Taller chart for better y-axis visibility
     )
 
     # Remove trendline/averages (explicitly not requested)
@@ -1664,6 +1969,7 @@ def make_gap_figure(gap_df: pd.DataFrame, title: str, y_label: str, mmss: bool =
             "event_date_str": "Date",
             "diff_mmss": "Gap",
         },
+        height=600,  # Taller chart for better y-axis visibility
     )
     fig.add_hline(y=0, line_dash="dash", line_color="gray")
     fig.update_layout(legend_title_text="Opponent")
@@ -1696,12 +2002,12 @@ def write_outputs(
     report_path = outdir / "report.html"
     blocks = []
 
-    # Separate Paris medalists (positions 1-3) from additional contenders (4+)
+    # Separate benchmark medalists (positions 1-3) from additional contenders (4+)
     paris_medalists = medalists[medalists["finish_position"] <= 3].copy()
     additional_contenders = medalists[medalists["finish_position"] > 3].copy()
 
     medal_lines = "".join(
-        f"<li>{int(r['finish_position'])}. {r['full_name']} (athlete_id={int(r['athlete_id'])})</li>"
+        f"<li>{r['full_name']} (athlete_id={int(r['athlete_id'])})</li>"
         for _, r in paris_medalists.sort_values("finish_position").iterrows()
     )
 
@@ -1716,39 +2022,18 @@ def write_outputs(
             + "</ul>"
         )
 
-    factor_note = ""
-    if "time_factor_applied" in df.columns:
-        applied = df["time_factor_applied"].fillna(False)
-        if applied.any():
-            years_used = sorted(
-                pd.to_numeric(df.loc[applied, "time_factor_year"], errors="coerce").dropna().astype(int).unique().tolist()
-            )
-            years_txt = ", ".join(str(y) for y in years_used) if years_used else "(unknown year)"
-            factor_note = (
-                "<p><b>Time-factor handling:</b> For PTWC (H2) and PTVI (B2/B3), the seasonal time factor is treated as a "
-                "separate offset applied to <i>total</i> time for placing. Swim splits are not adjusted (feeds are not consistent about "
-                "embedding the factor into the swim split). "
-                f"(Factor table year used: {years_txt}.) "
-                "The dataset includes: <code>total_time_sec_adjusted</code> (placing), <code>total_time_sec_raw</code> (effort, from sum of splits / factor removed), "
-                "and <code>time_factor_segment_sec</code> (= adjusted - raw) for auditing.</p>"
-            )
-
     header = f"""
     <h1>Para Standards Report</h1>
     <p><b>Category:</b> {category}</p>
     <p><b>Selected USA athlete:</b> {usa_athlete_name}</p>
     <p><b>Benchmark event:</b> {bench.event_name} ({bench.event_date})</p>
-    <p><b>Paris medalists:</b></p>
-    <ol>{medal_lines}</ol>
+    <p><b>Benchmark medalists:</b></p>
+    <ul>{medal_lines}</ul>
     {additional_lines}
-    {factor_note}
     <hr/>
     """
 
     blocks.append(header)
-
-    # Time-factor audit (only renders when factor rows exist)
-    blocks.append(_factor_audit_html(df, usa_athlete_id=usa_athlete_id, medalists=medalists))
 
     # Top-level benchmark scoreboard
     blocks.append(_benchmark_scoreboard_html(df, usa_athlete_id=usa_athlete_id, medalists=medalists))
@@ -1778,7 +2063,7 @@ def write_outputs(
         fig = make_panel_figure(
             df,
             col,
-            f"{category}: {y_label} vs Paris medalists (since 2021)",
+            f"{category}: {y_label} vs benchmark (since 2021)",
             y_label,
             invert_y=invert_y,
             mmss_axis=mmss_axis,
@@ -1826,7 +2111,7 @@ def write_outputs(
         fig = make_panel_figure(
             df,
             col,
-            f"{category}: {y_label} vs Paris medalists (since 2021)",
+            f"{category}: {y_label} vs benchmark (since 2021)",
             y_label,
         )
         if fig:
@@ -1838,7 +2123,8 @@ def write_outputs(
         "<style>"
         ".summary-block{ text-align:center; margin: 18px 0; }"
         ".summary-block table{ margin-left:auto; margin-right:auto; border-collapse:collapse; }"
-        ".summary-block th, .summary-block td{ padding: 6px 10px; border: 1px solid #ddd; }"
+        ".summary-block th{ padding: 6px 10px; border: 1px solid #ddd; background-color: #d3d3d3; font-weight: bold; text-align: center; color: #000; }"
+        ".summary-block td{ padding: 6px 10px; border: 1px solid #ddd; }"
         "</style>"
         "</head><body>"
         + "\n".join(blocks)
@@ -1878,6 +2164,7 @@ def run(
     outdir: Path,
     write_png: bool,
     normalize_time_factor: bool = True,
+    auto_select_first: bool = False,
     major_cat_patterns: Optional[list[str]] = None,
 ) -> None:
     engine = get_engine()
@@ -1891,10 +2178,11 @@ def run(
         since=since,
         major_cat_patterns=patterns,
         typed_name=usa_athlete_name,
+        auto_select_first=auto_select_first,
     )
     print(f"Selected USA athlete: {usa_name_resolved} (athlete_id={usa_id})")
 
-    print("Finding Paris benchmark event...")
+    print("Finding benchmark event...")
     bench = find_paris_benchmark_event(
         engine,
         category=category,
@@ -1904,16 +2192,16 @@ def run(
     )
     print(f"Benchmark event: {bench.event_name} ({bench.event_date}) event_id={bench.event_id} prog_id={bench.prog_id}")
 
-    print("Deriving Paris medalists (top 3)...")
+    print("Deriving benchmark medalists (top 3)...")
     medalists = fetch_paris_medalists(engine, bench)
     print(
-        "Paris medalists: "
+        "Benchmark medalists: "
         + ", ".join(
             f"{int(r['finish_position'])}. {r['full_name']}" for _, r in medalists.sort_values("finish_position").iterrows()
         )
     )
 
-    # Include additional top contenders beyond Paris medalists
+    # Include additional top contenders beyond benchmark medalists
     additional = fetch_additional_benchmark_athletes(engine, category)
     if not additional.empty:
         print(f"Including {len(additional)} additional benchmark athletes: {', '.join(additional['full_name'].tolist())}")
@@ -1957,7 +2245,7 @@ def run(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Para standards report: compare USA athlete vs Paris medalists")
+    parser = argparse.ArgumentParser(description="Para standards report: compare USA athlete vs benchmark medalists (Paris 2024 or Wollongong 2025 for PTS3)")
     parser.add_argument("--category", required=True, help='Program name, e.g. "PTWC Women"')
     parser.add_argument(
         "--usa-athlete-name",
@@ -1969,8 +2257,8 @@ def main() -> None:
         ),
     )
     parser.add_argument("--since", default="2021-01-01", help="Start date (YYYY-MM-DD). Default: 2021-01-01")
-    parser.add_argument("--benchmark-year", type=int, default=2024, help="Benchmark year. Default: 2024")
-    parser.add_argument("--benchmark-city", default="Paris", help="City keyword to locate benchmark race. Default: Paris")
+    parser.add_argument("--benchmark-year", type=int, default=2024, help="Benchmark year. Default: 2024 (auto-overridden to 2025 for PTS3)")
+    parser.add_argument("--benchmark-city", default="Paris", help="City keyword to locate benchmark race. Default: Paris (auto-overridden to Wollongong for PTS3)")
     parser.add_argument(
         "--outdir",
         default=str(Path("tri_analysis") / "outputs" / "para_standards"),
@@ -1991,6 +2279,11 @@ def main() -> None:
             "as adjusted-for-placing (<code>total_time_sec_adjusted</code>)."
         ),
     )
+    parser.add_argument(
+        "--auto-select-first",
+        action="store_true",
+        help="Automatically select the first USA athlete without prompting (useful for batch processing).",
+    )
 
     args = parser.parse_args()
 
@@ -2003,6 +2296,7 @@ def main() -> None:
         outdir=Path(args.outdir),
         write_png=(not args.no_png),
         normalize_time_factor=(not args.no_factor_normalization),
+        auto_select_first=args.auto_select_first,
     )
 
 
