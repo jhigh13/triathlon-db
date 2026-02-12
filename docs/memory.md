@@ -343,6 +343,9 @@
 - **test_hello_world.py**: Basic environment validation
 - **Coverage**: Integrated with GitHub Actions CI/CD pipeline
 
+#### `tests/conftest.py`
+- **Purpose**: Ensures the repo root is on `sys.path` so `tri_analysis` imports work reliably when running tests via `pytest.exe` on Windows.
+
 ### Data & Infrastructure
 
 #### `requirements.txt`
@@ -403,8 +406,21 @@
 - **Key Points**: Returns `None` for invalid/missing times (avoids biasing metrics by treating missing as zero).
 
 #### `tri_analysis/para_standards.py`
-- **Purpose**: Standalone CLI report generator to compare a selected USA athlete vs Paris medalists for a para category since 2021.
-- **Key Points**: Finds Paris benchmark event via `events` (major games + `is_para`), extracts medalists from `race_results`, filters history to major para events, outputs HTML+PNG charts and a CSV dataset.
+- **Purpose**: Standalone CLI report generator to compare a selected USA athlete vs benchmark medalists for a para category since 2021.
+- **Key Points**: Finds benchmark event via `events` (major games/championships + para filters), extracts medalists from `race_results`, filters history to major para events, outputs HTML+PNG charts and a CSV dataset.
+- **Benchmark System**: 
+  - **Special handling for PTS3 Women**: Uses Pontevedra 2023 World Championships as benchmark (PTS3 Women not contested at Paris 2024).
+  - **All other categories**: Use Paris 2024 Paralympic Games as benchmark.
+  - "Win Gold" uses only benchmark gold medalist (position 1, weight 1.0).
+  - "Gold Contention" uses weighted average: benchmark medalists 1/2/3 (weights 0.5/0.3/0.2) + additional top contenders (weight 0.15 each).
+  - Additional contenders configured per category in `ADDITIONAL_BENCHMARK_ATHLETES` dict (e.g., athletes who didn't medal at benchmark event but are top-tier competitors).
+- **Time-Factor Handling**: For PTWC (H2) and PTVI (B2/B3), computes effort total (sum of splits) and factor segment (placing total - effort total) for transparency; benchmarks use placing/adjusted totals.
+- **Batch Generation**: `--auto-select-first` flag enables automated report generation without interactive prompts (automatically selects the most active USA athlete).
+- **Major Event Patterns**: `DEFAULT_MAJOR_CAT_PATTERNS` includes "%World Championships%" to capture para world championships (e.g., Pontevedra 2023) in addition to Paralympic Games, Para Cups, and Para Series.
+- **Recent Changes**:
+  - **Jan 2026**: Added support for additional benchmark athletes beyond Paris medalists; configurable per category with automatic database lookup and weighting (0.15 per athlete).
+  - **Jan 2026**: Added `--auto-select-first` flag and batch generation script (`generate_para_reports.ps1`) for automated multi-category report generation.
+  - **Jan 2026**: Added PTS3 Women special handling to use Pontevedra 2023 benchmark; updated all references from "Paris medalists" to "benchmark medalists" for flexibility.
 
 #### `tests/test_para_standards.py`
 - **Purpose**: Unit tests for time parsing and pace conversion helpers used by para standards reporting.
