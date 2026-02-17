@@ -305,8 +305,11 @@ def compute_athlete_form_features(history_df: pd.DataFrame, event_date: date) ->
     # Last race date and days since
     last_race_date = valid_df["event_date"].iloc[0]
     if pd.notna(last_race_date):
-        days_since = (pd.Timestamp(event_date) - last_race_date).days
-        features["days_since_last_race"] = max(0, days_since)
+        days_since = max(0, (pd.Timestamp(event_date) - last_race_date).days)
+        features["days_since_last_race"] = days_since
+        features["log1p_days_since"] = float(np.log1p(days_since))
+        # Freshness curve: ~21 days is optimal; too soon or too long is suboptimal
+        features["freshness_curve"] = float(abs(days_since - 21))
 
     # Last total — guard against non-numeric values from parse_time_to_seconds
     last_total = valid_df["total_time_sec"].iloc[0]
@@ -327,7 +330,9 @@ def compute_athlete_form_features(history_df: pd.DataFrame, event_date: date) ->
 
         # T1+T2 variability over 24 months
         if "t1time_sec" in df_24m.columns and "t2time_sec" in df_24m.columns:
-            t1t2_24m = df_24m["t1time_sec"].add(df_24m["t2time_sec"]).dropna()
+            t1_vals = pd.to_numeric(df_24m["t1time_sec"], errors="coerce")
+            t2_vals = pd.to_numeric(df_24m["t2time_sec"], errors="coerce")
+            t1t2_24m = (t1_vals + t2_vals).dropna()
             if len(t1t2_24m) >= 2:
                 features["std_t1t2_sec_24m"] = float(t1t2_24m.std())
 
@@ -359,7 +364,9 @@ def compute_athlete_form_features(history_df: pd.DataFrame, event_date: date) ->
 
         # Combined T1+T2 EWMA
         if "t1time_sec" in last_5_chrono.columns and "t2time_sec" in last_5_chrono.columns:
-            t1t2 = last_5_chrono["t1time_sec"].add(last_5_chrono["t2time_sec"])
+            t1_vals = pd.to_numeric(last_5_chrono["t1time_sec"], errors="coerce")
+            t2_vals = pd.to_numeric(last_5_chrono["t2time_sec"], errors="coerce")
+            t1t2 = t1_vals + t2_vals
             t1t2_vals = t1t2.dropna()
             if len(t1t2_vals) >= 1:
                 features["ema_t1t2_sec_5"] = float(
@@ -618,6 +625,11 @@ def compute_race_relative_features(
         "ema_swim_split_pct_5": None,
         "ema_bike_split_pct_5": None,
         "ema_run_split_pct_5": None,
+        # Position change features (Phase 4B)
+        "ema_t1_rank_pct_5": None,
+        "ema_t2_rank_pct_5": None,
+        "ema_swim_to_t1_pos_change_5": None,
+        "ema_bike_to_t2_pos_change_5": None,
     }
 
     if precomputed_metrics.empty:
@@ -633,6 +645,18 @@ def compute_race_relative_features(
     df["swim_pct"] = df["swimrank"].astype(float) / n_fin
     df["bike_pct"] = df["bikerank"].astype(float) / n_fin
     df["run_pct"] = df["runrank"].astype(float) / n_fin
+
+    # T1/T2 rank percentiles (lower = faster transitioner)
+    if "t1rank" in df.columns:
+        df["t1_pct"] = pd.to_numeric(df["t1rank"], errors="coerce") / n_fin
+    if "t2rank" in df.columns:
+        df["t2_pct"] = pd.to_numeric(df["t2rank"], errors="coerce") / n_fin
+
+    # Position changes (negative = gained positions, positive = lost)
+    for col in ["swim_to_t1_pos_change", "t1_to_bike_pos_change",
+                "bike_to_t2_pos_change", "t2_to_run_pos_change"]:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
 
     median_total = df["median_total_sec"].astype(float)
     valid_median = median_total > 0
@@ -656,6 +680,19 @@ def compute_race_relative_features(
     features["ema_swim_split_pct_5"] = _ema_last5(df["swim_pct"])
     features["ema_bike_split_pct_5"] = _ema_last5(df["bike_pct"])
     features["ema_run_split_pct_5"] = _ema_last5(df["run_pct"])
+
+    # T1/T2 rank percentiles
+    if "t1_pct" in df.columns:
+        features["ema_t1_rank_pct_5"] = _ema_last5(df["t1_pct"])
+    if "t2_pct" in df.columns:
+        features["ema_t2_rank_pct_5"] = _ema_last5(df["t2_pct"])
+
+    # Position change EMA: how many positions gained/lost in transitions
+    # Negative = athlete gains positions (good transitioner), positive = loses
+    if "swim_to_t1_pos_change" in df.columns:
+        features["ema_swim_to_t1_pos_change_5"] = _ema_last5(df["swim_to_t1_pos_change"])
+    if "bike_to_t2_pos_change" in df.columns:
+        features["ema_bike_to_t2_pos_change_5"] = _ema_last5(df["bike_to_t2_pos_change"])
 
     return features
 
@@ -817,6 +854,18 @@ def compute_field_context_features(
     return features
 
 
+def _parse_weather_numeric(value, default: float = None) -> float | None:
+    """Parse a weather string value to float, returning default if unparseable."""
+    if value is None:
+        return default
+    try:
+        # Handle strings like "25°C", "65%", "22.5 °C", etc.
+        cleaned = str(value).strip().rstrip("°CcFf%").strip()
+        return float(cleaned)
+    except (ValueError, TypeError):
+        return default
+
+
 def build_features_for_program(
     engine: Engine,
     key: ProgramKey,
@@ -944,8 +993,10 @@ def build_features_for_program(
             engine, athlete_id, event_date, limit=100, distance_category=distance_category
         )
 
-        # If no pack data with matching distance, fall back to all pack history
-        if pack_df.empty and distance_category:
+        # If too few pack records with matching distance, fall back to all pack history
+        # Threshold of 3 ensures athletes with limited distance-specific data
+        # (e.g., fast swimmers with few sprint races) get representative pack rates
+        if len(pack_df) < 3 and distance_category:
             pack_df = fetch_pack_history(engine, athlete_id, event_date, limit=100)
 
         # Compute features
@@ -973,6 +1024,14 @@ def build_features_for_program(
             "event_name": event_meta.get("event_name"),
             "event_tier": classify_event_tier(event_meta.get("event_name", "")),
             "wetsuit": int(bool(event_meta.get("wetsuit"))) if event_meta.get("wetsuit") is not None else 0,
+            # Weather features (Phase 4C)
+            "temperature_air": _parse_weather_numeric(event_meta.get("temperature_air")),
+            "humidity": _parse_weather_numeric(event_meta.get("humidity")),
+            "wbgt": _parse_weather_numeric(event_meta.get("wbgt")),
+            "is_hot": int(_parse_weather_numeric(event_meta.get("wbgt"), default=20.0) > 25),
+            # Course laps features (Phase 4D)
+            "bike_laps": float(event_meta.get("bike_laps") or 0),
+            "run_laps": float(event_meta.get("run_laps") or 0),
             "ema_distance_match": 0 if used_fallback else 1,
             "n_matched_races": n_matched_races,
             **form_feats,
@@ -1073,7 +1132,21 @@ def build_features_for_program(
     return features_df
 
 
-def get_split_feature_columns() -> list[str]:
+# Pack dynamics features used in split models.
+# These capture historical pack positioning and gaps, which the bike/run models
+# use to predict realized times (including drafting effects). Removing them
+# produces "ability-only" split models where the simulation adds all pack effects.
+PACK_DYNAMIC_FEATURES = [
+    "ema_swim_pos_pct_7",
+    "ema_bike_pos_pct_7",
+    "ema_swim_pack_7",
+    "ema_bike_pack_7",
+    "ema_swim_gap_sec_7",
+    "ema_bike_gap_sec_7",
+]
+
+
+def get_split_feature_columns(exclude_pack: bool = False) -> list[str]:
     """
     Return the reduced feature set for distance-specific split models.
 
@@ -1083,14 +1156,24 @@ def get_split_feature_columns() -> list[str]:
     which cause the model to learn "big field → fast times" shortcuts instead
     of "this athlete runs X:XX".
 
+    Args:
+        exclude_pack: If True, removes pack dynamics features (ema_swim_pack_7,
+                     ema_bike_pack_7, ema_bike_gap_sec_7, etc.) to produce
+                     "ability-only" models. The simulation then adds all pack
+                     effects, avoiding double-counting.
+
     Excluded from the full feature set:
     - n_entrants, seed_total_rank: field composition doesn't cause faster times
     - elo_rating, elo_peak, elo_races: ranking proxy, causes inverse correlation
     - wt_rank_position, wt_total_points, wt_continental_*: ranking features
     - event_tier: event prestige doesn't change individual split times
     - distance_category_encoded: constant within each distance model
+    - temperature_air, humidity, wbgt, is_hot: event-level weather (causes model to
+      learn "hot race → slow" instead of athlete ability)
+    - bike_laps, run_laps: course configuration (event-level, not athlete-level)
+    - tier_delta: event context (event_tier - athlete_avg_tier)
     """
-    return [
+    cols = [
         # Athlete form features (absolute, distance-specific)
         "ema_swim_sec_5",
         "ema_bike_sec_5",
@@ -1117,9 +1200,8 @@ def get_split_feature_columns() -> list[str]:
         # Cross-distance form
         "ema_finish_pct_sprint",
         "ema_finish_pct_standard",
-        # Competition level (relative, not absolute ranking)
+        # Competition level
         "athlete_t1t2_rate",
-        "tier_delta",
         # Pack dynamics (affect bike/run interaction)
         "ema_swim_pos_pct_7",
         "ema_bike_pos_pct_7",
@@ -1127,12 +1209,25 @@ def get_split_feature_columns() -> list[str]:
         "ema_bike_pack_7",
         "ema_swim_gap_sec_7",
         "ema_bike_gap_sec_7",
-        # Race conditions
+        # Race conditions (only wetsuit — binary, athlete-relevant)
         "wetsuit",
+        # Freshness (athlete-level)
+        "log1p_days_since",
+        "freshness_curve",
+        # Transition skill (position changes — athlete-level)
+        "ema_t1_rank_pct_5",
+        "ema_t2_rank_pct_5",
+        "ema_swim_to_t1_pos_change_5",
+        "ema_bike_to_t2_pos_change_5",
         # Distance match quality
         "ema_distance_match",
         "n_matched_races",
     ]
+
+    if exclude_pack:
+        cols = [c for c in cols if c not in PACK_DYNAMIC_FEATURES]
+
+    return cols
 
 
 def get_feature_columns() -> list[str]:
@@ -1195,6 +1290,22 @@ def get_feature_columns() -> list[str]:
         "event_tier",
         "distance_category_encoded",  # Integer encoding of prog_distance_category
         "wetsuit",                    # 1 = wetsuit race, 0 = non-wetsuit
+        # Weather features (Phase 4C)
+        "temperature_air",            # Air temperature in °C (numeric)
+        "humidity",                   # Humidity percentage
+        "wbgt",                       # Wet Bulb Globe Temperature (heat stress)
+        "is_hot",                     # Binary: wbgt > 25
+        # Course configuration (Phase 4D)
+        "bike_laps",                  # Number of bike laps (more laps → more pack dynamics)
+        "run_laps",                   # Number of run laps
+        # Freshness features (Phase 4A)
+        "log1p_days_since",           # log(1 + days_since_last_race)
+        "freshness_curve",            # abs(days_since - 21), U-shape around optimal ~3 weeks
+        # Transition skill features (Phase 4B)
+        "ema_t1_rank_pct_5",         # T1 ranking as percentile (0=fastest)
+        "ema_t2_rank_pct_5",         # T2 ranking as percentile
+        "ema_swim_to_t1_pos_change_5",  # Positions gained/lost in T1 (neg=gained)
+        "ema_bike_to_t2_pos_change_5",  # Positions gained/lost in T2
         # Distance match quality
         "ema_distance_match",         # 1 = EMA from matching distance, 0 = fallback
         "n_matched_races",            # Number of plausible matching-distance races
@@ -1288,6 +1399,22 @@ def fill_missing_features(df: pd.DataFrame, feature_cols: list[str]) -> pd.DataF
         "std_t1t2_sec_24m": 8.0,  # Moderate variability default
         # Pack features
         "front_pack_rate": 0.1,  # Conservative: rarely in front pack
+        # Phase 4A: Freshness features
+        "log1p_days_since": float(np.log1p(90)),  # Matches days_since default of 90
+        "freshness_curve": abs(90 - 21),           # 69 days from optimal
+        # Phase 4B: Transition skill features
+        "ema_t1_rank_pct_5": 0.65,   # Below mid-field
+        "ema_t2_rank_pct_5": 0.65,
+        "ema_swim_to_t1_pos_change_5": 0.0,  # Neutral (no gain/loss)
+        "ema_bike_to_t2_pos_change_5": 0.0,
+        # Phase 4C: Weather features
+        "temperature_air": 22.0,   # Mild default
+        "humidity": 60.0,          # Moderate default
+        "wbgt": 20.0,              # Below heat threshold
+        "is_hot": 0,               # Not hot by default
+        # Phase 4D: Course laps
+        "bike_laps": 0.0,          # Unknown
+        "run_laps": 0.0,
     }
 
     # First pass: convert any Python None to NaN across all feature columns.

@@ -36,7 +36,9 @@ from tri_analysis.prediction.train import (
     train_distance_split_models,
     save_model_bundle,
     cross_validate,
+    cross_validate_splits,
     tune_hyperparameters,
+    compute_residual_stats,
 )
 from tri_analysis.prediction.features import get_feature_columns, fill_missing_features
 from tri_analysis.prediction.sql import fetch_pack_effect_data, fetch_swim_to_bike_transitions
@@ -71,7 +73,7 @@ def main():
         "--end_date",
         type=str,
         default="2025-06-30",
-        help="End date for training data (YYYY-MM-DD)",
+        help="End date for training data (YYYY-MM-DD). Default 2025-06-30 to avoid H2 2025 backtest leakage.",
     )
     parser.add_argument(
         "--output",
@@ -135,6 +137,29 @@ def main():
         "--train_both_genders",
         action="store_true",
         help="Train separate models for men and women. Output files get _men/_women suffix.",
+    )
+    parser.add_argument(
+        "--time_decay_half_life",
+        type=float,
+        default=365.0,
+        help="Half-life in days for time-decay sample weighting (0 = disable). Default: 365",
+    )
+    parser.add_argument(
+        "--no_time_decay",
+        action="store_true",
+        help="Disable time-decay sample weighting",
+    )
+    parser.add_argument(
+        "--cv_splits",
+        action="store_true",
+        help="Run per-split cross-validation (track swim/t1/bike/t2/run MAE per fold)",
+    )
+    parser.add_argument(
+        "--include_pack_features",
+        action="store_true",
+        help="Include pack dynamics features (ema_bike_pack_7, ema_bike_gap_sec_7, etc.) "
+             "in split models. Default is ability-only (excluded) since ablation showed "
+             "pack features add no ranking signal and the simulation handles pack effects.",
     )
 
     args = parser.parse_args()
@@ -212,6 +237,29 @@ def main():
                 print(f"  Fold {fold['fold']}: Spearman={fold['spearman']:.3f}, "
                       f"MAE={fold['mae']:.4f}, n_races={fold['n_races']}, "
                       f"train={fold['n_train']}, val={fold['n_val']}")
+            if not args.tune and not args.cv_splits:
+                continue  # CV-only mode: skip training
+
+        # Per-split cross-validation
+        if args.cv_splits:
+            logger.info("Running per-split cross-validation...")
+            split_cv = cross_validate_splits(
+                train_df, feature_cols,
+                exclude_pack_features=not args.include_pack_features,
+            )
+            print(f"\n--- Per-Split CV Results (gender={gender_label}) ---")
+            for key, val in sorted(split_cv.items()):
+                if key == "fold_results":
+                    continue
+                print(f"  {key}: {val:.1f}")
+            if split_cv.get("fold_results"):
+                for fr in split_cv["fold_results"]:
+                    fold_num = fr.get("fold", "?")
+                    metrics_str = ", ".join(
+                        f"{k}={v:.1f}" for k, v in sorted(fr.items())
+                        if k not in ("fold", "n_train", "n_val") and isinstance(v, (int, float))
+                    )
+                    print(f"  Fold {fold_num}: {metrics_str}")
             if not args.tune:
                 continue  # CV-only mode: skip training
 
@@ -248,6 +296,8 @@ def main():
                 "n_features": len(feature_cols),
                 "n_training_samples": len(train_df),
                 "tuned": args.tune,
+                "exclude_pack_features": not args.include_pack_features,
+                "time_decay_half_life": 0.0 if args.no_time_decay else args.time_decay_half_life,
             })
             if model_params:
                 mlflow.log_params({f"hp_{k}": v for k, v in model_params.items()})
@@ -262,7 +312,11 @@ def main():
 
             # Train final models
             logger.info("Training models...")
-            bundle = train_baseline_models(train_df, feature_cols, model_params=model_params)
+            decay_hl = 0.0 if args.no_time_decay else args.time_decay_half_life
+            bundle = train_baseline_models(
+                train_df, feature_cols, model_params=model_params,
+                time_decay_half_life=decay_hl,
+            )
 
             # Log training metrics
             if bundle.metadata.get("training_metrics"):
@@ -272,9 +326,14 @@ def main():
 
             # Train distance-specific split models (swim, bike, run per distance)
             # Uses reduced feature set focused on individual athlete ability
-            logger.info("Training distance-specific split models...")
+            if not args.include_pack_features:
+                logger.info("Training distance-specific split models (ABILITY-ONLY: pack features excluded)...")
+            else:
+                logger.info("Training distance-specific split models...")
             dist_split_models, split_feature_cols = train_distance_split_models(
-                train_df, feature_cols, model_params=model_params
+                train_df, feature_cols, model_params=model_params,
+                exclude_pack_features=not args.include_pack_features,
+                time_decay_half_life=decay_hl,
             )
             bundle.distance_split_models = dist_split_models
             bundle.split_feature_columns = split_feature_cols
@@ -285,6 +344,28 @@ def main():
                 logger.info(f"Distance-specific split models: {list(dist_split_models.keys())}")
             else:
                 logger.info("No distance-specific split models trained (insufficient data)")
+
+            # Store training mode in metadata so simulation can adjust pack effect scaling
+            bundle.metadata["exclude_pack_features"] = not args.include_pack_features
+
+            # Compute empirical residual covariance from training data predictions
+            # This produces per-distance 5×5 covariance matrices used by the MVN noise
+            # model in Monte Carlo simulation (Phase 2 improvement)
+            logger.info("Computing empirical residual covariance matrices...")
+            residual_stats = compute_residual_stats(
+                train_df, bundle, feature_cols, split_feature_cols
+            )
+            if residual_stats:
+                bundle.metadata["residual_stats"] = residual_stats
+                # Log per-split sigmas to MLflow
+                for dist_key, stats in residual_stats.items():
+                    if "per_split_sigma" in stats:
+                        for split_name, sigma in stats["per_split_sigma"].items():
+                            mlflow.log_metric(f"resid_sigma_{dist_key}_{split_name}", sigma)
+                        mlflow.log_metric(f"resid_n_samples_{dist_key}", stats["n_samples"])
+                logger.info(f"Residual stats computed for: {list(residual_stats.keys())}")
+            else:
+                logger.warning("Could not compute residual stats (insufficient data or models)")
 
             # Learn pack effects from historical data and store in bundle
             # Overall params (all distances combined) for backward compatibility

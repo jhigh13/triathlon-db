@@ -820,13 +820,17 @@ def estimate_uncertainty(
     sigma_total_col: str = "std_total_sec_24m",
     default_sigma: float = DEFAULT_SIGMA_TOTAL,
     distance_category: str | None = None,
+    bundle_metadata: dict | None = None,
 ) -> pd.DataFrame:
     """
     Add per-athlete, per-split uncertainty (sigma) columns.
 
-    Uses per-athlete std_total_sec_24m if available, then derives per-split
-    sigmas proportionally (swim ~15s, bike ~45s, run ~30s baseline).
-    Scales all sigmas by a distance-specific multiplier (sprint = less noise).
+    When learned residual stats are available in bundle_metadata, uses empirical
+    per-split sigmas from training data (distance-specific when possible).
+    Otherwise falls back to hardcoded defaults with distance multiplier scaling.
+
+    Per-athlete heteroscedastic scaling is preserved: athletes with higher
+    std_total_sec_24m get proportionally wider uncertainty bands.
 
     Args:
         pred_df: DataFrame with predictions
@@ -834,42 +838,132 @@ def estimate_uncertainty(
         default_sigma: Default sigma if not available
         distance_category: Race distance ('sprint', 'standard', etc.) for
                           scaling uncertainty. None defaults to standard.
+        bundle_metadata: Model bundle metadata dict (may contain 'residual_stats')
 
     Returns:
-        DataFrame with sigma_total, sigma_swim, sigma_bike, sigma_run added
+        DataFrame with sigma_total, sigma_swim, sigma_bike, sigma_run, etc. added
     """
     df = pred_df.copy()
 
-    # Distance multiplier: sprint races have less absolute variance
-    dist_mult = 1.0
-    if distance_category:
-        dist_mult = DISTANCE_SIGMA_MULTIPLIER.get(
-            distance_category.lower().strip(), 1.0
-        )
-        if dist_mult != 1.0:
-            logger.info(
-                f"Distance-specific uncertainty: {distance_category} → "
-                f"sigma multiplier={dist_mult:.2f}"
-            )
+    # Try to get learned per-split sigmas from residual stats
+    learned_sigmas = _get_learned_sigmas(bundle_metadata, distance_category)
 
+    if learned_sigmas:
+        # Use empirical sigmas — these already encode distance-specific variance
+        base_swim = learned_sigmas.get("swim", DEFAULT_SIGMA_SWIM)
+        base_t1 = learned_sigmas.get("t1", DEFAULT_SIGMA_T1)
+        base_bike = learned_sigmas.get("bike", DEFAULT_SIGMA_BIKE)
+        base_t2 = learned_sigmas.get("t2", DEFAULT_SIGMA_T2)
+        base_run = learned_sigmas.get("run", DEFAULT_SIGMA_RUN)
+        base_total = base_swim + base_t1 + base_bike + base_t2 + base_run  # approximate
+        logger.info(
+            f"Using learned residual sigmas: swim={base_swim:.1f}, t1={base_t1:.1f}, "
+            f"bike={base_bike:.1f}, t2={base_t2:.1f}, run={base_run:.1f}"
+        )
+    else:
+        # Fallback to hardcoded defaults with distance multiplier
+        dist_mult = 1.0
+        if distance_category:
+            dist_mult = DISTANCE_SIGMA_MULTIPLIER.get(
+                distance_category.lower().strip(), 1.0
+            )
+            if dist_mult != 1.0:
+                logger.info(
+                    f"Distance-specific uncertainty: {distance_category} → "
+                    f"sigma multiplier={dist_mult:.2f}"
+                )
+
+        base_swim = DEFAULT_SIGMA_SWIM * dist_mult
+        base_t1 = DEFAULT_SIGMA_T1 * dist_mult
+        base_bike = DEFAULT_SIGMA_BIKE * dist_mult
+        base_t2 = DEFAULT_SIGMA_T2 * dist_mult
+        base_run = DEFAULT_SIGMA_RUN * dist_mult
+        base_total = DEFAULT_SIGMA_TOTAL * dist_mult
+
+    # Per-athlete total sigma from historical volatility
     if sigma_total_col in df.columns:
         df["sigma_total"] = df[sigma_total_col].fillna(default_sigma)
         df["sigma_total"] = df["sigma_total"].clip(30, 300)
     else:
         df["sigma_total"] = default_sigma
 
-    # Apply distance multiplier
-    df["sigma_total"] = df["sigma_total"] * dist_mult
+    # Per-athlete scaling: ratio of athlete's volatility to the baseline
+    # This preserves heteroscedasticity — more volatile athletes get wider bands
+    ratio = df["sigma_total"] / base_total
 
-    # Scale per-split sigmas relative to athlete's total uncertainty
-    ratio = df["sigma_total"] / (DEFAULT_SIGMA_TOTAL * dist_mult)
-    df["sigma_swim"] = DEFAULT_SIGMA_SWIM * dist_mult * ratio
-    df["sigma_t1"] = DEFAULT_SIGMA_T1 * dist_mult * ratio
-    df["sigma_bike"] = DEFAULT_SIGMA_BIKE * dist_mult * ratio
-    df["sigma_t2"] = DEFAULT_SIGMA_T2 * dist_mult * ratio
-    df["sigma_run"] = DEFAULT_SIGMA_RUN * dist_mult * ratio
+    df["sigma_swim"] = base_swim * ratio
+    df["sigma_t1"] = base_t1 * ratio
+    df["sigma_bike"] = base_bike * ratio
+    df["sigma_t2"] = base_t2 * ratio
+    df["sigma_run"] = base_run * ratio
 
     return df
+
+
+def _get_learned_sigmas(
+    metadata: dict | None, distance_category: str | None
+) -> dict | None:
+    """
+    Retrieve per-split empirical sigmas from bundle metadata.
+
+    Looks up distance-specific residual stats first, falls back to overall.
+    Returns None if no residual stats are available.
+    """
+    if not metadata:
+        return None
+
+    residual_stats = metadata.get("residual_stats")
+    if not residual_stats:
+        return None
+
+    # Try distance-specific first
+    if distance_category:
+        dist_key = distance_category.lower().strip()
+        if dist_key == "olympic":
+            dist_key = "standard"
+        dist_stats = residual_stats.get(dist_key)
+        if dist_stats and "per_split_sigma" in dist_stats:
+            return dist_stats["per_split_sigma"]
+
+    # Fall back to overall
+    overall = residual_stats.get("overall")
+    if overall and "per_split_sigma" in overall:
+        return overall["per_split_sigma"]
+
+    return None
+
+
+def _get_residual_cov(
+    metadata: dict | None, distance_category: str | None
+) -> np.ndarray | None:
+    """
+    Retrieve 5×5 residual covariance matrix from bundle metadata.
+
+    Looks up distance-specific first, falls back to overall.
+    Returns None if not available (triggers legacy noise model).
+    """
+    if not metadata:
+        return None
+
+    residual_stats = metadata.get("residual_stats")
+    if not residual_stats:
+        return None
+
+    # Try distance-specific first
+    if distance_category:
+        dist_key = distance_category.lower().strip()
+        if dist_key == "olympic":
+            dist_key = "standard"
+        dist_stats = residual_stats.get(dist_key)
+        if dist_stats and "cov_matrix" in dist_stats:
+            return np.array(dist_stats["cov_matrix"])
+
+    # Fall back to overall
+    overall = residual_stats.get("overall")
+    if overall and "cov_matrix" in overall:
+        return np.array(overall["cov_matrix"])
+
+    return None
 
 
 # ── Monte Carlo Simulation ──────────────────────────────────────────
@@ -885,6 +979,7 @@ def run_monte_carlo(
     breakaway_bias: float = 0.0,
     form_share: float = DEFAULT_FORM_SHARE,
     distance_category: str | None = None,
+    bundle_metadata: dict | None = None,
 ) -> pd.DataFrame:
     """
     Run causal-chain Monte Carlo simulation.
@@ -922,9 +1017,15 @@ def run_monte_carlo(
                        probabilities. Positive = breakaways stick. Negative =
                        packs merge more. Range: roughly -3 to +3.
         form_share: Fraction of per-split variance from shared form factor (0-1).
-                    Higher = more correlation across splits.
+                    Higher = more correlation across splits. Ignored when MVN
+                    covariance matrix is available (correlations are learned).
         distance_category: Race distance ('sprint', 'standard', etc.) for
                           scaling uncertainty. None defaults to standard.
+        bundle_metadata: Model bundle metadata dict. When it contains
+                        'residual_stats' with a covariance matrix, the simulation
+                        uses multivariate normal sampling instead of independent
+                        noise + form factor. This naturally captures split
+                        correlations from the training data.
 
     Returns:
         DataFrame with original columns plus:
@@ -936,9 +1037,16 @@ def run_monte_carlo(
         logger.warning("Empty pred_df, returning empty DataFrame")
         return pred_df.copy()
 
-    df = estimate_uncertainty(pred_df, distance_category=distance_category)
+    df = estimate_uncertainty(
+        pred_df, distance_category=distance_category,
+        bundle_metadata=bundle_metadata,
+    )
     n_athletes = len(df)
     rng = np.random.default_rng(random_state)
+
+    # Check for learned covariance matrix (MVN noise model)
+    cov_matrix = _get_residual_cov(bundle_metadata, distance_category)
+    use_mvn = cov_matrix is not None
 
     # Check if split predictions are available for causal chain
     has_splits = all(
@@ -992,6 +1100,23 @@ def run_monte_carlo(
     if pack_params is None:
         pack_params = PackEffectParams()
 
+    # Pack effect scaling: when split models include pack features (default),
+    # the predicted bike time already partially accounts for drafting. Scale
+    # down sim pack effects to avoid double-counting. When models are trained
+    # with exclude_pack_features=True ("ability-only"), use full pack effects.
+    pack_effect_scale = 1.0
+    if bundle_metadata:
+        if bundle_metadata.get("exclude_pack_features", False):
+            pack_effect_scale = 1.0  # Ability-only models: full sim pack effects
+            logger.info("Pack effect scale: 1.0 (ability-only models, no double-counting)")
+        else:
+            # Standard models include pack features — reduce sim pack adjustment
+            # to only model the deviation from typical behavior, not the full effect.
+            # Scale of 0.5 means sim adds half the pack effect on top of what's
+            # already captured in the predicted bike time.
+            pack_effect_scale = 0.5
+            logger.info("Pack effect scale: 0.5 (models include pack features, reducing double-count)")
+
     # Pre-compute baseline pack effect from predicted swim + T1 times.
     # In reality, pack formation at bike mount depends on swim exit + T1.
     # This is the pack effect "baked into" the predictions. We subtract it
@@ -1002,7 +1127,25 @@ def run_monte_carlo(
     else:
         baseline_pack_effect = np.zeros(n_athletes)
 
-    # Variance decomposition
+    # MVN noise model: pre-compute per-athlete scaled covariance
+    if use_mvn:
+        # Empirical sigmas from the covariance diagonal
+        empirical_sigmas = np.sqrt(np.diag(cov_matrix))  # shape (5,)
+        # Per-athlete scale factors: ratio of athlete sigma to empirical sigma per split
+        # This preserves heteroscedasticity while using learned correlations
+        athlete_sigmas = np.column_stack([
+            sigma_swim, sigma_t1, sigma_bike, sigma_t2, sigma_run
+        ])  # shape (n_athletes, 5)
+        # Scale factors per athlete per split
+        athlete_scale = athlete_sigmas / empirical_sigmas[np.newaxis, :]  # (n_athletes, 5)
+        logger.info(
+            f"Using MVN noise model with learned 5×5 covariance matrix "
+            f"(empirical sigmas: {', '.join(f'{s:.1f}' for s in empirical_sigmas)})"
+        )
+    else:
+        athlete_scale = None  # not used
+
+    # Legacy noise decomposition (used when no covariance matrix available)
     form_std = np.sqrt(form_share)   # Fraction of std from shared form
     noise_std = np.sqrt(1.0 - form_share)  # Fraction from split-specific noise
 
@@ -1013,6 +1156,10 @@ def run_monte_carlo(
     front_pack_count = np.zeros(n_athletes, dtype=np.int32)
     # Track bike pack adjustment magnitudes
     pack_effect_sum = np.zeros(n_athletes, dtype=np.float64)
+    # Track per-split simulation sums for diagnostics
+    split_sums = {s: np.zeros(n_athletes, dtype=np.float64) for s in ["swim", "t1", "bike", "t2", "run"]}
+    # Track pack count distribution per sim
+    pack_count_histogram = np.zeros(n_athletes + 1, dtype=np.int64)  # index = n_packs
 
     merge_label = ""
     if merge_params is not None:
@@ -1020,68 +1167,96 @@ def run_monte_carlo(
 
     logger.info(
         f"Running {n_sims} causal-chain simulations for {n_athletes} athletes "
-        f"(pack_effects={use_pack_effects}, form_share={form_share:.0%}, "
+        f"(pack_effects={use_pack_effects}, pack_scale={pack_effect_scale:.1f}, "
         f"bonus={pack_params.front_pack_bonus_sec:.1f}s, "
         f"penalty={pack_params.chase_penalty_sec:.1f}s{merge_label}, "
         f"t1t2_modeled={'yes' if has_t1 and has_t2 else 'fallback'})"
     )
 
     for sim in range(n_sims):
-        # Shared form factor: good day / bad day, correlated across splits
-        # Positive = slower (bad day), Negative = faster (good day)
-        form_factor = rng.normal(0, 1, size=n_athletes)
+        if use_mvn:
+            # ── MVN NOISE MODEL ──
+            # Sample correlated noise from the learned covariance matrix.
+            # The covariance naturally encodes split correlations (e.g., fast
+            # swimmers tend to have fast T1s). No separate form_factor needed.
+            raw_noise = rng.multivariate_normal(
+                np.zeros(5), cov_matrix, size=n_athletes
+            )  # shape (n_athletes, 5) — columns: swim, t1, bike, t2, run
+            # Scale per athlete to preserve heteroscedasticity
+            noise = raw_noise * athlete_scale  # (n_athletes, 5)
 
-        # ── SWIM ──
-        swim_form = form_factor * sigma_swim * form_std
-        swim_noise = rng.normal(0, sigma_swim * noise_std)
-        sim_swim = pred_swim + swim_form + swim_noise
+            sim_swim = pred_swim + noise[:, 0]
+            sim_t1 = pred_t1 + noise[:, 1]
+            # bike noise applied after pack effect below
+            bike_noise_mvn = noise[:, 2]
+            sim_t2_noise = noise[:, 3]
+            sim_run_noise = noise[:, 4]
+        else:
+            # ── LEGACY NOISE MODEL (form_factor + independent noise) ──
+            # Shared form factor: good day / bad day, correlated across splits
+            form_factor = rng.normal(0, 1, size=n_athletes)
 
-        # ── T1 (transition 1: swim-to-bike) ──
-        # T1 varies per athlete and affects pack formation at bike mount
-        t1_form = form_factor * sigma_t1 * form_std
-        t1_noise = rng.normal(0, sigma_t1 * noise_std)
-        sim_t1 = pred_t1 + t1_form + t1_noise
+            swim_form = form_factor * sigma_swim * form_std
+            swim_noise = rng.normal(0, sigma_swim * noise_std)
+            sim_swim = pred_swim + swim_form + swim_noise
+
+            t1_form = form_factor * sigma_t1 * form_std
+            t1_noise = rng.normal(0, sigma_t1 * noise_std)
+            sim_t1 = pred_t1 + t1_form + t1_noise
 
         # ── PACK EFFECT ON BIKE (swim + T1 → bike entry order → pack formation) ──
-        # Use swim + T1 for pack formation: this is when athletes enter the bike course
         sim_bike_entry = sim_swim + sim_t1
         bike_pack_adjustment = np.zeros(n_athletes)
         if use_pack_effects:
             if merge_params is not None:
-                # Dynamic merging: chase packs can absorb solo riders ahead
                 sim_pack_effect = apply_pack_merges(
                     sim_bike_entry, pack_params, merge_params, rng, breakaway_bias
                 )
             else:
-                # Static: one-shot from bike entry gaps
                 sim_pack_effect = continuous_gap_bike_effect(sim_bike_entry, pack_params)
-            # Center around baseline so mean matches prediction
-            bike_pack_adjustment = sim_pack_effect - baseline_pack_effect
+            bike_pack_adjustment = (sim_pack_effect - baseline_pack_effect) * pack_effect_scale
 
         # Track pack statistics
         if use_pack_effects:
-            # Front pack = athletes with negative or near-zero pack effect (getting draft benefit)
             front_pack_count += (sim_pack_effect <= 0).astype(np.int32)
             pack_effect_sum += bike_pack_adjustment
 
-        # ── BIKE (with pack effect) ──
-        bike_form = form_factor * sigma_bike * form_std
-        bike_noise = rng.normal(0, sigma_bike * noise_std)
-        sim_bike = pred_bike + bike_form + bike_noise + bike_pack_adjustment
+        if use_mvn:
+            # ── MVN: bike, T2, run with correlated noise ──
+            sim_bike = pred_bike + bike_noise_mvn + bike_pack_adjustment
+            sim_t2 = pred_t2 + sim_t2_noise
+            sim_run = pred_run + sim_run_noise
+        else:
+            # ── LEGACY: bike, T2, run with form + independent noise ──
+            bike_form = form_factor * sigma_bike * form_std
+            bike_noise = rng.normal(0, sigma_bike * noise_std)
+            sim_bike = pred_bike + bike_form + bike_noise + bike_pack_adjustment
 
-        # ── T2 (transition 2: bike-to-run) ──
-        t2_form = form_factor * sigma_t2 * form_std
-        t2_noise = rng.normal(0, sigma_t2 * noise_std)
-        sim_t2 = pred_t2 + t2_form + t2_noise
+            t2_form = form_factor * sigma_t2 * form_std
+            t2_noise = rng.normal(0, sigma_t2 * noise_std)
+            sim_t2 = pred_t2 + t2_form + t2_noise
 
-        # ── RUN (individual effort, no pack dynamics) ──
-        run_form = form_factor * sigma_run * form_std
-        run_noise = rng.normal(0, sigma_run * noise_std)
-        sim_run = pred_run + run_form + run_noise
+            run_form = form_factor * sigma_run * form_std
+            run_noise = rng.normal(0, sigma_run * noise_std)
+            sim_run = pred_run + run_form + run_noise
 
         # ── TOTAL (all 5 segments) ──
         sim_total = sim_swim + sim_t1 + sim_bike + sim_t2 + sim_run
         total_matrix[sim, :] = sim_total
+
+        # Track per-split sums for diagnostics
+        split_sums["swim"] += sim_swim
+        split_sums["t1"] += sim_t1
+        split_sums["bike"] += sim_bike
+        split_sums["t2"] += sim_t2
+        split_sums["run"] += sim_run
+
+        # Track pack count per simulation
+        if use_pack_effects:
+            # Count distinct pack effects (unique values = number of packs)
+            n_packs = len(np.unique(np.round(sim_pack_effect, 1)))
+            if n_packs < len(pack_count_histogram):
+                pack_count_histogram[n_packs] += 1
 
         # Rank (1 = fastest)
         ranks = np.argsort(np.argsort(sim_total)) + 1
@@ -1093,7 +1268,86 @@ def run_monte_carlo(
         "sim_avg_pack_effect": pack_effect_sum / n_sims,
     }
 
-    return _aggregate_results(df, rank_matrix, total_matrix, sim_pack_stats)
+    # Build simulation diagnostics
+    split_means = {s: vals / n_sims for s, vals in split_sums.items()}
+    diagnostics = _build_sim_diagnostics(
+        df, pred_swim, pred_t1, pred_bike, pred_t2, pred_run,
+        split_means, front_pack_count / n_sims, pack_count_histogram, n_sims,
+    )
+
+    return _aggregate_results(df, rank_matrix, total_matrix, sim_pack_stats, diagnostics)
+
+
+def _build_sim_diagnostics(
+    df: pd.DataFrame,
+    pred_swim: np.ndarray,
+    pred_t1: np.ndarray,
+    pred_bike: np.ndarray,
+    pred_t2: np.ndarray,
+    pred_run: np.ndarray,
+    split_means: dict[str, np.ndarray],
+    sim_front_pack_pct: np.ndarray,
+    pack_count_histogram: np.ndarray,
+    n_sims: int,
+) -> dict:
+    """
+    Build simulation diagnostics comparing sim means to predictions.
+
+    Returns a dict with:
+    - per_split_bias: mean(sim_split - pred_split) per split
+    - front_pack_rate_comparison: sim vs historical front_pack_rate
+    - pack_count_distribution: how many packs formed per sim
+    """
+    diagnostics = {}
+
+    # Per-split bias: how much the simulation mean deviates from predictions
+    preds = {"swim": pred_swim, "t1": pred_t1, "bike": pred_bike, "t2": pred_t2, "run": pred_run}
+    per_split_bias = {}
+    for split_name, pred_vals in preds.items():
+        sim_mean = split_means[split_name]
+        bias = float(np.mean(sim_mean - pred_vals))
+        per_split_bias[split_name] = bias
+    diagnostics["per_split_bias"] = per_split_bias
+
+    total_bias = sum(per_split_bias.values())
+    diagnostics["total_bias"] = total_bias
+
+    # Front pack rate: sim vs historical
+    if "front_pack_rate" in df.columns:
+        hist_fpr = df["front_pack_rate"].fillna(0.5).values
+        # Compute correlation, guarding against zero-variance arrays
+        corr = 0.0
+        if len(hist_fpr) > 2 and np.std(hist_fpr) > 1e-9 and np.std(sim_front_pack_pct) > 1e-9:
+            corr = float(np.corrcoef(hist_fpr, sim_front_pack_pct)[0, 1])
+            if np.isnan(corr):
+                corr = 0.0
+        diagnostics["front_pack_rate_comparison"] = {
+            "hist_mean": float(np.mean(hist_fpr)),
+            "sim_mean": float(np.mean(sim_front_pack_pct)),
+            "correlation": corr,
+        }
+
+    # Pack count distribution (top entries)
+    nonzero = np.nonzero(pack_count_histogram)[0]
+    if len(nonzero) > 0:
+        pack_dist = {int(k): int(pack_count_histogram[k]) for k in nonzero}
+        avg_packs = sum(k * v for k, v in pack_dist.items()) / n_sims
+        diagnostics["avg_packs_per_sim"] = float(avg_packs)
+        diagnostics["pack_count_distribution"] = pack_dist
+
+    # Log summary
+    bias_str = ", ".join(f"{k}={v:+.1f}s" for k, v in per_split_bias.items())
+    logger.info(f"Sim diagnostics — per-split bias: {bias_str}, total={total_bias:+.1f}s")
+    if "front_pack_rate_comparison" in diagnostics:
+        fpc = diagnostics["front_pack_rate_comparison"]
+        logger.info(
+            f"  Front pack rate: hist={fpc['hist_mean']:.2f}, sim={fpc['sim_mean']:.2f}, "
+            f"corr={fpc['correlation']:.3f}"
+        )
+    if "avg_packs_per_sim" in diagnostics:
+        logger.info(f"  Avg packs per sim: {diagnostics['avg_packs_per_sim']:.1f}")
+
+    return diagnostics
 
 
 def _run_monte_carlo_total(
@@ -1153,6 +1407,7 @@ def _aggregate_results(
     rank_matrix: np.ndarray,
     total_matrix: np.ndarray,
     sim_pack_stats: dict | None = None,
+    diagnostics: dict | None = None,
 ) -> pd.DataFrame:
     """Aggregate simulation outcomes into probability and interval columns."""
     logger.info("Aggregating simulation results")
@@ -1181,6 +1436,10 @@ def _aggregate_results(
     if sim_pack_stats:
         for col, vals in sim_pack_stats.items():
             result_df[col] = vals
+
+    # Store diagnostics as DataFrame attribute for downstream access
+    if diagnostics:
+        result_df.attrs["sim_diagnostics"] = diagnostics
 
     # Sort by expected rank
     result_df = result_df.sort_values("expected_rank").reset_index(drop=True)
@@ -1254,3 +1513,46 @@ def format_simulation_output(sim_df: pd.DataFrame) -> pd.DataFrame:
     })
 
     return result
+
+
+def print_sim_diagnostics(sim_df: pd.DataFrame) -> None:
+    """
+    Print simulation diagnostics stored in sim_df.attrs['sim_diagnostics'].
+
+    Call this after run_monte_carlo() to see per-split bias, front pack rate
+    comparison, and pack formation statistics.
+    """
+    diag = sim_df.attrs.get("sim_diagnostics")
+    if not diag:
+        print("  No simulation diagnostics available.")
+        return
+
+    print("\n--- Simulation Diagnostics ---")
+
+    # Per-split bias
+    if "per_split_bias" in diag:
+        print("\n  Per-Split Bias (sim mean - prediction):")
+        for split, bias in diag["per_split_bias"].items():
+            print(f"    {split:>5s}: {bias:+.2f}s")
+        print(f"    {'total':>5s}: {diag.get('total_bias', 0):+.2f}s")
+
+    # Front pack rate comparison
+    if "front_pack_rate_comparison" in diag:
+        fpc = diag["front_pack_rate_comparison"]
+        print(f"\n  Front Pack Rate:")
+        print(f"    Historical mean:  {fpc['hist_mean']:.3f}")
+        print(f"    Simulation mean:  {fpc['sim_mean']:.3f}")
+        print(f"    Correlation:      {fpc['correlation']:.3f}")
+
+    # Pack count distribution
+    if "avg_packs_per_sim" in diag:
+        print(f"\n  Pack Formation:")
+        print(f"    Avg packs/sim: {diag['avg_packs_per_sim']:.1f}")
+        if "pack_count_distribution" in diag:
+            dist = diag["pack_count_distribution"]
+            total_sims = sum(dist.values())
+            # Show top 5 most common pack counts
+            sorted_counts = sorted(dist.items(), key=lambda x: x[1], reverse=True)[:5]
+            for n_packs, count in sorted_counts:
+                pct = count / total_sims * 100
+                print(f"    {n_packs} packs: {pct:.1f}%")

@@ -48,6 +48,7 @@ from tri_analysis.prediction.predict import predict_splits_and_total, format_pre
 from tri_analysis.prediction.simulate import (
     run_monte_carlo,
     format_simulation_output,
+    print_sim_diagnostics,
     get_distance_pack_params,
     get_distance_merge_params,
     PackEffectParams,
@@ -575,6 +576,7 @@ def main():
             merge_params=merge_params,
             breakaway_bias=args.breakaway_bias,
             distance_category=distance_cat,
+            bundle_metadata=bundle.metadata,
         )
         output_df = sim_df
         display_df = format_simulation_output(sim_df)
@@ -609,6 +611,9 @@ def main():
             n_sims=args.n_sims,
             top_n=25,
         )
+
+        # Print MC simulation diagnostics (per-split bias, pack rates, etc.)
+        print_sim_diagnostics(sim_df)
 
     # Save full results to CSV
     output_file = os.path.join(

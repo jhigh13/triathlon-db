@@ -72,11 +72,13 @@ class ModelBundle:
 
 # Default model hyperparameters
 DEFAULT_PARAMS = {
-    "n_estimators": 100,
+    "n_estimators": 200,
     "max_depth": 6,
     "learning_rate": 0.1,
     "num_leaves": 31,
     "min_child_samples": 20,
+    "reg_alpha": 0.1,
+    "reg_lambda": 1.0,
 }
 
 
@@ -249,6 +251,8 @@ def create_regressor(params: dict | None = None) -> Pipeline:
             learning_rate=p["learning_rate"],
             num_leaves=p.get("num_leaves", 31),
             min_child_samples=p.get("min_child_samples", 20),
+            reg_alpha=p.get("reg_alpha", 0.0),
+            reg_lambda=p.get("reg_lambda", 0.0),
             random_state=42,
             verbose=-1,
         )
@@ -258,6 +262,7 @@ def create_regressor(params: dict | None = None) -> Pipeline:
             max_depth=p["max_depth"],
             learning_rate=p["learning_rate"],
             min_samples_leaf=p.get("min_child_samples", 20),
+            l2_regularization=p.get("reg_lambda", 0.0),
             random_state=42,
         )
 
@@ -269,12 +274,41 @@ def create_regressor(params: dict | None = None) -> Pipeline:
     return pipeline
 
 
+def _compute_time_decay_weights(
+    train_df: pd.DataFrame,
+    half_life_days: float = 365.0,
+) -> pd.Series | None:
+    """
+    Compute exponential time-decay weights so recent races count more.
+
+    Uses exponential decay: weight = 2^(-days_ago / half_life_days).
+    A race from half_life_days ago gets weight 0.5, a race from 2*half_life
+    ago gets 0.25, etc.
+
+    Args:
+        train_df: DataFrame with 'event_date' column
+        half_life_days: Half-life in days (default 365 = 1 year)
+
+    Returns:
+        Series of weights aligned with train_df index, or None if no date column
+    """
+    if "event_date" not in train_df.columns:
+        return None
+
+    dates = pd.to_datetime(train_df["event_date"])
+    max_date = dates.max()
+    days_ago = (max_date - dates).dt.days.clip(lower=0)
+    weights = np.power(2.0, -days_ago / half_life_days)
+    return weights
+
+
 def train_baseline_models(
     train_df: pd.DataFrame,
     feature_cols: list[str],
     target_cols: dict[str, str] | None = None,
     use_sample_weights: bool = True,
     model_params: dict | None = None,
+    time_decay_half_life: float = 365.0,
 ) -> ModelBundle:
     """
     Train baseline regression models for split and total time prediction.
@@ -285,6 +319,8 @@ def train_baseline_models(
         target_cols: Dict mapping model name to target column name
                      Default: {"swim": "swim_sec", "bike": "bike_sec", ...}
         use_sample_weights: If True, weight samples by event tier (WTCS counts more)
+        time_decay_half_life: Half-life in days for time-decay weighting.
+                             Set to 0 to disable. Default 365 (1 year).
 
     Returns:
         ModelBundle with trained models
@@ -293,7 +329,7 @@ def train_baseline_models(
         ValueError: If required columns are missing
     """
     from .features import TIER_SAMPLE_WEIGHTS
-    
+
     if target_cols is None:
         target_cols = {
             "swim": "swim_sec",
@@ -312,14 +348,27 @@ def train_baseline_models(
 
     # Prepare feature matrix
     X = train_df[feature_cols].copy()
-    
-    # Compute sample weights from event_tier
+
+    # Compute sample weights: tier * time_decay
     sample_weights = None
     if use_sample_weights and "event_tier" in train_df.columns:
         sample_weights = train_df["event_tier"].map(TIER_SAMPLE_WEIGHTS).fillna(1.0)
         tier_counts = train_df["event_tier"].value_counts().sort_index()
         logger.info(f"Using tier-based sample weights: {dict(TIER_SAMPLE_WEIGHTS)}")
         logger.info(f"Samples by tier: {tier_counts.to_dict()}")
+
+    # Time-decay weighting: recent races count more
+    if time_decay_half_life > 0:
+        decay_weights = _compute_time_decay_weights(train_df, time_decay_half_life)
+        if decay_weights is not None:
+            if sample_weights is not None:
+                sample_weights = sample_weights * decay_weights
+            else:
+                sample_weights = decay_weights
+            logger.info(
+                f"Time-decay weighting: half_life={time_decay_half_life:.0f} days, "
+                f"min_weight={decay_weights.min():.3f}, median_weight={decay_weights.median():.3f}"
+            )
 
     # Train models for each target
     models = {}
@@ -384,6 +433,8 @@ def train_distance_split_models(
     use_sample_weights: bool = True,
     model_params: dict | None = None,
     split_feature_cols: list[str] | None = None,
+    exclude_pack_features: bool = False,
+    time_decay_half_life: float = 365.0,
 ) -> tuple[dict, list[str]]:
     """
     Train distance-specific split and total models for each distance category.
@@ -405,6 +456,10 @@ def train_distance_split_models(
         model_params: Hyperparameter overrides for the regressors
         split_feature_cols: Reduced feature set for split models. If None,
                            uses get_split_feature_columns() from features.py.
+        exclude_pack_features: If True, removes pack dynamics features from
+                              split models to produce "ability-only" predictions.
+                              The simulation then adds all pack effects, avoiding
+                              double-counting between model and simulation.
 
     Returns:
         Tuple of (distance_models dict, split_feature_columns list).
@@ -415,7 +470,7 @@ def train_distance_split_models(
 
     # Use reduced feature set for split models
     if split_feature_cols is None:
-        split_feature_cols = get_split_feature_columns()
+        split_feature_cols = get_split_feature_columns(exclude_pack=exclude_pack_features)
 
     # Filter to columns that actually exist in the training data
     available_cols = [c for c in split_feature_cols if c in train_df.columns]
@@ -461,10 +516,18 @@ def train_distance_split_models(
         X_split = dist_df[split_feature_cols].copy()
         X_full = dist_df[full_feature_cols].copy()
 
-        # Sample weights
+        # Sample weights: tier * time_decay
         sample_weights = None
         if use_sample_weights and "event_tier" in dist_df.columns:
             sample_weights = dist_df["event_tier"].map(TIER_SAMPLE_WEIGHTS).fillna(1.0)
+
+        if time_decay_half_life > 0:
+            decay_weights = _compute_time_decay_weights(dist_df, time_decay_half_life)
+            if decay_weights is not None:
+                if sample_weights is not None:
+                    sample_weights = sample_weights * decay_weights
+                else:
+                    sample_weights = decay_weights
 
         models = {}
 
@@ -542,6 +605,123 @@ def train_distance_split_models(
 
     logger.info(f"Distance-specific split models trained for: {list(distance_models.keys())}")
     return distance_models, split_feature_cols
+
+
+def compute_residual_stats(
+    train_df: pd.DataFrame,
+    bundle: "ModelBundle",
+    feature_cols: list[str],
+    split_feature_cols: list[str],
+) -> dict:
+    """
+    Compute empirical residual covariance matrices from training data predictions.
+
+    For each distance category with trained split models, predicts all 5 splits
+    (swim, t1, bike, t2, run) on training data, computes residuals (actual - predicted),
+    and builds a 5×5 covariance matrix. This captures the natural correlation structure
+    between split prediction errors (e.g., fast swimmers tend to have fast T1s).
+
+    Args:
+        train_df: Training DataFrame with features and actual split times
+        bundle: Trained ModelBundle with distance_split_models
+        feature_cols: Full feature column names
+        split_feature_cols: Reduced feature columns used for split models
+
+    Returns:
+        Dict with structure:
+        {
+            "overall": {"cov_matrix": [[...]], "per_split_sigma": {"swim": 12.3, ...}, "n_samples": N},
+            "sprint": {"cov_matrix": [[...]], "per_split_sigma": {...}, "n_samples": N},
+            "standard": {"cov_matrix": [[...]], "per_split_sigma": {...}, "n_samples": N},
+        }
+    """
+    SPLIT_ORDER = ["swim", "t1", "bike", "t2", "run"]
+    SPLIT_COLS = ["swim_sec", "t1_sec", "bike_sec", "t2_sec", "run_sec"]
+
+    def _compute_for_subset(df_subset, models, feat_cols):
+        """Compute residuals and covariance for a DataFrame subset using given models."""
+        residuals = {}
+        for split_name, actual_col in zip(SPLIT_ORDER, SPLIT_COLS):
+            model = models.get(split_name)
+            if model is None or actual_col not in df_subset.columns:
+                return None  # Need all 5 splits
+
+            mask = df_subset[actual_col].notna()
+            if mask.sum() < 50:
+                return None
+
+            X = df_subset.loc[mask, feat_cols]
+            y_actual = df_subset.loc[mask, actual_col].values
+            y_pred = model.predict(X)
+            residuals[split_name] = pd.Series(y_actual - y_pred, index=df_subset.index[mask])
+
+        # Align residuals — only keep rows where all 5 splits have values
+        resid_df = pd.DataFrame(residuals)
+        resid_df = resid_df.dropna()
+
+        if len(resid_df) < 50:
+            return None
+
+        resid_matrix = resid_df.values  # shape (n_samples, 5)
+        cov_matrix = np.cov(resid_matrix.T)  # shape (5, 5)
+        per_split_sigma = {
+            name: float(np.sqrt(cov_matrix[i, i]))
+            for i, name in enumerate(SPLIT_ORDER)
+        }
+
+        return {
+            "cov_matrix": cov_matrix.tolist(),
+            "per_split_sigma": per_split_sigma,
+            "n_samples": len(resid_df),
+        }
+
+    results = {}
+
+    # Normalize distance column
+    if "prog_distance_category" in train_df.columns:
+        dist_norm = train_df["prog_distance_category"].str.lower().str.strip().replace({"olympic": "standard"})
+    else:
+        dist_norm = pd.Series("unknown", index=train_df.index)
+
+    # Per-distance residual stats
+    for dist_cat, dist_models in bundle.distance_split_models.items():
+        dist_mask = dist_norm == dist_cat
+        if dist_mask.sum() < 50:
+            logger.info(f"Residual stats: {dist_cat} has only {dist_mask.sum()} rows, skipping")
+            continue
+
+        # Split models use reduced feature set
+        available_feat = [c for c in split_feature_cols if c in train_df.columns]
+        result = _compute_for_subset(train_df[dist_mask], dist_models, available_feat)
+        if result:
+            results[dist_cat] = result
+            logger.info(
+                f"Residual stats ({dist_cat}): n={result['n_samples']}, "
+                f"sigmas: " + ", ".join(f"{k}={v:.1f}s" for k, v in result["per_split_sigma"].items())
+            )
+
+    # Overall stats (all distances combined, using unified models)
+    overall_models = {
+        "swim": bundle.model_swim,
+        "t1": bundle.model_t1,
+        "bike": bundle.model_bike,
+        "t2": bundle.model_t2,
+        "run": bundle.model_run,
+    }
+    # Unified models use full feature set
+    available_full = [c for c in feature_cols if c in train_df.columns]
+    overall_result = _compute_for_subset(train_df, overall_models, available_full)
+    if overall_result:
+        results["overall"] = overall_result
+        logger.info(
+            f"Residual stats (overall): n={overall_result['n_samples']}, "
+            f"sigmas: " + ", ".join(f"{k}={v:.1f}s" for k, v in overall_result["per_split_sigma"].items())
+        )
+
+    if not results:
+        logger.warning("Could not compute residual stats for any distance or overall")
+
+    return results
 
 
 def save_model_bundle(bundle: ModelBundle, path: str) -> str:
@@ -860,12 +1040,126 @@ def cross_validate(
     }
 
 
+def cross_validate_splits(
+    train_df: pd.DataFrame,
+    feature_cols: list[str],
+    split_feature_cols: list[str] | None = None,
+    model_params: dict | None = None,
+    folds: list[tuple[str, str]] | None = None,
+    use_sample_weights: bool = True,
+    exclude_pack_features: bool = True,
+) -> dict:
+    """
+    Run time-based cross-validation tracking per-split MAE independently.
+
+    For each fold, trains distance-specific split models (swim, t1, bike, t2, run)
+    and evaluates MAE per split on the validation set. Also computes a split-total
+    consistency metric (how well the sum of split predictions matches the total
+    model prediction).
+
+    Args:
+        train_df: Full training DataFrame with features, labels, and 'event_date'
+        feature_cols: Full feature column names
+        split_feature_cols: Reduced feature set for split models. If None, uses default.
+        model_params: Hyperparameters for the regressors
+        folds: Optional CV fold definitions (passed to time_based_cv_splits)
+        use_sample_weights: Whether to use tier-based sample weights
+        exclude_pack_features: Whether to exclude pack features from split models
+
+    Returns:
+        Dict with per-split MAE averages and per-fold breakdown
+    """
+    from .features import get_split_feature_columns
+
+    if split_feature_cols is None:
+        split_feature_cols = get_split_feature_columns(exclude_pack=exclude_pack_features)
+
+    splits = time_based_cv_splits(train_df, folds=folds)
+    if not splits:
+        logger.error("No valid CV splits for per-split validation")
+        return {}
+
+    SPLIT_TARGETS = {
+        "swim": "swim_sec", "t1": "t1_sec", "bike": "bike_sec",
+        "t2": "t2_sec", "run": "run_sec",
+    }
+
+    fold_results = []
+
+    for fold_idx, (tr, va) in enumerate(splits):
+        # Train distance-specific models on the fold
+        dist_models, used_split_cols = train_distance_split_models(
+            tr, feature_cols,
+            model_params=model_params,
+            use_sample_weights=use_sample_weights,
+            split_feature_cols=list(split_feature_cols),
+            exclude_pack_features=exclude_pack_features,
+        )
+
+        fold_metrics = {"fold": fold_idx + 1, "n_train": len(tr), "n_val": len(va)}
+
+        # Evaluate per-split MAE on validation set, per distance
+        for dist_cat, models in dist_models.items():
+            dist_norm = va["prog_distance_category"].str.lower().str.strip().replace({"olympic": "standard"})
+            va_dist = va[dist_norm == dist_cat]
+            if len(va_dist) < 10:
+                continue
+
+            X_va_split = va_dist[[c for c in used_split_cols if c in va_dist.columns]]
+
+            split_sum = np.zeros(len(va_dist))
+            for split_name, target_col in SPLIT_TARGETS.items():
+                model = models.get(split_name)
+                if model is None or target_col not in va_dist.columns:
+                    continue
+
+                mask = va_dist[target_col].notna()
+                if mask.sum() < 5:
+                    continue
+
+                y_pred = model.predict(X_va_split.loc[mask])
+                y_actual = va_dist.loc[mask, target_col].values
+                mae = float(np.mean(np.abs(y_actual - y_pred)))
+                fold_metrics[f"{dist_cat}_{split_name}_mae"] = mae
+                split_sum[mask.values] += y_pred
+
+            # Split-total consistency: compare split sum to actual total
+            if "total_sec" in va_dist.columns:
+                total_mask = va_dist["total_sec"].notna()
+                if total_mask.sum() > 5:
+                    actual_total = va_dist.loc[total_mask, "total_sec"].values
+                    pred_split_sum = split_sum[total_mask.values]
+                    # Only compare where split_sum is non-zero (all splits predicted)
+                    valid = pred_split_sum > 0
+                    if valid.sum() > 5:
+                        consistency_mae = float(np.mean(np.abs(actual_total[valid] - pred_split_sum[valid])))
+                        fold_metrics[f"{dist_cat}_split_sum_mae"] = consistency_mae
+
+        fold_results.append(fold_metrics)
+        logger.info(f"Fold {fold_idx + 1} split CV: {fold_metrics}")
+
+    # Aggregate across folds
+    summary = {"fold_results": fold_results}
+    all_metric_keys = set()
+    for fr in fold_results:
+        all_metric_keys.update(k for k in fr.keys() if k not in ("fold", "n_train", "n_val"))
+
+    for key in sorted(all_metric_keys):
+        values = [fr[key] for fr in fold_results if key in fr]
+        if values:
+            summary[f"mean_{key}"] = float(np.mean(values))
+
+    return summary
+
+
 # Default hyperparameter search grid
 DEFAULT_PARAM_GRID = {
-    "n_estimators": [100, 200, 500],
+    "n_estimators": [200, 350, 500],
     "max_depth": [4, 6, 8],
     "learning_rate": [0.05, 0.1],
     "min_child_samples": [10, 20, 50],
+    "reg_alpha": [0.0, 0.1, 1.0],
+    "reg_lambda": [0.0, 1.0, 5.0],
 }
 
 

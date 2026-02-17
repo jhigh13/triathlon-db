@@ -377,16 +377,16 @@ def section_simulation(pred_df, bundle, distance_cat, n_sims=1000):
     print("SECTION 6: SIMULATION DIAGNOSTICS")
     print(DIVIDER)
 
-    pack_params = get_distance_pack_params(bundle, distance_cat)
-    merge_params = get_distance_merge_params(bundle, distance_cat)
+    pack_params = get_distance_pack_params(bundle.metadata, distance_cat)
+    merge_params = get_distance_merge_params(bundle.metadata, distance_cat)
 
     is_draft = (distance_cat or "").lower().strip() in DRAFT_LEGAL_DISTANCES
     print(f"\n  Distance: {distance_cat} ({'draft-legal' if is_draft else 'non-drafting'})")
-    print(f"  Pack params: front_bonus={pack_params.front_bonus:.1f}s, chase_penalty={pack_params.chase_penalty:.1f}s, "
+    print(f"  Pack params: front_bonus={pack_params.front_pack_bonus_sec:.1f}s, chase_penalty={pack_params.chase_penalty_sec:.1f}s, "
           f"max_gap={pack_params.max_gap_sec:.1f}s")
     if merge_params:
         print(f"  Merge params: beta_0={merge_params.beta_0:.3f}, beta_gap={merge_params.beta_gap:.3f}, "
-              f"beta_chase={merge_params.beta_chase:.3f}")
+              f"beta_chase={merge_params.beta_chase_size:.3f}")
 
     # Distance sigma
     dist_mult = DISTANCE_SIGMA_MULTIPLIER.get((distance_cat or "").lower().strip(), 1.0)
@@ -401,6 +401,7 @@ def section_simulation(pred_df, bundle, distance_cat, n_sims=1000):
         pred_df, n_sims=n_sims, random_state=42,
         pack_params=pack_params, merge_params=merge_params,
         distance_category=distance_cat,
+        bundle_metadata=bundle.metadata,
     )
 
     # Rank correlation: det vs sim

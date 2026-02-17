@@ -584,6 +584,8 @@ def fetch_precomputed_race_metrics(
 
     Columns returned:
         event_id, prog_id, event_date, swimrank, bikerank, runrank,
+        t1rank, t2rank, swim_to_t1_pos_change, t1_to_bike_pos_change,
+        bike_to_t2_pos_change, t2_to_run_pos_change,
         n_finishers, median_total_sec, elapsedrun
     """
     query = text("""
@@ -594,6 +596,12 @@ def fetch_precomputed_race_metrics(
             pm.swimrank,
             pm.bikerank,
             pm.runrank,
+            pm.t1rank,
+            pm.t2rank,
+            pm.swim_to_t1_pos_change,
+            pm.t1_to_bike_pos_change,
+            pm.bike_to_t2_pos_change,
+            pm.t2_to_run_pos_change,
             pm.n_finishers,
             pm.median_total_sec,
             pm.elapsedrun
@@ -675,7 +683,14 @@ def fetch_event_metadata(engine: Engine, key: ProgramKey) -> Optional[dict]:
             event_venue,
             wetsuit,
             event_latitude,
-            event_longitude
+            event_longitude,
+            temperature_air,
+            humidity,
+            wbgt,
+            wind,
+            swim_laps,
+            bike_laps,
+            run_laps
         FROM events
         WHERE event_id = :event_id
           AND prog_id = :prog_id

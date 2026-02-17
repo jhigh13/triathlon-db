@@ -184,6 +184,43 @@ def predict_splits_and_total(
         for col in ["pred_swim_sec", "pred_t1_sec", "pred_bike_sec", "pred_t2_sec", "pred_run_sec"]
     )
 
+    # ========== Total Prediction ==========
+    # First, compute a "reference total" from the total model (or dist-specific total).
+    # This serves as the ground truth for split sanity checks and anchoring.
+    if dist_models and "total" in dist_models:
+        ref_total = pd.Series(dist_models["total"].predict(X_full), index=df.index)
+    elif bundle.model_total is not None:
+        ref_total = pd.Series(bundle.model_total.predict(X_full), index=df.index)
+    else:
+        ref_total = None
+
+    # ========== Split Sanity Check ==========
+    # Distance-specific split models can produce wildly wrong predictions for
+    # athletes with sparse/no history in that distance. When the split sum
+    # diverges significantly from the reference total, proportionally rescale
+    # splits to match the reference. This prevents garbage splits from corrupting
+    # both rankings and simulation input.
+    SPLIT_RESCALE_THRESHOLD = 0.20  # Rescale if split sum > 20% off reference total
+
+    if all_splits_available and ref_total is not None:
+        split_sum = (
+            df["pred_swim_sec"] + df["pred_t1_sec"] +
+            df["pred_bike_sec"] + df["pred_t2_sec"] +
+            df["pred_run_sec"]
+        )
+        ratio = split_sum / ref_total
+        needs_rescale = (ratio - 1.0).abs() > SPLIT_RESCALE_THRESHOLD
+        if needs_rescale.any():
+            n_rescaled = needs_rescale.sum()
+            scale_factor = ref_total[needs_rescale] / split_sum[needs_rescale]
+            for col in ["pred_swim_sec", "pred_t1_sec", "pred_bike_sec", "pred_t2_sec", "pred_run_sec"]:
+                df.loc[needs_rescale, col] = df.loc[needs_rescale, col] * scale_factor
+            logger.info(
+                f"Rescaled splits for {n_rescaled} athletes where split sum diverged "
+                f">{SPLIT_RESCALE_THRESHOLD:.0%} from total model "
+                f"(worst ratio: {ratio[needs_rescale].max():.2f}x)"
+            )
+
     if all_splits_available:
         df["pred_total_sec"] = (
             df["pred_swim_sec"] + df["pred_t1_sec"] +
@@ -191,12 +228,9 @@ def predict_splits_and_total(
             df["pred_run_sec"]
         )
         logger.info("Using split sum as pred_total_sec (all 5 splits available)")
-    elif dist_models and "total" in dist_models:
-        df["pred_total_sec"] = dist_models["total"].predict(X_full)
-        logger.info(f"Using distance-specific total model for '{dist_key}' (incomplete splits)")
-    elif bundle.model_total is not None:
-        df["pred_total_sec"] = bundle.model_total.predict(X_full)
-        logger.info("Using unified total model (incomplete splits)")
+    elif ref_total is not None:
+        df["pred_total_sec"] = ref_total
+        logger.info("Using total model (incomplete splits)")
     else:
         df["pred_total_sec"] = (
             df["pred_swim_sec"].fillna(0) + df["pred_bike_sec"].fillna(0) +
@@ -207,20 +241,25 @@ def predict_splits_and_total(
     # ========== Prediction Anchoring ==========
     # Prevent predictions from being unreasonably slow compared to historical performance.
     # If pred_total_sec is more than 10% slower than EMA, anchor it closer to EMA.
-    # This addresses model overfitting that penalizes athletes with unusually fast history.
+    # When anchoring adjusts the total, proportionally rescale splits to maintain consistency.
     MAX_SLOWDOWN_FACTOR = 1.10  # Max 10% slower than EMA
-    
+
     if "ema_total_sec_5" in df.columns:
         ema_total = df["ema_total_sec_5"]
         pred_total = df["pred_total_sec"]
         max_allowed = ema_total * MAX_SLOWDOWN_FACTOR
-        
-        # Where prediction exceeds max allowed, cap it firmly
+
+        # Where prediction exceeds max allowed, cap it and rescale splits
         over_limit = pred_total > max_allowed
         if over_limit.any():
+            anchor_scale = max_allowed[over_limit] / pred_total[over_limit]
             df.loc[over_limit, "pred_total_sec"] = max_allowed[over_limit]
+            # Proportionally rescale splits to match new total
+            for col in ["pred_swim_sec", "pred_t1_sec", "pred_bike_sec", "pred_t2_sec", "pred_run_sec"]:
+                if col in df.columns:
+                    df.loc[over_limit, col] = df.loc[over_limit, col] * anchor_scale
             n_adjusted = over_limit.sum()
-            logger.info(f"Anchored {n_adjusted} predictions that exceeded {MAX_SLOWDOWN_FACTOR:.0%} slowdown from EMA")
+            logger.info(f"Anchored {n_adjusted} predictions that exceeded {MAX_SLOWDOWN_FACTOR:.0%} slowdown from EMA (splits rescaled)")
 
     # ========== Percentile Model (Two-Stage Ranking) ==========
     # If a percentile model exists, predict finish_pct for ranking.
@@ -244,10 +283,28 @@ def predict_splits_and_total(
     # Log split-total accounting diagnostic
     active_total = df["pred_swim_sec"] + df["pred_t1_sec"] + df["pred_bike_sec"] + df["pred_t2_sec"] + df["pred_run_sec"]
     delta = df["pred_total_sec"] - active_total
+    abs_delta = delta.abs()
     logger.info(
         f"Split-total accounting: mean delta={delta.mean():.1f}s, "
         f"median={delta.median():.1f}s (total_model - sum_of_splits)"
     )
+
+    # Warn on large per-athlete discrepancies
+    ANCHORING_WARN_THRESHOLD = 60.0  # seconds
+    large_discrepancy = abs_delta > ANCHORING_WARN_THRESHOLD
+    if large_discrepancy.any():
+        n_bad = large_discrepancy.sum()
+        worst_idx = abs_delta.idxmax()
+        worst_name = df.loc[worst_idx, "athlete_full_name"] if "athlete_full_name" in df.columns else f"idx={worst_idx}"
+        logger.warning(
+            f"Split-total anchoring: {n_bad}/{len(df)} athletes have |delta| > {ANCHORING_WARN_THRESHOLD:.0f}s. "
+            f"Worst: {worst_name} (delta={delta.loc[worst_idx]:.1f}s). "
+            f"Consider retraining split models or checking feature coverage."
+        )
+
+    # Store diagnostic columns for downstream use
+    df["pred_split_sum_sec"] = active_total
+    df["pred_split_total_delta"] = delta
 
     # Compute predicted rank
     # Use percentile model for ranking if available (better cross-distance accuracy),
