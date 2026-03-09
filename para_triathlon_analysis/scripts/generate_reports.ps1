@@ -33,10 +33,12 @@ try {
     & $PYTHON -m tri_analysis.metrics --latest-events
     if ($LASTEXITCODE -eq 0) {
         Write-Host "[SUCCESS] Position metrics calculated`n" -ForegroundColor Green
-    } else {
+    }
+    else {
         Write-Host "[WARNING] Position metrics calculation had issues (continuing anyway)`n" -ForegroundColor Yellow
     }
-} catch {
+}
+catch {
     Write-Host "[WARNING] Could not calculate position metrics: $($_.Exception.Message)`n" -ForegroundColor Yellow
 }
 
@@ -64,7 +66,8 @@ foreach ($CATEGORY in $CATEGORIES) {
         if ($LASTEXITCODE -eq 0) {
             $SUCCESS_COUNT++
             Write-Host "[SUCCESS] $CATEGORY" -ForegroundColor Green
-        } else {
+        }
+        else {
             $FAILED_CATEGORIES += $CATEGORY
             Write-Host "[FAILED] $CATEGORY (Exit code: $LASTEXITCODE)" -ForegroundColor Red
         }
@@ -96,14 +99,17 @@ if (Test-Path $PDF_SCRIPT) {
         & $PYTHON $PDF_SCRIPT "$BASE_OUTPUT_DIR"
         if ($LASTEXITCODE -eq 0) {
             Write-Host "[SUCCESS] PDF conversion complete" -ForegroundColor Green
-        } else {
+        }
+        else {
             Write-Host "[INFO] PDF conversion had issues - you can manually convert via browser print" -ForegroundColor Yellow
         }
-    } catch {
+    }
+    catch {
         Write-Host "[INFO] Could not auto-convert to PDF: $($_.Exception.Message)" -ForegroundColor Yellow
         Write-Host "You can manually convert by opening each report.html in Chrome/Edge and printing to PDF" -ForegroundColor Gray
     }
-} else {
+}
+else {
     Write-Host "[INFO] convert_reports_to_pdf.py not found - skipping PDF conversion" -ForegroundColor Yellow
     Write-Host "You can manually convert by opening each report.html in Chrome/Edge and printing to PDF" -ForegroundColor Gray
 }
