@@ -174,6 +174,12 @@ def calculate_position_metrics(event_ids: list[int] | None = None, engine=None) 
     mask_run_rank = (df['runsecs'] > 0) & valid_all_splits
     df.loc[mask_run_rank, 'runrank'] = df.loc[mask_run_rank].groupby(['event_id', 'prog_id'])['runsecs'].rank(method='min')
 
+    # Race-level aggregates (for fast feature building)
+    # n_finishers: count of valid finishers per race
+    df['n_finishers'] = df[valid_all_splits].groupby(['event_id', 'prog_id'])['athlete_id'].transform('count')
+    # median_total_sec: median total elapsed time per race (distance-agnostic baseline)
+    df['median_total_sec'] = df[valid_all_splits].groupby(['event_id', 'prog_id'])['elapsedrun'].transform('median')
+
     position_cols = [
         'position_at_swim', 'position_at_t1', 'position_at_bike', 'position_at_t2', 'position_at_run',
         'swim_to_t1_pos_change', 't1_to_bike_pos_change', 'bike_to_t2_pos_change', 't2_to_run_pos_change',

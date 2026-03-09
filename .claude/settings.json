@@ -4,8 +4,14 @@
       "Bash(*)",
       "Read",
       "Edit",
+      "Write",
       "Glob",
-      "Grep"
+      "Grep",
+      "WebFetch",
+      "WebSearch",
+      "Task",
+      "TodoWrite",
+      "NotebookEdit"
     ]
   }
 }

@@ -2,6 +2,54 @@
 
 ## Recent File Changes (January 2026)
 
+### Two-Threshold Pack Algorithm Update (2026-01-30)
+
+#### `tri_analysis/wtcs_pack_metrics.py` (UPDATED)
+- **Purpose**: Compute and persist pack membership using two-threshold algorithm
+- **Key Change**: Now uses two-threshold pack detection:
+  - `initial_gap_sec=2`: Leader→2nd person threshold
+  - `continuation_gap_sec=1`: 3rd+ person must be within 1s of previous
+- **New Function**: `assign_pack_ids_two_threshold(sorted_df, initial=2, continuation=1)`
+- **Algorithm Version**: Changed from `gap_2.0s_v1` to `two_threshold_v1`
+- **Effect**: Much tighter packs (e.g., Spivey Yokohama: 4 instead of 28)
+
+#### `tri_analysis/relative_bike_metrics.py` (UPDATED)
+- **Purpose**: Quantify bike performance relative to pack mates (athletes who started bike together)
+- **New Feature**: `--checkpoint` CLI option to select reference checkpoint:
+  - `swim`: Pack established at swim exit (traditional) - shows bike performance
+  - `bike`: Pack established at bike exit - useful for future run analysis
+- **Updated Functions**:
+  - `compute_pack_relative_bike_metrics(engine, event_id, prog_id, reference_checkpoint='swim')`
+  - `build_season_bike_chart_data(engine, athlete_id, year, reference_checkpoint='swim')`
+  - `print_season_bike_summary(engine, athlete_id, year, reference_checkpoint='swim')`
+- **Key Concepts**:
+  - **Two-Threshold Pack Assignment**: More realistic pack detection
+    - Initial threshold (leader→2nd): ≤2s to join pack
+    - Continuation threshold (3rd+): ≤1s gap to previous to stay in pack
+    - Handles "noise" where someone goes slightly off front but isn't in breakaway
+  - **Pack Delta**: Change in position from swim exit to bike exit among pack mates (negative = gained places)
+  - **First Bike Split**: T1 → first bike timing mat (B1T1 column in detailed Excel files)
+- **Key Functions**:
+  - `assign_packs_two_threshold(times, initial=2, continuation=1)` - Two-threshold pack logic
+  - `load_detailed_results(filepath)` - Parse Excel, auto-detect first bike column
+  - `compute_first_bike_split_metrics(df)` - Segment time, rank, pack-relative rank
+  - `compute_pack_relative_bike_metrics(engine, event_id, prog_id)` - DB-based pack comparison
+  - `get_pack_mates_for_athlete(engine, event_id, prog_id, athlete_id)` - List pack members
+  - `print_season_bike_summary(engine, athlete_id, year)` - Console summary for PowerPoint
+  - `build_season_bike_chart_data(engine, athlete_id, year)` - Full data for charts
+- **Data Sources**:
+  - Detailed results Excel files (`data/Detailed results *.xlsx`) - granular splits (S1, T1, B1T1, etc.)
+  - `wtcs_pack_membership` table - pre-computed pack assignments
+- **Example Two-Threshold Pack Assignment**:
+  ```
+  10:00 → Pack 1 (leader)
+  10:02 → Pack 1 (2s ≤ 2s initial threshold)
+  10:03 → Pack 1 (1s ≤ 1s continuation)
+  10:07 → Pack 2 (2s > 1s continuation → new pack)
+  10:10 → Pack 3 (3s > 2s initial → new pack)
+  10:11 → Pack 3 (1s ≤ 2s initial for 2nd position)
+  ```
+
 ### Prediction Anchoring Fix (2026-01-26)
 
 #### Problem Diagnosed
@@ -427,3 +475,6 @@
 - `tri_analysis/stats_queries.py`: CLI script to print USA medal details/counts and country coverage stats directly from the database using `DB_URI` (env override). Provides medal detail table, medal tallies by category/host country, per-athlete country counts, and distinct country totals. Run with `python -m tri_analysis.stats_queries`.
 
 - `tri_analysis/metrics.py`: Computes `position_metrics` and now supports `--latest-events` to only recompute metrics for event IDs in `latest_events.txt`; writes using an event-scoped refresh (delete those events’ metrics, then append) so prior events remain.
+
+## January 2026 Update
+- `tri_analysis/database.py`: Added `n_finishers` and `median_total_sec` to the `position_metrics` schema with safe ALTER TABLE migrations.

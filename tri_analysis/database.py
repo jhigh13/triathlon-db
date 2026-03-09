@@ -100,6 +100,15 @@ def initialize_database():
         Column('wind',              String),
         Column('weather',           String),
         Column('wetsuit',           String),
+        # Open-Meteo enriched weather columns
+        Column('wind_speed_kmh',    Float),
+        Column('wind_gust_kmh',     Float),
+        Column('apparent_temp',     Float),
+        Column('precipitation_mm',  Float),
+        Column('cloud_cover_pct',   Float),
+        Column('wet_bulb_temp',     Float),
+        Column('weather_source',    String),
+        Column('weather_fetched_at', String),
         PrimaryKeyConstraint('event_id', 'prog_id', name='pk_events')
     )
 
@@ -188,6 +197,9 @@ def initialize_database():
         Column('bikerank',     Integer),
         Column('t2rank',       Integer),
         Column('runrank',      Integer),
+        # race-level aggregates for fast feature building
+        Column('n_finishers',     Integer),
+        Column('median_total_sec', Float),
     )
 
     # WTCS pack membership (precomputed, deterministic; full field per event_id+prog_id)
@@ -238,6 +250,19 @@ def initialize_database():
         PrimaryKeyConstraint('event_id', 'prog_id', 'entry_id', name='pk_program_entries')
     )
     
+    # Elo ratings for athletes (computed by elo_ratings.py)
+    Table(
+        'athlete_elo_ratings', metadata,
+        Column('athlete_id', Integer, nullable=False),
+        Column('gender', String, nullable=False),       # 'male' or 'female'
+        Column('elo_rating', Float, nullable=False),     # current Elo rating
+        Column('elo_peak', Float, nullable=False),       # all-time peak rating
+        Column('elo_races', Integer, nullable=False),    # total races processed
+        Column('last_race_date', Date, nullable=True),   # date of most recent race
+        Column('last_updated', DateTime, nullable=False),
+        PrimaryKeyConstraint('athlete_id', 'gender', name='pk_athlete_elo_ratings')
+    )
+
     # Staging table for historical rankings (no constraints)
     Table(
         'staging_rankings', metadata,
@@ -293,65 +318,66 @@ def initialize_database():
     try:
         with engine.begin() as conn:
             # Convert weather metrics from numeric to text if needed
-            conn.execute(text("""
+            # NOTE: DO $$ blocks cannot use bind parameters; inline table name safely.
+            conn.execute(text(f"""
                 DO $$
                 BEGIN
                     IF EXISTS (
                         SELECT 1 FROM information_schema.columns
-                        WHERE table_name = :table AND column_name = 'temperature_water' AND data_type <> 'text'
+                        WHERE table_name = '{EVENTS_TABLE_NAME}' AND column_name = 'temperature_water' AND data_type <> 'text'
                     ) THEN
-                        EXECUTE 'ALTER TABLE ' || quote_ident(:table) || ' ALTER COLUMN temperature_water TYPE VARCHAR USING temperature_water::text';
+                        EXECUTE 'ALTER TABLE "{EVENTS_TABLE_NAME}" ALTER COLUMN temperature_water TYPE VARCHAR USING temperature_water::text';
                     END IF;
                     IF EXISTS (
                         SELECT 1 FROM information_schema.columns
-                        WHERE table_name = :table AND column_name = 'temperature_air' AND data_type <> 'text'
+                        WHERE table_name = '{EVENTS_TABLE_NAME}' AND column_name = 'temperature_air' AND data_type <> 'text'
                     ) THEN
-                        EXECUTE 'ALTER TABLE ' || quote_ident(:table) || ' ALTER COLUMN temperature_air TYPE VARCHAR USING temperature_air::text';
+                        EXECUTE 'ALTER TABLE "{EVENTS_TABLE_NAME}" ALTER COLUMN temperature_air TYPE VARCHAR USING temperature_air::text';
                     END IF;
                     IF EXISTS (
                         SELECT 1 FROM information_schema.columns
-                        WHERE table_name = :table AND column_name = 'humidity' AND data_type <> 'text'
+                        WHERE table_name = '{EVENTS_TABLE_NAME}' AND column_name = 'humidity' AND data_type <> 'text'
                     ) THEN
-                        EXECUTE 'ALTER TABLE ' || quote_ident(:table) || ' ALTER COLUMN humidity TYPE VARCHAR USING humidity::text';
+                        EXECUTE 'ALTER TABLE "{EVENTS_TABLE_NAME}" ALTER COLUMN humidity TYPE VARCHAR USING humidity::text';
                     END IF;
                     IF EXISTS (
                         SELECT 1 FROM information_schema.columns
-                        WHERE table_name = :table AND column_name = 'wbgt' AND data_type <> 'text'
+                        WHERE table_name = '{EVENTS_TABLE_NAME}' AND column_name = 'wbgt' AND data_type <> 'text'
                     ) THEN
-                        EXECUTE 'ALTER TABLE ' || quote_ident(:table) || ' ALTER COLUMN wbgt TYPE VARCHAR USING wbgt::text';
+                        EXECUTE 'ALTER TABLE "{EVENTS_TABLE_NAME}" ALTER COLUMN wbgt TYPE VARCHAR USING wbgt::text';
                     END IF;
                     IF EXISTS (
                         SELECT 1 FROM information_schema.columns
-                        WHERE table_name = :table AND column_name = 'wind' AND data_type <> 'text'
+                        WHERE table_name = '{EVENTS_TABLE_NAME}' AND column_name = 'wind' AND data_type <> 'text'
                     ) THEN
-                        EXECUTE 'ALTER TABLE ' || quote_ident(:table) || ' ALTER COLUMN wind TYPE VARCHAR USING wind::text';
+                        EXECUTE 'ALTER TABLE "{EVENTS_TABLE_NAME}" ALTER COLUMN wind TYPE VARCHAR USING wind::text';
                     END IF;
                 END$$;
-            """), {"table": EVENTS_TABLE_NAME})
+            """))
             # Widen lap columns to double precision (FLOAT) to allow NaN and avoid integer range issues
-            conn.execute(text("""
+            conn.execute(text(f"""
                 DO $$
                 BEGIN
                     IF EXISTS (
                         SELECT 1 FROM information_schema.columns
-                        WHERE table_name = :table AND column_name = 'swim_laps' AND data_type <> 'double precision'
+                        WHERE table_name = '{EVENTS_TABLE_NAME}' AND column_name = 'swim_laps' AND data_type <> 'double precision'
                     ) THEN
-                        EXECUTE 'ALTER TABLE ' || quote_ident(:table) || ' ALTER COLUMN swim_laps TYPE DOUBLE PRECISION';
+                        EXECUTE 'ALTER TABLE "{EVENTS_TABLE_NAME}" ALTER COLUMN swim_laps TYPE DOUBLE PRECISION';
                     END IF;
                     IF EXISTS (
                         SELECT 1 FROM information_schema.columns
-                        WHERE table_name = :table AND column_name = 'bike_laps' AND data_type <> 'double precision'
+                        WHERE table_name = '{EVENTS_TABLE_NAME}' AND column_name = 'bike_laps' AND data_type <> 'double precision'
                     ) THEN
-                        EXECUTE 'ALTER TABLE ' || quote_ident(:table) || ' ALTER COLUMN bike_laps TYPE DOUBLE PRECISION';
+                        EXECUTE 'ALTER TABLE "{EVENTS_TABLE_NAME}" ALTER COLUMN bike_laps TYPE DOUBLE PRECISION';
                     END IF;
                     IF EXISTS (
                         SELECT 1 FROM information_schema.columns
-                        WHERE table_name = :table AND column_name = 'run_laps' AND data_type <> 'double precision'
+                        WHERE table_name = '{EVENTS_TABLE_NAME}' AND column_name = 'run_laps' AND data_type <> 'double precision'
                     ) THEN
-                        EXECUTE 'ALTER TABLE ' || quote_ident(:table) || ' ALTER COLUMN run_laps TYPE DOUBLE PRECISION';
+                        EXECUTE 'ALTER TABLE "{EVENTS_TABLE_NAME}" ALTER COLUMN run_laps TYPE DOUBLE PRECISION';
                     END IF;
                 END$$;
-            """), {"table": EVENTS_TABLE_NAME})
+            """))
     except Exception:
         # Non-fatal; schema may already match
         pass
@@ -384,10 +410,25 @@ def initialize_database():
                 """
             )
         )
+        # Add Open-Meteo enriched weather columns if missing
+        for col, col_type in [
+            ("wind_speed_kmh", "DOUBLE PRECISION"),
+            ("wind_gust_kmh", "DOUBLE PRECISION"),
+            ("apparent_temp", "DOUBLE PRECISION"),
+            ("precipitation_mm", "DOUBLE PRECISION"),
+            ("cloud_cover_pct", "DOUBLE PRECISION"),
+            ("wet_bulb_temp", "DOUBLE PRECISION"),
+            ("weather_source", "VARCHAR"),
+            ("weather_fetched_at", "VARCHAR"),
+        ]:
+            conn.execute(text(f'ALTER TABLE "{EVENTS_TABLE_NAME}" ADD COLUMN IF NOT EXISTS {col} {col_type}'))
         # Add finish-related columns to race_results if missing (safe migrations)
         conn.execute(text(f'ALTER TABLE "{RACE_RESULTS_TABLE_NAME}" ADD COLUMN IF NOT EXISTS finish_status VARCHAR'))
         conn.execute(text(f'ALTER TABLE "{RACE_RESULTS_TABLE_NAME}" ADD COLUMN IF NOT EXISTS finish_position INTEGER'))
         conn.execute(text(f'ALTER TABLE "{RACE_RESULTS_TABLE_NAME}" ADD COLUMN IF NOT EXISTS position_sort INTEGER'))
+        # Add new race-level aggregates to position_metrics if missing
+        conn.execute(text('ALTER TABLE "position_metrics" ADD COLUMN IF NOT EXISTS n_finishers INTEGER'))
+        conn.execute(text('ALTER TABLE "position_metrics" ADD COLUMN IF NOT EXISTS median_total_sec DOUBLE PRECISION'))
         # Backfill finish_status and finish_position from existing position values (cast numeric positions)
         conn.execute(
             text(
@@ -425,25 +466,26 @@ def initialize_database():
             )
         )
         # Ensure finish_position and position_sort are stored as INTEGER in case older schemas used VARCHAR
+        # NOTE: DO $$ blocks cannot use bind parameters; inline table name safely.
         conn.execute(text(
-            """
+            f"""
             DO $$
             BEGIN
                 IF EXISTS (
                     SELECT 1 FROM information_schema.columns
-                    WHERE table_name = :table AND column_name = 'finish_position' AND data_type <> 'integer'
+                    WHERE table_name = '{RACE_RESULTS_TABLE_NAME}' AND column_name = 'finish_position' AND data_type <> 'integer'
                 ) THEN
-                    EXECUTE 'ALTER TABLE ' || quote_ident(:table) || ' ALTER COLUMN finish_position TYPE INTEGER USING NULLIF(TRIM(finish_position), '''')::integer';
+                    EXECUTE 'ALTER TABLE "{RACE_RESULTS_TABLE_NAME}" ALTER COLUMN finish_position TYPE INTEGER USING NULLIF(TRIM(finish_position), '''')::integer';
                 END IF;
                 IF EXISTS (
                     SELECT 1 FROM information_schema.columns
-                    WHERE table_name = :table AND column_name = 'position_sort' AND data_type <> 'integer'
+                    WHERE table_name = '{RACE_RESULTS_TABLE_NAME}' AND column_name = 'position_sort' AND data_type <> 'integer'
                 ) THEN
-                    EXECUTE 'ALTER TABLE ' || quote_ident(:table) || ' ALTER COLUMN position_sort TYPE INTEGER USING NULLIF(TRIM(position_sort), '''')::integer';
+                    EXECUTE 'ALTER TABLE "{RACE_RESULTS_TABLE_NAME}" ALTER COLUMN position_sort TYPE INTEGER USING NULLIF(TRIM(position_sort), '''')::integer';
                 END IF;
             END$$;
             """
-        ), {"table": RACE_RESULTS_TABLE_NAME})
+        ))
         conn.execute(
             text(
                 f'CREATE UNIQUE INDEX IF NOT EXISTS idx_{RACE_RESULTS_TABLE_NAME}_conflict '
@@ -470,6 +512,12 @@ def initialize_database():
             'CREATE INDEX IF NOT EXISTS idx_program_entries_athlete '
             'ON program_entries (athlete_id)'
         ))
+        # Elo ratings indexes
+        conn.execute(text(
+            'CREATE INDEX IF NOT EXISTS idx_athlete_elo_ratings_rating '
+            'ON athlete_elo_ratings (gender, elo_rating DESC)'
+        ))
+
         # Ensure critical integer columns are wide enough (avoid smallint overflows)
         # Note: ALTER TYPE to same type is a no-op; this is safe to run repeatedly.
         #conn.execute(text(f'ALTER TABLE "{RACE_RESULTS_TABLE_NAME}" ALTER COLUMN finish_position TYPE INTEGER'))

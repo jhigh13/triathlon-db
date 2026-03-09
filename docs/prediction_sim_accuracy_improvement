@@ -1,0 +1,238 @@
+Claude’s Plan
+Prediction & Simulation Accuracy Improvement Plan
+Context
+The triathlon prediction pipeline (triathlon-db/tri_analysis/prediction/) achieves >70% top-10 precision on the deterministic model, but Monte Carlo simulation results feel unreliable. Root cause analysis reveals several compounding issues: missing transition modeling, split-total accounting mismatches, potential pack-effect double-counting, and uncalibrated noise. This plan addresses all of them in priority order, with each phase independently testable.
+
+All changes are in: c:\Users\jhigh\Projects\triathlon-db\tri_analysis\prediction\
+Integration touchpoint: c:\Users\jhigh\Projects\PodiumDashboard\PodiumDashboard\app\services\prediction.py
+
+Phase 1: Fix T1/T2 Transition Accounting (Highest Impact)
+Problem: pred_total_sec includes T1+T2 (~30-300s) but split models only predict swim/bike/run. The simulation normalizes splits to match total, silently inflating each leg with transition seconds and distorting split ratios and pack formation.
+
+1A. Add Transition Features to features.py
+File: features.py
+Changes:
+
+In compute_athlete_form_features(), parse t1time and t2time to seconds from history_df (data is already fetched by fetch_athlete_history via sql.py which selects t1time, t2time)
+Compute new features:
+ema_t1_sec_5 — EWMA of T1 over last 5 races
+ema_t2_sec_5 — EWMA of T2 over last 5 races
+ema_t1t2_sec_5 — EWMA of combined T1+T2
+std_t1t2_sec_24m — Std dev of T1+T2 in last 24 months
+Add T1/T2 to EMA_SPLIT_PLAUSIBLE_RANGES for filtering (ranges already exist in train.py outlier thresholds — mirror them)
+Add new features to both get_feature_columns() and get_split_feature_columns()
+1B. Train T1/T2 Models in train.py
+File: train.py
+Changes:
+
+In train_models(), train model_t1 and model_t2 regressors targeting t1_sec and t2_sec (slots already exist in ModelBundle)
+Use the split feature set (reduced features, same as swim/bike/run split models)
+Train distance-specific T1/T2 models alongside swim/bike/run in distance_split_models
+T1/T2 outlier filtering already exists in SPLIT_OUTLIER_THRESHOLDS — just ensure they're applied
+1C. Predict T1/T2 in predict.py
+File: predict.py
+Changes:
+
+In predict_splits_and_total(), add predictions for pred_t1_sec and pred_t2_sec
+Use distance-specific models when available, unified fallback otherwise
+If no T1/T2 models available, compute pred_t1t2_sec = max(pred_total_sec - (pred_swim + pred_bike + pred_run), field_median_t1t2) as a fallback
+Add pred_t1_hms, pred_t2_hms to output
+1D. Fix Simulation Split Accounting in simulate.py
+File: simulate.py
+Changes:
+
+Remove the normalization block (lines 846-868) that scales swim/bike/run to match total — this is the core fix
+Add T1/T2 to the causal chain: total = swim + T1 + bike + T2 + run
+Add T1/T2 noise with per-athlete uncertainty (new defaults: DEFAULT_SIGMA_T1 = 5.0, DEFAULT_SIGMA_T2 = 4.0)
+Update estimate_uncertainty() to compute sigma_t1 and sigma_t2
+T1 noise is critical: it affects who enters the bike together
+1E. Use Swim + T1 for Pack Formation
+File: simulate.py
+Changes:
+
+Change pack formation input from sim_swim to sim_swim + sim_t1 (swim exit + transition = bike entry time)
+This determines bike pack membership more accurately
+Update both continuous_gap_bike_effect() calls and apply_pack_merges() calls to use swim+T1 times
+Verification:
+
+Backtest on 2024 H2 data with evaluate.py
+Compare MAE of (pred_swim + pred_t1 + pred_bike + pred_t2 + pred_run) vs old (normalized swim+bike+run) vs pred_total_sec
+Check that split-sum no longer has systematic bias vs total
+Check pack formation accuracy by comparing predicted packs to actual wtcs_pack_membership swim_exit checkpoint data
+Phase 2: Empirical Residual Covariance & Calibrated Uncertainty
+Problem: Current simulation uses independent noise (90%) + shared form factor (10%) with fixed split ratios. Real residuals are correlated and athlete-specific.
+
+2A. Compute Empirical Residual Covariance Matrix
+File: New function in train.py or simulate.py
+Changes:
+
+After training, compute residuals on the training/validation set: residual_split = actual_split - pred_split for each of [swim, t1, bike, t2, run]
+Compute per-distance covariance matrix Σ (5x5) from these residuals
+Store Σ in ModelBundle.metadata["residual_covariance"]
+Optionally decompose by distance category (sprint Σ vs standard Σ)
+2B. Replace Independent Noise with Multivariate Normal Sampling
+File: simulate.py
+Changes:
+
+In run_monte_carlo(), replace per-split independent noise generation with:
+
+[e_swim, e_t1, e_bike, e_t2, e_run] ~ MVN(0, Σ_scaled)
+Scale Σ per athlete using std_total_sec_24m / default_sigma ratio (heteroscedastic)
+Scale by distance multiplier
+Retire form_share parameter (MVN naturally captures the shared variance)
+2C. Per-Split Sigma from Empirical Residuals
+File: simulate.py → estimate_uncertainty()
+Changes:
+
+Replace hardcoded DEFAULT_SIGMA_SWIM=15, BIKE=45, RUN=30 with empirical per-split MAE from training residuals
+Store per-distance empirical sigmas in bundle metadata
+Keep per-athlete scaling via std_total_sec_24m (heteroscedastic)
+Verification:
+
+Coverage calibration test: for each split and total, check what fraction of actual values fall within the [p10, p90] simulation interval — target ~80%
+Compare rank distributions before/after: should be smoother, less "spiked"
+Phase 3: Resolve Pack Effect Double-Counting
+Problem: Split models already use ema_bike_pack_7, ema_bike_gap_sec_7 etc. as features, so predicted bike time already partially accounts for the athlete's typical pack positioning. The simulation then adds pack effects on top.
+
+3A. Quantify the Double-Counting
+File: New analysis script
+Changes:
+
+Compute ablation: train split models WITH vs WITHOUT pack features
+Measure how much split predictions change when pack features are removed
+If significant: pack effects are baked in and simulation is double-counting
+3B. Implement Clean Separation (Data-Driven Decision)
+Train and backtest BOTH approaches, pick the winner:
+
+Option A — "Ability-based" split models:
+
+Train split models WITHOUT pack dynamics features (remove ema_swim_pack_7, ema_bike_pack_7, ema_bike_gap_sec_7 from split feature set)
+These predict "intrinsic ability" — what the athlete would do solo
+Let the simulation ADD all pack effects (no double-counting)
+Option B — "Realized" split models:
+
+Keep pack features in split models
+Reduce sim pack adjustments to only model deviations from typical behavior
+Implement both, backtest both on 2024 H2, pick whichever gives better Precision@10 + Spearman.
+
+Verification:
+
+Backtest both approaches on 2024 H2
+Compare Spearman correlation and Precision@10
+The correct approach should show more consistent results across different race types
+Phase 4: Feature Engineering Improvements
+4A. Enrich days_since_last_race
+File: features.py → compute_athlete_form_features()
+Changes:
+
+Add: log1p_days_since = log(1 + days_since_last_race)
+Add: days_since_bucket = categorical (0-14, 15-28, 29-56, 57-112, 113+) encoded as ordinal
+Add: freshness_curve = abs(days_since_last_race - 21) (U-shape: too soon or too long is bad, ~3 weeks is optimal)
+Keep raw days_since_last_race for the model to use alongside
+4B. Add Position Change / T1-T2 Performance Features from position_metrics
+File: features.py, sql.py
+Note: position_metrics table is well populated across race types and years.
+Changes:
+
+Add new SQL query fetch_position_metrics_history() to pull from position_metrics table
+Compute new features:
+ema_swim_to_t1_pos_change_5 — How much the athlete gains/loses positions in T1 (fast transitions = position gains)
+ema_t1_to_bike_pos_change_5 — Position change from T1 to bike exit
+ema_t1_rank_pct_5 — T1 ranking as percentile (fast transitioners)
+ema_t2_rank_pct_5 — T2 ranking as percentile
+These features capture transition skill beyond just time — position change relative to field
+4C. Weather/Conditions Features (Existing Data Only)
+File: features.py, sql.py
+Changes:
+
+Pull weather data from events table (already populated): temperature_air, humidity, wbgt, wind, wetsuit
+Add to feature set: temperature_air, wind, wetsuit (already present), wbgt
+wetsuit is already a feature — just ensure it's populated reliably
+Add binary indicators: is_hot = wbgt > 25, is_cold = temp < 15
+No external weather API — use only what's already in the database
+4D. Course Laps Feature
+File: features.py, sql.py
+Changes:
+
+Add bike_laps and run_laps from events table as features
+Draft-legal courses with more laps tend to have different pack dynamics (more corners = more gaps = more packs)
+swim_laps may correlate with pool vs open water
+Verification:
+
+Feature importance analysis (SHAP or permutation importance) before/after
+Ablation test: add each feature group, check CV Spearman and MAE change
+days_since_last_race ablation: train with only the new engineered features (remove raw), compare performance
+Phase 5: Model Training Improvements
+5A. Hyperparameter Re-Tuning
+File: scripts/train_models.py, train.py
+Changes:
+
+After adding new features and T1/T2 targets, re-run hyperparameter search
+Increase n_estimators range (try 200-500) — more features may benefit from more trees
+Try max_depth 4-8 range
+Add reg_alpha and reg_lambda to grid for regularization
+5B. Per-Split Cross-Validation
+File: train.py
+Changes:
+
+Currently CV optimizes for Spearman on percentile model. Add per-split MAE tracking.
+Track swim/t1/bike/t2/run MAE independently across CV folds
+Log per-split vs total consistency: |sum_of_splits - total| as additional metric
+This diagnoses split-total accounting issues during training
+5C. Updated Training Date Range
+File: scripts/train_models.py
+Changes:
+
+Extend training to include 2025 data (if available)
+Consider weighting more recent data higher (time-decay weighting in addition to tier weighting)
+Verification:
+
+Full backtest suite comparing old bundle vs new bundle
+Per-race breakdown showing improvement categories
+Phase 6: Simulation Refinement (After Phases 1-5 Are Stable)
+6A. Split-Level Anchoring Consistency
+File: predict.py
+Changes:
+
+After predicting all 5 segments, compute pred_active_total = swim + t1 + bike + t2 + run
+Compare to pred_total_sec from total model
+If discrepancy > threshold, log a warning but do NOT normalize — let the split models be authoritative for splits, total model for total
+For ranking: use total model. For simulation: use split predictions directly.
+6B. Simulation Diagnostics Output
+File: simulate.py
+Changes:
+
+Add diagnostic output: per-simulation pack formation statistics
+Track: "how often does athlete X end up in front pack across sims" vs their historical front_pack_rate
+Flag athletes where simulated pack position diverges substantially from historical
+Output per-split simulation means and compare to predictions (should be close if calibrated)
+Implementation Order & Dependencies
+
+Phase 1 (T1/T2)  ← DO THIS FIRST, highest impact
+  ├── 1A (features) → 1B (train) → 1C (predict) → 1D+1E (simulate)
+  │
+Phase 2 (Covariance) ← Requires Phase 1 (need T1/T2 residuals)
+  ├── 2A (compute Σ) → 2B (MVN sampling) → 2C (calibrated sigmas)
+  │
+Phase 3 (Pack double-count) ← Can start in parallel with Phase 2
+  ├── 3A (ablation analysis) → 3B (implement fix)
+  │
+Phase 4 (Features) ← Independent, can start in parallel with Phase 1
+  ├── 4A-4D (all independent of each other)
+  │
+Phase 5 (Training) ← After Phases 1 + 4
+  ├── 5A-5C
+  │
+Phase 6 (Sim refinement) ← After Phases 1-5
+  ├── 6A-6B
+Verification Strategy
+After each phase, run this evaluation protocol:
+
+Train new model bundle: python scripts/train_models.py --version <phase_name>
+Backtest deterministic predictions: Run evaluate.py backtest on 2024 H2 held-out data
+Track: Precision@3, @5, @10, Spearman, MAE (total + per-split)
+Backtest simulation: For each backtest race, run MC simulation and compare:
+Calibration: % of actual finishes within sim [p10, p90] interval
+Rank calibration: % of actual ranks within rank [p10, p90] interval
+Pack accuracy: compare predicted front-pack membership to actual (from wtcs_pack_membership)
+Regression check: Ensure deterministic model accuracy doesn't degrade when simulation changes

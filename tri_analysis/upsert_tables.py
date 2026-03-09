@@ -125,7 +125,15 @@ def upsert_events(df, engine):
             "wbgt",
             "wind",
             "weather",
-            "wetsuit"
+            "wetsuit",
+            "wind_speed_kmh",
+            "wind_gust_kmh",
+            "apparent_temp",
+            "precipitation_mm",
+            "cloud_cover_pct",
+            "wet_bulb_temp",
+            "weather_source",
+            "weather_fetched_at",
         ],
         engine
     )

@@ -51,6 +51,7 @@ if project_root not in sys.path:
 
 from tri_analysis.database import get_engine
 from tri_analysis.wtcs_performance import WTCS_NAME_PATTERNS
+from tri_analysis.metrics import adjust_outlier
 
 
 # Event tier classification for model weighting
@@ -120,12 +121,28 @@ CHECKPOINTS: Dict[str, str] = {
     "run": "elapsedrun",
 }
 
-ALGO_VERSION = "chain_prev_gap_v1"
+ALGO_VERSION = "two_threshold_v1"
 
 
 @dataclass(frozen=True)
 class PackAlgoParams:
-    max_gap_to_prev_sec: int = 2
+    """Parameters for pack assignment algorithm.
+    
+    Two-threshold logic:
+    - initial_gap_sec: Max gap from pack leader to 2nd person (default 2s)
+    - continuation_gap_sec: Max gap for 3rd+ person to stay in pack (default 1s)
+    
+    This accounts for the realistic scenario where someone goes slightly off the
+    front but isn't really in a breakaway.
+    """
+    initial_gap_sec: int = 2  # Leader to 2nd person threshold
+    continuation_gap_sec: int = 1  # 3rd+ person continuation threshold
+    
+    # Legacy single-threshold (kept for backward compatibility)
+    @property
+    def max_gap_to_prev_sec(self) -> int:
+        """Legacy property - returns initial_gap_sec for backward compatibility."""
+        return self.initial_gap_sec
 
 
 def _build_wtcs_name_clause(params: Dict[str, object]) -> str:
@@ -220,7 +237,7 @@ def list_all_event_program_pairs_with_position_metrics(
 def assign_pack_ids_chain(sorted_elapsed_sec: Sequence[int], *, max_gap_to_prev_sec: int) -> np.ndarray:
     """Assign pack IDs for elapsed seconds already sorted ascending.
 
-    Chain rule:
+    LEGACY single-threshold chain rule (kept for backward compatibility):
     - pack_id starts at 0
     - for i>0, if elapsed[i] - elapsed[i-1] > threshold => new pack
     """
@@ -242,6 +259,65 @@ def assign_pack_ids_chain(sorted_elapsed_sec: Sequence[int], *, max_gap_to_prev_
     return pack_ids
 
 
+def assign_pack_ids_two_threshold(
+    sorted_elapsed_sec: Sequence[int],
+    *,
+    initial_gap_sec: int = 2,
+    continuation_gap_sec: int = 1,
+) -> np.ndarray:
+    """Assign pack IDs using two-threshold rule for realistic pack detection.
+    
+    This method accounts for the "noise" where someone goes slightly off the 
+    front but isn't really in a breakaway:
+    
+    - 2nd person joins pack if gap to leader ≤ initial_gap_sec (default 2s)
+    - 3rd+ person joins pack if gap to previous ≤ continuation_gap_sec (default 1s)
+    - Otherwise, start a new pack
+    
+    Args:
+        sorted_elapsed_sec: Elapsed times already sorted ascending
+        initial_gap_sec: Max gap from pack leader to 2nd person (default 2s)
+        continuation_gap_sec: Max gap for 3rd+ person to stay in pack (default 1s)
+    
+    Returns:
+        Array of pack IDs (0-indexed)
+    """
+    n = len(sorted_elapsed_sec)
+    if n == 0:
+        return np.array([], dtype=int)
+
+    pack_ids = np.zeros(n, dtype=int)
+    current_pack = 0
+    position_in_pack = 1  # Leader is position 1
+    prev = int(sorted_elapsed_sec[0])
+
+    for i in range(1, n):
+        cur = int(sorted_elapsed_sec[i])
+        gap = cur - prev
+        
+        # Determine which threshold applies
+        if position_in_pack == 1:
+            # 2nd person in pack: use initial threshold
+            threshold = initial_gap_sec
+        else:
+            # 3rd+ person: use continuation threshold
+            threshold = continuation_gap_sec
+        
+        if gap <= threshold:
+            # Stay in current pack
+            pack_ids[i] = current_pack
+            position_in_pack += 1
+        else:
+            # Start new pack
+            current_pack += 1
+            pack_ids[i] = current_pack
+            position_in_pack = 1  # This person is the new pack leader
+        
+        prev = cur
+
+    return pack_ids
+
+
 def _compute_checkpoint_membership(
     df: pd.DataFrame,
     *,
@@ -255,6 +331,7 @@ def _compute_checkpoint_membership(
     """Compute membership rows for a single checkpoint.
 
     Option A: only include athletes with valid elapsed for this checkpoint.
+    Uses two-threshold pack assignment for realistic pack detection.
     """
     if df.empty or elapsed_col not in df.columns:
         return pd.DataFrame()
@@ -271,7 +348,13 @@ def _compute_checkpoint_membership(
     work = work.sort_values("elapsed_sec", ascending=True, kind="mergesort").reset_index(drop=True)
 
     elapsed = work["elapsed_sec"].to_numpy(dtype=np.int64)
-    pack_ids = assign_pack_ids_chain(elapsed, max_gap_to_prev_sec=params.max_gap_to_prev_sec)
+    
+    # Use two-threshold algorithm for more realistic pack detection
+    pack_ids = assign_pack_ids_two_threshold(
+        elapsed,
+        initial_gap_sec=params.initial_gap_sec,
+        continuation_gap_sec=params.continuation_gap_sec,
+    )
 
     work["pos_at_checkpoint"] = np.arange(1, len(work) + 1, dtype=int)
     work["pack_id"] = pack_ids.astype(int)
@@ -313,6 +396,23 @@ def _compute_checkpoint_membership(
     ]]
 
 
+def _parse_time_to_secs(t) -> int:
+    """Parse HH:MM:SS or MM:SS time string to seconds."""
+    if pd.isna(t) or t == "":
+        return 0
+    parts = str(t).split(":")
+    try:
+        if len(parts) == 3:
+            h, m, s = parts
+            return int(h) * 3600 + int(m) * 60 + int(s)
+        elif len(parts) == 2:
+            m, s = parts
+            return int(m) * 60 + int(s)
+    except ValueError:
+        return 0
+    return 0
+
+
 def compute_pack_membership_for_event_program(
     engine: Engine,
     *,
@@ -320,12 +420,26 @@ def compute_pack_membership_for_event_program(
     prog_id: int,
     params: PackAlgoParams,
 ) -> pd.DataFrame:
-    """Compute pack membership for all checkpoints for a single (event_id, prog_id)."""
+    """Compute pack membership for all checkpoints for a single (event_id, prog_id).
+
+    Applies the same outlier filtering as metrics.py:
+    1. Exclude athletes with ANY zero/missing split (DNF, lapped, bad data)
+    2. Apply per-split outlier detection (suspiciously fast times marked as NA)
+    3. Only include athletes with valid elapsed times after filtering
+
+    This ensures gaps are computed only from clean data and corrupt athletes
+    don't pollute the pack calculations.
+    """
+    # Fetch elapsed times from position_metrics AND segment times from race_results
     query = text(
         """
-        SELECT athlete_id, elapsedswim, elapsedbike, elapsedrun
-        FROM position_metrics
-        WHERE event_id = :event_id AND prog_id = :prog_id
+        SELECT pm.athlete_id, pm.elapsedswim, pm.elapsedbike, pm.elapsedrun,
+               rr.swimtime, rr.t1time, rr.biketime, rr.t2time, rr.runtime
+        FROM position_metrics pm
+        JOIN race_results rr ON pm.event_id = rr.event_id
+                            AND pm.prog_id = rr.prog_id
+                            AND pm.athlete_id = rr.athlete_id
+        WHERE pm.event_id = :event_id AND pm.prog_id = :prog_id
         """
     )
 
@@ -335,16 +449,66 @@ def compute_pack_membership_for_event_program(
     if df.empty:
         return pd.DataFrame()
 
+    # Deduplicate: the JOIN can produce multiple rows per athlete if race_results
+    # has duplicates.  Keep first occurrence (arbitrary but stable).
+    df = df.drop_duplicates(subset=["athlete_id"], keep="first")
+
     computed_at = datetime.now(timezone.utc)
 
+    # Parse all split times to seconds
+    df["swimsecs"] = df["swimtime"].apply(_parse_time_to_secs)
+    df["t1secs"] = df["t1time"].apply(_parse_time_to_secs)
+    df["bikesecs"] = df["biketime"].apply(_parse_time_to_secs)
+    df["t2secs"] = df["t2time"].apply(_parse_time_to_secs)
+    df["runsecs"] = df["runtime"].apply(_parse_time_to_secs)
+
+    # Global exclusion: if ANY split is zero, exclude from pack calculations
+    # This catches DNFs, lapped athletes, and corrupt data
+    valid_all_splits = (
+        (df["swimsecs"] > 0) &
+        (df["t1secs"] > 0) &
+        (df["bikesecs"] > 0) &
+        (df["t2secs"] > 0) &
+        (df["runsecs"] > 0)
+    )
+
+    # Apply outlier detection per split (same as metrics.py)
+    # This catches suspiciously fast times that indicate timing errors
+    for col in ["swimsecs", "t1secs", "bikesecs", "t2secs", "runsecs"]:
+        threshold = 3 if col in ["t1secs", "t2secs"] else 2
+        df[col] = adjust_outlier(df[col], threshold)
+
+    # After outlier adjustment, recompute valid_all_splits
+    # (outliers are now NA, so they'll fail the > 0 check)
+    valid_all_splits = (
+        (df["swimsecs"] > 0) &
+        (df["t1secs"] > 0) &
+        (df["bikesecs"] > 0) &
+        (df["t2secs"] > 0) &
+        (df["runsecs"] > 0) &
+        df["swimsecs"].notna() &
+        df["t1secs"].notna() &
+        df["bikesecs"].notna() &
+        df["t2secs"].notna() &
+        df["runsecs"].notna()
+    )
+
+    # Filter to only valid athletes
+    df_valid = df[valid_all_splits].copy()
+
+    if df_valid.empty:
+        return pd.DataFrame()
+
+    # Map checkpoint to elapsed column
     parts: List[pd.DataFrame] = []
-    for checkpoint, col in CHECKPOINTS.items():
+    for checkpoint, elapsed_col in CHECKPOINTS.items():
+        # All athletes in df_valid have valid data for all checkpoints
         part = _compute_checkpoint_membership(
-            df,
+            df_valid,
             event_id=event_id,
             prog_id=prog_id,
             checkpoint=checkpoint,
-            elapsed_col=col,
+            elapsed_col=elapsed_col,
             params=params,
             computed_at=computed_at,
         )
@@ -354,7 +518,13 @@ def compute_pack_membership_for_event_program(
     if not parts:
         return pd.DataFrame()
 
-    return pd.concat(parts, ignore_index=True)
+    result = pd.concat(parts, ignore_index=True)
+    # Safety: drop any duplicate (event_id, prog_id, athlete_id, checkpoint) rows
+    # that could violate the PK constraint on insert.
+    result = result.drop_duplicates(
+        subset=["event_id", "prog_id", "athlete_id", "checkpoint"], keep="first"
+    )
+    return result
 
 
 def refresh_pack_membership_for_event_program(
@@ -374,22 +544,21 @@ def refresh_pack_membership_for_event_program(
     if dry_run:
         return int(len(df_out))
 
+    # Use a single transaction for DELETE + INSERT to avoid race conditions
     with engine.begin() as conn:
         conn.execute(
             text("DELETE FROM wtcs_pack_membership WHERE event_id = :event_id AND prog_id = :prog_id"),
             {"event_id": int(event_id), "prog_id": int(prog_id)},
         )
 
-    if df_out.empty:
-        return 0
-
-    df_out.to_sql(
-        "wtcs_pack_membership",
-        engine,
-        if_exists="append",
-        index=False,
-        method="multi",
-    )
+        if not df_out.empty:
+            df_out.to_sql(
+                "wtcs_pack_membership",
+                conn,  # Use the connection from the transaction, not the engine
+                if_exists="append",
+                index=False,
+                method="multi",
+            )
 
     return int(len(df_out))
 
@@ -398,7 +567,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="Compute and persist pack membership for triathlon events.")
     parser.add_argument("--start-date", default=None, help="Optional start date filter (YYYY-MM-DD)")
     parser.add_argument("--end-date", default=None, help="Optional end date filter (YYYY-MM-DD)")
-    parser.add_argument("--max-gap-to-prev-sec", type=int, default=2, help="Chain threshold in seconds (default: 2)")
+    parser.add_argument("--initial-gap-sec", type=int, default=2, 
+                        help="Max gap from pack leader to 2nd person (default: 2)")
+    parser.add_argument("--continuation-gap-sec", type=int, default=1,
+                        help="Max gap for 3rd+ person to stay in pack (default: 1)")
     parser.add_argument("--dry-run", action="store_true", help="Compute counts but do not write to DB")
     parser.add_argument("--limit", type=int, default=None, help="Optional limit of (event_id, prog_id) pairs")
     parser.add_argument(
@@ -410,7 +582,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     args = parser.parse_args(list(argv) if argv is not None else None)
 
     engine = get_engine()
-    params = PackAlgoParams(max_gap_to_prev_sec=int(args.max_gap_to_prev_sec))
+    params = PackAlgoParams(
+        initial_gap_sec=int(args.initial_gap_sec),
+        continuation_gap_sec=int(args.continuation_gap_sec),
+    )
 
     if args.all_events:
         pairs = list_all_event_program_pairs_with_position_metrics(

@@ -1,0 +1,158 @@
+
+=== Test Set: H2 2025 (all qualifying events) ===
+Total programs: 90
+  Men programs:    47
+  Women programs:  43
+  Tier 1a (WTCS/Finals ): 10
+  Tier 1b (T100        ): 12
+  Tier 2 (World Cup   ): 14
+  Tier 3 (Continental ): 38
+  Tier 4 (Other       ): 16
+
+--- Test Events by Tier ---
+
+Tier 1a (WTCS/Finals):
+  2025-07-12 [M] [sprint         ] 2025 World Triathlon Championship Series Hamburg
+  2025-07-12 [W] [sprint         ] 2025 World Triathlon Championship Series Hamburg
+  2025-08-31 [M] [sprint         ] 2025 World Triathlon Championship Series French Riviera
+  2025-08-31 [W] [sprint         ] 2025 World Triathlon Championship Series French Riviera
+  2025-09-14 [M] [standard       ] 2025 World Triathlon Championship Series Karlovy Vary
+  2025-09-14 [W] [standard       ] 2025 World Triathlon Championship Series Karlovy Vary
+  2025-09-26 [M] [standard       ] 2025 World Triathlon Championship Series Weihai
+  2025-09-26 [W] [standard       ] 2025 World Triathlon Championship Series Weihai
+  2025-10-15 [M] [standard       ] 2025 World Triathlon Championship Finals Wollongong
+  2025-10-15 [W] [standard       ] 2025 World Triathlon Championship Finals Wollongong
+
+Tier 1b (T100):
+  2025-08-09 [M] [middle_distance] 2025 T100 Triathlon World Tour London
+  2025-08-09 [W] [middle_distance] 2025 T100 Triathlon World Tour London
+  2025-08-30 [M] [middle_distance] 2025 T100 Triathlon World Tour French Riviera
+  2025-08-30 [W] [middle_distance] 2025 T100 Triathlon World Tour French Riviera
+  2025-09-20 [M] [middle_distance] 2025 T100 Triathlon World Tour Oropesa
+  2025-09-20 [W] [middle_distance] 2025 T100 Triathlon World Tour Oropesa
+  2025-10-18 [M] [middle_distance] 2025 T100 Triathlon World Tour Wollongong
+  2025-10-18 [W] [middle_distance] 2025 T100 Triathlon World Tour Wollongong
+  2025-11-15 [M] [middle_distance] 2025 T100 Triathlon World Tour Dubai
+  2025-11-15 [W] [middle_distance] 2025 T100 Triathlon World Tour Dubai
+  2025-12-11 [M] [middle_distance] 2025 T100 Triathlon World Championship Final Qatar
+  2025-12-11 [W] [middle_distance] 2025 T100 Triathlon World Championship Final Qatar
+
+Tier 2 (World Cup):
+  2025-07-05 [M] [sprint         ] 2025 World Triathlon Cup Tiszaujvaros
+  2025-07-05 [W] [sprint         ] 2025 World Triathlon Cup Tiszaujvaros
+  2025-10-04 [M] [sprint         ] 2025 World Triathlon Cup Rome
+  2025-10-04 [W] [sprint         ] 2025 World Triathlon Cup Rome
+  2025-11-02 [M] [sprint         ] 2025 World Triathlon Cup Vina del Mar
+  2025-11-02 [W] [sprint         ] 2025 World Triathlon Cup Vina del Mar
+  2025-11-09 [M] [sprint         ] 2025 World Triathlon Cup Miyazaki
+  2025-11-09 [M] [sprint         ] 2025 World Triathlon Cup San Pedro de la Paz
+  2025-11-09 [W] [sprint         ] 2025 World Triathlon Cup Miyazaki
+  2025-11-09 [W] [sprint         ] 2025 World Triathlon Cup San Pedro de la Paz
+  2025-11-15 [M] [sprint         ] 2025 World Triathlon Cup Tongyeong
+  2025-11-15 [M] [sprint         ] 2025 World Triathlon Cup Florianopolis
+  2025-11-15 [W] [sprint         ] 2025 World Triathlon Cup Tongyeong
+  2025-11-15 [W] [sprint         ] 2025 World Triathlon Cup Florianopolis
+
+Tier 3 (Continental):
+  2025-07-06 [M] [sprint         ] 2025 Africa Triathlon Premium Cup Larache
+  2025-07-06 [W] [sprint         ] 2025 Africa Triathlon Premium Cup Larache
+  2025-07-12 [M] [sprint         ] 2025 Americas Triathlon Cup Magog
+  2025-07-12 [W] [sprint         ] 2025 Americas Triathlon Cup Magog
+  2025-07-19 [M] [sprint         ] 2025 Americas Triathlon Cup Montreal
+  2025-07-19 [W] [sprint         ] 2025 Americas Triathlon Cup Montreal
+  2025-08-09 [M] [sprint         ] 2025 Americas Triathlon Cup Kelowna
+  2025-08-09 [W] [sprint         ] 2025 Americas Triathlon Cup Kelowna
+  2025-09-13 [M] [sprint         ] 2025 Africa Triathlon Cup Oran
+  2025-09-13 [W] [sprint         ] 2025 Africa Triathlon Cup Oran
+  2025-09-20 [M] [sprint         ] 2025 Asia Triathlon Cup Gamagori
+  2025-09-20 [W] [sprint         ] 2025 Asia Triathlon Cup Gamagori
+  2025-09-21 [M] [sprint         ] 2025 Africa Triathlon Cup Taghazout
+  2025-09-21 [W] [sprint         ] 2025 Africa Triathlon Cup Taghazout
+  2025-09-26 [M] [standard       ] 2025 Asia Triathlon Cup Turkestan
+  2025-09-26 [M] [sprint         ] 2025 Asia Triathlon Cup Yilan
+  2025-09-26 [W] [sprint         ] 2025 Asia Triathlon Cup Yilan
+  2025-10-03 [M] [sprint         ] 2025 Africa Triathlon Cup and Pan-Arab Championships Hurghada
+  2025-10-03 [W] [sprint         ] 2025 Africa Triathlon Cup and Pan-Arab Championships Hurghada
+  2025-10-05 [M] [sprint         ] 2025 Europe Triathlon Cup Ceuta
+  2025-10-05 [W] [sprint         ] 2025 Europe Triathlon Cup Ceuta
+  2025-10-12 [M] [sprint         ] 2025 Africa Triathlon Cup Kilifi
+  2025-10-12 [M] [sprint         ] 2025 Europe Triathlon Cup Tenerife - Santa Cruz
+  2025-10-12 [W] [sprint         ] 2025 Europe Triathlon Cup Tenerife - Santa Cruz
+  2025-10-18 [M] [standard       ] 2025 Asia Triathlon Cup Chongqing
+  2025-10-18 [W] [standard       ] 2025 Asia Triathlon Cup Chongqing
+  2025-10-23 [M] [sprint         ] 2025 Asia Triathlon Cup Kota Kinabalu
+  2025-10-23 [W] [sprint         ] 2025 Asia Triathlon Cup Kota Kinabalu
+  2025-10-25 [M] [sprint         ] 2025 Europe Triathlon Cup Alanya
+  2025-10-25 [M] [sprint         ] 2025 Americas Triathlon Cup Iquique
+  2025-10-25 [W] [sprint         ] 2025 Europe Triathlon Cup Alanya
+  2025-10-25 [W] [sprint         ] 2025 Americas Triathlon Cup Iquique
+  2025-11-02 [M] [sprint         ] 2025 Americas Triathlon Cup Vina del Mar
+  2025-11-02 [W] [sprint         ] 2025 Americas Triathlon Cup Vina del Mar
+  2025-11-23 [M] [sprint         ] 2025 Americas Triathlon Cup Manta
+  2025-11-23 [W] [sprint         ] 2025 Americas Triathlon Cup Manta
+  2025-12-06 [M] [sprint         ] 2025 Americas Triathlon Cup and Iberoamerican Championships Maldonado
+  2025-12-06 [W] [sprint         ] 2025 Americas Triathlon Cup and Iberoamerican Championships Maldonado
+
+Tier 4 (Other):
+  2025-07-19 [M] [sprint         ] 2025 Europe Triathlon Sprint and Relay Championships Melilla
+  2025-07-19 [W] [sprint         ] 2025 Europe Triathlon Sprint and Relay Championships Melilla
+  2025-07-27 [M] [sprint         ] 2025 Europe Triathlon Baltic Championships Otep‰‰
+  2025-07-27 [W] [sprint         ] 2025 Europe Triathlon Baltic Championships Otep‰‰
+  2025-08-20 [M] [sprint         ] 2025 Asuncion Junior Pan-American Games
+  2025-08-20 [W] [sprint         ] 2025 Asuncion Junior Pan-American Games
+  2025-08-23 [M] [sprint         ] 2025 Americas Triathlon CARIFTA  Championships Tobago
+  2025-08-23 [W] [sprint         ] 2025 Americas Triathlon CARIFTA  Championships Tobago
+  2025-08-30 [M] [standard       ] 2025 Europe Triathlon Championships Istanbul
+  2025-08-30 [M] [standard       ] 2025 Asia Triathlon Championships Istanbul
+  2025-08-30 [W] [standard       ] 2025 Europe Triathlon Championships Istanbul
+  2025-08-30 [W] [standard       ] 2025 Asia Triathlon Championships Istanbul
+  2025-09-26 [M] [sprint         ] 2025 Africa Triathlon Sprint Championships El Galala
+  2025-09-28 [M] [sprint         ] 2025 Europe Triathlon Balkan Championships Mudanya-Bursa
+  2025-12-07 [W] [sprint         ] 2025 World Triathlon Womenís Cup Dubai
+  2025-12-13 [M] [sprint         ] 2025 Asia Triathlon West Asian Championship Fujairah
+
+NOTE: Model should be trained through 2025-06-30 to avoid data leakage.
+Command: python scripts/train_models.py --start_date 2018-01-01 --end_date 2025-06-30 --output models/bundle_elite_v6.joblib
+
+
+Using model: models/bundle_elite_v38.joblib
+
+
+=== Backtest Results ===
+Events evaluated: 90
+Precision@3:  50.37%
+Precision@5:  59.33%
+Precision@10: 72.16%
+Spearman:     0.788
+MAE total:    421.5 sec
+
+--- Results by Tier ---
+  Tier 1a (WTCS/Finals ): P@3=46.7%, P@5=54.0%, P@10=70.0%, Spearman=0.715, MAE=221s, n=10
+  Tier 1b (T100        ): P@3=63.9%, P@5=66.7%, P@10=80.8%, Spearman=0.709, MAE=1454s, n=12
+  Tier 2 (World Cup   ): P@3=38.1%, P@5=50.0%, P@10=62.9%, Spearman=0.762, MAE=185s, n=14
+  Tier 3 (Continental ): P@3=47.4%, P@5=60.0%, P@10=71.9%, Spearman=0.837, MAE=266s, n=38
+  Tier 4 (Other       ): P@3=60.4%, P@5=63.7%, P@10=76.0%, Spearman=0.799, MAE=349s, n=16
+
+=== Start Number Baseline (Bib = World Ranking Proxy) ===
+Events with start_num data: 90
+Precision@3:  46.30%
+Precision@5:  52.89%
+Precision@10: 65.34%
+Spearman:     0.631
+
+--- Head-to-Head (90 common events) ---
+Metric               Model   StartNum      Delta     Winner
+-----------------------------------------------------------
+P@3                  50.4%      46.3%      +4.1%      Model
+P@5                  59.3%      52.9%      +6.4%      Model
+P@10                 72.2%      65.3%      +6.8%      Model
+Spearman             0.788      0.631     +0.157      Model
+
+--- Start Number Baseline by Tier ---
+  Tier 1a (WTCS/Finals ): P@3=43.3%, P@10=66.0%, Spearman=0.608, n=10
+  Tier 1b (T100        ): P@3=66.7%, P@10=77.5%, Spearman=0.673, n=12
+  Tier 2 (World Cup   ): P@3=38.1%, P@10=53.6%, Spearman=0.568, n=14
+  Tier 3 (Continental ): P@3=40.4%, P@10=64.3%, Spearman=0.666, n=38
+  Tier 4 (Other       ): P@3=54.2%, P@10=68.7%, Spearman=0.584, n=16
+
+MLflow: backtest metrics logged to experiment 'triathlon-prediction'

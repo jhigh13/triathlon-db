@@ -24,18 +24,11 @@ PROGRAM_DETAILS_URL   = f"{BASE_URL}/events/{{event_id}}/programs/{{program_id}}
 PROGRAM_RESULTS_URL = f"{BASE_URL}/events/{{event_id}}/programs/{{program_id}}/results"
 PROGRAM_ENTRIES_URL = f"{BASE_URL}/events/{{event_id}}/programs/{{prog_id}}/entries"
 
-# Database
-'''
+# Database — always local for model training (fast reads/writes).
+# Dashboard reads from Supabase via its own TRIATHLON_DATABASE_URL setting.
 DB_URI = os.environ.get(
     "DB_URI",
-    "postgresql://postgres.kzddtovwtnsfxccyicjd:tG4IfJmrRcNOFXJo@aws-0-us-east-2.pooler.supabase.com:6543/postgres"
-)
-'''
-
-
-DB_URI = os.environ.get(
-    "DB_URI",
-    "postgresql+psycopg2://postgres:Bc020406!@localhost:5432/triathlon_results"
+    "postgresql+psycopg://postgres:Bc020406%21@localhost:5432/triathlon_results"
 )
 
 
