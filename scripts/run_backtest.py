@@ -51,6 +51,12 @@ def main():
         action="store_true",
         help="Skip Monte Carlo simulation (faster, deterministic-only backtest)."
     )
+    parser.add_argument(
+        "--no_packs",
+        action="store_true",
+        help="Disable pack effects in MC simulation (pure individual noise). "
+             "Useful for isolating whether pack logic helps or hurts accuracy."
+    )
     args = parser.parse_args()
 
     # Determine model path(s)
@@ -131,10 +137,13 @@ def main():
     print("Command: python scripts/train_models.py --start_date 2018-01-01 --end_date 2025-06-30 --output models/bundle_elite_v6.joblib\n")
 
     run_sim = not args.no_sim
+    use_packs = not args.no_packs
     sim_label = " + Monte Carlo simulation" if run_sim else ""
+    if run_sim and not use_packs:
+        sim_label += " (NO PACKS)"
     print(f"\nUsing model: {model_label}{sim_label}\n")
     keys = list(test_events[['event_id', 'prog_id']].itertuples(index=False, name=None))
-    results = backtest_events(engine, keys, model_path, run_simulation=run_sim)
+    results = backtest_events(engine, keys, model_path, run_simulation=run_sim, use_pack_effects=use_packs)
 
     # Compute aggregate metrics
     p3 = results.precision_at_3.mean()

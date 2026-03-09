@@ -100,6 +100,15 @@ def initialize_database():
         Column('wind',              String),
         Column('weather',           String),
         Column('wetsuit',           String),
+        # Open-Meteo enriched weather columns
+        Column('wind_speed_kmh',    Float),
+        Column('wind_gust_kmh',     Float),
+        Column('apparent_temp',     Float),
+        Column('precipitation_mm',  Float),
+        Column('cloud_cover_pct',   Float),
+        Column('wet_bulb_temp',     Float),
+        Column('weather_source',    String),
+        Column('weather_fetched_at', String),
         PrimaryKeyConstraint('event_id', 'prog_id', name='pk_events')
     )
 
@@ -401,6 +410,18 @@ def initialize_database():
                 """
             )
         )
+        # Add Open-Meteo enriched weather columns if missing
+        for col, col_type in [
+            ("wind_speed_kmh", "DOUBLE PRECISION"),
+            ("wind_gust_kmh", "DOUBLE PRECISION"),
+            ("apparent_temp", "DOUBLE PRECISION"),
+            ("precipitation_mm", "DOUBLE PRECISION"),
+            ("cloud_cover_pct", "DOUBLE PRECISION"),
+            ("wet_bulb_temp", "DOUBLE PRECISION"),
+            ("weather_source", "VARCHAR"),
+            ("weather_fetched_at", "VARCHAR"),
+        ]:
+            conn.execute(text(f'ALTER TABLE "{EVENTS_TABLE_NAME}" ADD COLUMN IF NOT EXISTS {col} {col_type}'))
         # Add finish-related columns to race_results if missing (safe migrations)
         conn.execute(text(f'ALTER TABLE "{RACE_RESULTS_TABLE_NAME}" ADD COLUMN IF NOT EXISTS finish_status VARCHAR'))
         conn.execute(text(f'ALTER TABLE "{RACE_RESULTS_TABLE_NAME}" ADD COLUMN IF NOT EXISTS finish_position INTEGER'))

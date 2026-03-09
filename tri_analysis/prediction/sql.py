@@ -153,6 +153,7 @@ def fetch_athlete_history(
             e.prog_name,
             e.prog_distance_category,
             e.event_country,
+            e.event_venue,
             e.wetsuit,
             (SELECT COUNT(*) FROM race_results rr2
              WHERE rr2.event_id = rr.event_id
@@ -289,6 +290,7 @@ def fetch_pack_effect_data(
     end_date: str | None = None,
     distance_category: str | None = None,
     elite_only: bool = True,
+    event_tier: int | None = None,
 ) -> pd.DataFrame:
     """
     Fetch paired swim-pack + bike-time data for learning pack effects.
@@ -346,7 +348,8 @@ def fetch_pack_effect_data(
             rr.total_time,
             rr.finish_position,
             e.prog_distance_category,
-            e.event_date
+            e.event_date,
+            e.event_name
         FROM wtcs_pack_membership pm
         JOIN race_results rr
             ON pm.event_id = rr.event_id
@@ -360,9 +363,17 @@ def fetch_pack_effect_data(
     """)
 
     df = pd.read_sql(query, engine, params=params)
+
+    # Post-query tier filtering (tier is derived from event_name, not a DB column)
+    if event_tier is not None and "event_name" in df.columns:
+        from .features import classify_event_tier
+        df["_tier"] = df["event_name"].apply(classify_event_tier)
+        df = df[df["_tier"] == event_tier].drop(columns=["_tier"])
+
     logger.info(
         f"fetch_pack_effect_data: {len(df)} rows "
         f"({df[['event_id', 'prog_id']].drop_duplicates().shape[0]} races)"
+        + (f", tier={event_tier}" if event_tier else "")
     )
     return df
 
@@ -373,6 +384,7 @@ def fetch_swim_to_bike_transitions(
     end_date: str | None = None,
     distance_category: str | None = None,
     elite_only: bool = True,
+    event_tier: int | None = None,
 ) -> pd.DataFrame:
     """
     Fetch paired swim-exit and bike-exit pack membership for learning merge patterns.
@@ -428,7 +440,8 @@ def fetch_swim_to_bike_transitions(
             bk.pack_id           AS bike_pack_id,
             bk.pack_size         AS bike_pack_size,
             bk.gap_to_leader_sec AS bike_gap_to_leader_sec,
-            bk.pos_at_checkpoint AS bike_pos
+            bk.pos_at_checkpoint AS bike_pos,
+            e.event_name
         FROM wtcs_pack_membership sw
         JOIN wtcs_pack_membership bk
             ON sw.event_id = bk.event_id
@@ -443,9 +456,17 @@ def fetch_swim_to_bike_transitions(
     """)
 
     df = pd.read_sql(query, engine, params=params)
+
+    # Post-query tier filtering
+    if event_tier is not None and "event_name" in df.columns:
+        from .features import classify_event_tier
+        df["_tier"] = df["event_name"].apply(classify_event_tier)
+        df = df[df["_tier"] == event_tier].drop(columns=["_tier"])
+
     logger.info(
         f"fetch_swim_to_bike_transitions: {len(df)} rows "
         f"({df[['event_id', 'prog_id']].drop_duplicates().shape[0]} races)"
+        + (f", tier={event_tier}" if event_tier else "")
     )
     return df
 
@@ -583,7 +604,7 @@ def fetch_precomputed_race_metrics(
         limit: Maximum number of recent races (default 50)
 
     Columns returned:
-        event_id, prog_id, event_date, swimrank, bikerank, runrank,
+        event_id, prog_id, event_date, event_name, swimrank, bikerank, runrank,
         t1rank, t2rank, swim_to_t1_pos_change, t1_to_bike_pos_change,
         bike_to_t2_pos_change, t2_to_run_pos_change,
         n_finishers, median_total_sec, elapsedrun
@@ -593,6 +614,7 @@ def fetch_precomputed_race_metrics(
             pm.event_id,
             pm.prog_id,
             e.event_date,
+            e.event_name,
             pm.swimrank,
             pm.bikerank,
             pm.runrank,
@@ -690,7 +712,13 @@ def fetch_event_metadata(engine: Engine, key: ProgramKey) -> Optional[dict]:
             wind,
             swim_laps,
             bike_laps,
-            run_laps
+            run_laps,
+            wind_speed_kmh,
+            wind_gust_kmh,
+            apparent_temp,
+            precipitation_mm,
+            cloud_cover_pct,
+            weather_source
         FROM events
         WHERE event_id = :event_id
           AND prog_id = :prog_id
@@ -861,4 +889,66 @@ def fetch_athletes_by_ids(
 
     df = pd.read_sql(sql, engine, params={"athlete_ids": athlete_ids})
     logger.debug(f"fetch_athletes_by_ids: {len(df)} athletes found for {len(athlete_ids)} requested")
+    return df
+
+
+def fetch_head_to_head_results(
+    engine: Engine,
+    athlete_ids: list[int],
+    before_date: date,
+    limit_per_athlete: int = 30,
+) -> pd.DataFrame:
+    """
+    Fetch race results for all shared races among a set of athletes.
+
+    For each race where at least 2 of the given athletes competed, returns
+    their finish positions. Used to compute pairwise head-to-head records.
+
+    Args:
+        engine: SQLAlchemy Engine
+        athlete_ids: List of athlete IDs in the field
+        before_date: Only races before this date (prevents leakage)
+        limit_per_athlete: Max recent races per athlete to consider
+
+    Returns:
+        DataFrame with columns: event_id, prog_id, event_date, athlete_id,
+                                finish_position, n_field_opponents
+    """
+    if len(athlete_ids) < 2:
+        return pd.DataFrame()
+
+    # Find all recent races for these athletes, then filter to shared races
+    sql = text("""
+        WITH athlete_races AS (
+            SELECT rr.event_id, rr.prog_id, e.event_date,
+                   rr.athlete_id, rr.finish_position
+            FROM race_results rr
+            JOIN events e ON rr.event_id = e.event_id AND rr.prog_id = e.prog_id
+            WHERE rr.athlete_id = ANY(:athlete_ids)
+              AND e.event_date < :before_date
+              AND rr.finish_status = 'FINISH'
+              AND rr.finish_position IS NOT NULL
+        ),
+        shared_races AS (
+            SELECT event_id, prog_id
+            FROM athlete_races
+            GROUP BY event_id, prog_id
+            HAVING COUNT(DISTINCT athlete_id) >= 2
+        )
+        SELECT ar.event_id, ar.prog_id, ar.event_date,
+               ar.athlete_id, ar.finish_position
+        FROM athlete_races ar
+        JOIN shared_races sr ON ar.event_id = sr.event_id AND ar.prog_id = sr.prog_id
+        ORDER BY ar.event_date DESC, ar.event_id, ar.finish_position
+    """)
+
+    df = pd.read_sql(sql, engine, params={
+        "athlete_ids": athlete_ids,
+        "before_date": before_date,
+    })
+    logger.debug(
+        f"fetch_head_to_head_results: {len(df)} rows across "
+        f"{df['event_id'].nunique() if not df.empty else 0} shared races "
+        f"for {len(athlete_ids)} athletes"
+    )
     return df

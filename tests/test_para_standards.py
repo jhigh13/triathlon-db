@@ -6,7 +6,7 @@ from tri_analysis.time_utils import pace_sec_per_100m, pace_sec_per_km, seconds_
 def test_distance_panel_inference_sprint_when_missing_category():
     import pandas as pd
 
-    from tri_analysis.para_standards import compute_metrics
+    from para_triathlon_analysis.para_standards import compute_metrics
 
     df = pd.DataFrame(
         [
@@ -29,7 +29,7 @@ def test_distance_panel_inference_sprint_when_missing_category():
 
 
 def test_compute_metrics_turns_zero_splits_into_missing_and_filters_nonfinish():
-    from tri_analysis.para_standards import compute_metrics
+    from para_triathlon_analysis.para_standards import compute_metrics
 
     df = pd.DataFrame(
         [
@@ -92,7 +92,7 @@ def test_compute_metrics_turns_zero_splits_into_missing_and_filters_nonfinish():
 
 
 def test_composite_score_positive_when_usa_better():
-    from tri_analysis.para_standards import compute_composite_scores
+    from para_triathlon_analysis.para_standards import compute_composite_scores
 
     df = pd.DataFrame(
         [
@@ -133,7 +133,7 @@ def test_composite_score_positive_when_usa_better():
 
 
 def test_time_factor_normalization_ptvi_b3_2025_subtracts_from_swim_and_total():
-    from tri_analysis.para_standards import compute_metrics
+    from para_triathlon_analysis.para_standards import compute_metrics
 
     df = pd.DataFrame(
         [
@@ -181,7 +181,7 @@ def test_time_factor_normalization_ptvi_b3_2025_subtracts_from_swim_and_total():
 
 
 def test_time_factor_segment_matches_adjusted_minus_effort_total():
-    from tri_analysis.para_standards import compute_metrics
+    from para_triathlon_analysis.para_standards import compute_metrics
 
     df = pd.DataFrame(
         [
@@ -221,7 +221,7 @@ def test_time_factor_segment_matches_adjusted_minus_effort_total():
 
 
 def test_time_factor_not_applied_for_pre_2024_years():
-    from tri_analysis.para_standards import compute_metrics
+    from para_triathlon_analysis.para_standards import compute_metrics
 
     df = pd.DataFrame(
         [

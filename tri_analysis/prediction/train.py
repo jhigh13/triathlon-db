@@ -21,12 +21,18 @@ logger = logging.getLogger(__name__)
 
 # Try to import LightGBM; fall back to sklearn if not available
 try:
-    from lightgbm import LGBMRegressor
+    from lightgbm import LGBMRegressor, LGBMRanker
     USE_LIGHTGBM = True
     logger.info("Using LightGBM for regression models")
 except ImportError:
     USE_LIGHTGBM = False
     logger.info("LightGBM not available, using sklearn HistGradientBoostingRegressor")
+
+try:
+    import xgboost as xgb
+    USE_XGBOOST = True
+except ImportError:
+    USE_XGBOOST = False
 
 from sklearn.ensemble import HistGradientBoostingRegressor
 from sklearn.impute import SimpleImputer
@@ -60,6 +66,10 @@ class ModelBundle:
     model_t2: Optional[Any] = None
     model_front_pack: Optional[Any] = None
     model_total_pct: Optional[Any] = None  # Percentile model (finish_position / n_finishers)
+    model_ranker: Optional[Any] = None  # LGBMRanker for direct rank optimization
+    ranker_imputer: Optional[Any] = None  # Imputer for ranker (not in pipeline)
+    model_xgb_ranker: Optional[Any] = None  # XGBRanker for ensemble diversity
+    xgb_ranker_imputer: Optional[Any] = None  # Imputer for XGB ranker
     distance_split_models: dict = field(default_factory=dict)
     # e.g., {"sprint": {"swim": model, "bike": model, "run": model},
     #        "standard": {"swim": model, "bike": model, "run": model}}
@@ -407,6 +417,160 @@ def train_baseline_models(
         metrics[name] = {"mae": float(mae), "n_samples": len(y_train)}
         logger.info(f"  {name} training MAE: {mae:.1f} sec")
 
+    # ---- Train LGBMRanker for direct rank optimization ----
+    # The ranker directly optimizes ranking (NDCG) within each race group,
+    # which is the actual evaluation metric (P@K). This complements the
+    # percentile regressor which optimizes MSE on finish_pct.
+    model_ranker = None
+    ranker_imputer = None
+
+    if USE_LIGHTGBM and "finish_position" in train_df.columns:
+        try:
+            # Build group structure: each race is a group
+            # Need event_id + prog_id to identify unique races
+            if "event_id" in train_df.columns and "prog_id" in train_df.columns:
+                train_df = train_df.copy()
+                train_df["_race_key"] = (
+                    train_df["event_id"].astype(str) + "_" + train_df["prog_id"].astype(str)
+                )
+
+                # Filter to rows with valid finish position and enough athletes per race
+                rank_mask = train_df["finish_position"].notna() & train_df["_race_key"].notna()
+                rank_df = train_df[rank_mask].copy()
+
+                # Count athletes per race and filter to races with >= 10 finishers
+                race_counts = rank_df.groupby("_race_key").size()
+                valid_races = race_counts[race_counts >= 10].index
+                rank_df = rank_df[rank_df["_race_key"].isin(valid_races)]
+
+                if len(rank_df) > 100:
+                    # Sort by race key for group structure
+                    rank_df = rank_df.sort_values("_race_key").reset_index(drop=True)
+
+                    # Compute relevance: higher = better finish
+                    # Use inverted position within each race, capped to 31 levels (0-30)
+                    # LightGBM lambdarank default label_cnt=31, so labels must be 0-30
+                    MAX_RELEVANCE = 30
+                    race_sizes = rank_df.groupby("_race_key")["finish_position"].transform("count")
+                    raw_relevance = (race_sizes - rank_df["finish_position"]).clip(lower=0)
+                    rank_df["_relevance"] = raw_relevance.clip(upper=MAX_RELEVANCE).astype(int)
+
+                    # Group sizes array (ordered)
+                    group_sizes = rank_df.groupby("_race_key").size().values
+
+                    # Prepare features
+                    X_rank = rank_df[feature_cols].copy()
+                    y_rank = rank_df["_relevance"]
+
+                    # Impute first (ranker can't use Pipeline)
+                    from sklearn.impute import SimpleImputer as _SI
+                    ranker_imputer = _SI(strategy="median")
+                    X_rank_imputed = ranker_imputer.fit_transform(X_rank)
+
+                    # Sample weights for ranker: tier * field-size * time-decay
+                    from .features import TIER_SAMPLE_WEIGHTS
+                    rank_weights = None
+                    if use_sample_weights and "event_tier" in rank_df.columns:
+                        tier_w = rank_df["event_tier"].map(TIER_SAMPLE_WEIGHTS).fillna(1.0)
+                        # Upweight athletes in large fields (>30) where P@10 is hardest
+                        field_sizes = rank_df.groupby("_race_key")["finish_position"].transform("count")
+                        field_w = np.where(field_sizes >= 50, 2.0,
+                                  np.where(field_sizes >= 40, 1.5,
+                                  np.where(field_sizes >= 30, 1.2, 1.0)))
+                        rank_weights = (tier_w * field_w).values
+                    # Add time-decay to ranker weights
+                    if time_decay_half_life > 0 and "event_date" in rank_df.columns:
+                        decay_w = _compute_time_decay_weights(rank_df, time_decay_half_life)
+                        if rank_weights is not None:
+                            rank_weights = rank_weights * decay_w.values
+                        else:
+                            rank_weights = decay_w.values
+
+                    p = {**DEFAULT_PARAMS, **(model_params or {})}
+                    model_ranker = LGBMRanker(
+                        objective="lambdarank",
+                        lambdarank_truncation_level=10,  # Focus on top-10 ranking (NDCG@10)
+                        n_estimators=300,  # More trees for ranking task
+                        max_depth=p["max_depth"],
+                        learning_rate=0.05,  # Slower LR with more trees
+                        num_leaves=p.get("num_leaves", 31),
+                        min_child_samples=p.get("min_child_samples", 20),
+                        reg_alpha=p.get("reg_alpha", 0.0),
+                        reg_lambda=p.get("reg_lambda", 0.0),
+                        random_state=42,
+                        verbose=-1,
+                    )
+
+                    fit_kwargs = {"group": group_sizes}
+                    if rank_weights is not None:
+                        fit_kwargs["sample_weight"] = rank_weights
+
+                    model_ranker.fit(X_rank_imputed, y_rank, **fit_kwargs)
+
+                    logger.info(
+                        f"  ranker: trained on {len(rank_df)} samples across "
+                        f"{len(group_sizes)} races (LGBMRanker lambdarank)"
+                    )
+                    metrics["ranker"] = {
+                        "n_samples": len(rank_df),
+                        "n_races": len(group_sizes),
+                    }
+                else:
+                    logger.warning(f"Not enough data for ranker ({len(rank_df)} rows)")
+        except Exception as e:
+            logger.warning(f"Failed to train ranker: {e}")
+            model_ranker = None
+            ranker_imputer = None
+
+    # ---- Train XGBRanker for ensemble diversity ----
+    model_xgb_ranker = None
+    xgb_ranker_imputer = None
+
+    if USE_XGBOOST and model_ranker is not None:
+        try:
+            # Reuse the same rank_df, relevance labels, and group structure from LGBMRanker
+            from sklearn.impute import SimpleImputer as _SI2
+            xgb_ranker_imputer = _SI2(strategy="median")
+            X_xgb_imputed = xgb_ranker_imputer.fit_transform(X_rank)
+
+            model_xgb_ranker = xgb.XGBRanker(
+                objective="rank:ndcg",
+                n_estimators=300,
+                max_depth=6,
+                learning_rate=0.05,
+                subsample=0.8,
+                colsample_bytree=0.8,
+                random_state=42,
+                verbosity=0,
+                tree_method="hist",
+            )
+
+            # XGBoost ranking weights must be per-group, not per-sample
+            # Aggregate sample weights to group-level by averaging within each group
+            xgb_fit_kwargs = {"group": group_sizes}
+            if rank_weights is not None:
+                group_weights = []
+                offset = 0
+                for gs in group_sizes:
+                    group_weights.append(np.mean(rank_weights[offset:offset + gs]))
+                    offset += gs
+                xgb_fit_kwargs["sample_weight"] = np.array(group_weights)
+
+            model_xgb_ranker.fit(X_xgb_imputed, y_rank, **xgb_fit_kwargs)
+
+            logger.info(
+                f"  xgb_ranker: trained on {len(rank_df)} samples across "
+                f"{len(group_sizes)} races (XGBRanker rank:ndcg)"
+            )
+            metrics["xgb_ranker"] = {
+                "n_samples": len(rank_df),
+                "n_races": len(group_sizes),
+            }
+        except Exception as e:
+            logger.warning(f"Failed to train XGB ranker: {e}")
+            model_xgb_ranker = None
+            xgb_ranker_imputer = None
+
     # Build bundle
     bundle = ModelBundle(
         model_swim=models.get("swim"),
@@ -416,6 +580,10 @@ def train_baseline_models(
         model_t1=models.get("t1"),
         model_t2=models.get("t2"),
         model_total_pct=models.get("total_pct"),
+        model_ranker=model_ranker,
+        ranker_imputer=ranker_imputer,
+        model_xgb_ranker=model_xgb_ranker,
+        xgb_ranker_imputer=xgb_ranker_imputer,
         feature_columns=feature_cols,
         metadata={
             "training_metrics": metrics,

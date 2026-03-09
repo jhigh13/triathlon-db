@@ -307,9 +307,43 @@ def predict_splits_and_total(
     df["pred_split_total_delta"] = delta
 
     # Compute predicted rank
-    # Use percentile model for ranking if available (better cross-distance accuracy),
-    # otherwise fall back to ranking by predicted total seconds
-    if has_pct_model:
+    # Priority: (1) LGBMRanker if available, (2) percentile model, (3) absolute time
+    has_ranker = (
+        hasattr(bundle, "model_ranker") and bundle.model_ranker is not None
+        and hasattr(bundle, "ranker_imputer") and bundle.ranker_imputer is not None
+    )
+
+    if has_ranker and has_pct_model:
+        try:
+            X_rank = df[bundle.feature_columns].copy()
+            X_rank_imputed = bundle.ranker_imputer.transform(X_rank)
+            ranker_scores = bundle.model_ranker.predict(X_rank_imputed)
+            df["ranker_score"] = ranker_scores
+            # Ranker rank: higher score = better finish
+            ranker_rank = df["ranker_score"].rank(method="average", ascending=False)
+            # Percentile rank: lower pct = better finish
+            pct_rank = df["pred_finish_pct"].rank(method="average", ascending=True)
+
+            RANKER_WEIGHT = 0.5
+            df["ensemble_rank_score"] = RANKER_WEIGHT * ranker_rank + (1 - RANKER_WEIGHT) * pct_rank
+            logger.info(f"Using ensemble ranking (ranker={RANKER_WEIGHT:.0%}, pct={1-RANKER_WEIGHT:.0%})")
+
+            df["predicted_rank"] = df["ensemble_rank_score"].rank(method="min", ascending=True).astype(int)
+        except Exception as e:
+            logger.warning(f"Ensemble ranking failed, falling back to percentile: {e}")
+            df["predicted_rank"] = df["pred_finish_pct"].rank(method="min", ascending=True).astype(int)
+    elif has_ranker:
+        try:
+            X_rank = df[bundle.feature_columns].copy()
+            X_rank_imputed = bundle.ranker_imputer.transform(X_rank)
+            ranker_scores = bundle.model_ranker.predict(X_rank_imputed)
+            df["ranker_score"] = ranker_scores
+            df["predicted_rank"] = df["ranker_score"].rank(method="min", ascending=False).astype(int)
+            logger.info("Using LGBMRanker for ranking")
+        except Exception as e:
+            logger.warning(f"Ranker prediction failed, falling back: {e}")
+            df["predicted_rank"] = df["pred_total_sec"].rank(method="min", ascending=True).astype(int)
+    elif has_pct_model:
         df["predicted_rank"] = df["pred_finish_pct"].rank(method="min", ascending=True).astype(int)
     else:
         df["predicted_rank"] = df["pred_total_sec"].rank(method="min", ascending=True).astype(int)

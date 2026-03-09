@@ -240,6 +240,7 @@ def backtest_events(
     bundle_path: str | dict[str, str],
     feature_cols: Optional[list[str]] = None,
     run_simulation: bool = False,
+    use_pack_effects: bool = True,
 ) -> pd.DataFrame:
     """
     Run backtests on multiple historical events.
@@ -272,6 +273,7 @@ def backtest_events(
 
     if run_simulation:
         from .simulate import run_monte_carlo, get_distance_pack_params, get_distance_merge_params
+        from .features import classify_event_tier
 
     # Load bundle(s)
     if isinstance(bundle_path, dict):
@@ -336,8 +338,11 @@ def backtest_events(
             # Optionally run Monte Carlo simulation and evaluate
             if run_simulation:
                 try:
-                    pack_params = get_distance_pack_params(active_bundle.metadata, distance_cat)
-                    merge_params = get_distance_merge_params(active_bundle.metadata, distance_cat)
+                    # Derive event tier for tier-specific pack/merge params
+                    event_name = event_meta.get("event_name", "") if event_meta else ""
+                    event_tier = classify_event_tier(event_name) if event_name else None
+                    pack_params = get_distance_pack_params(active_bundle.metadata, distance_cat, event_tier=event_tier)
+                    merge_params = get_distance_merge_params(active_bundle.metadata, distance_cat, event_tier=event_tier)
 
                     sim_df = run_monte_carlo(
                         pred_df,
@@ -347,12 +352,18 @@ def backtest_events(
                         merge_params=merge_params,
                         distance_category=distance_cat,
                         bundle_metadata=active_bundle.metadata,
+                        use_pack_effects=use_pack_effects,
                     )
 
                     # Build evaluation df using sim rankings
+                    # Use mean-time rank (rank by average simulated total time)
+                    # instead of expected_rank (mean of ranks) — preserves more signal
                     sim_eval_df = sim_df.copy()
-                    sim_eval_df["predicted_rank"] = sim_eval_df["expected_rank"]
-                    sim_eval_df["pred_total_sec"] = sim_eval_df["total_p50"]
+                    if "mean_time_rank" in sim_eval_df.columns:
+                        sim_eval_df["predicted_rank"] = sim_eval_df["mean_time_rank"]
+                    else:
+                        sim_eval_df["predicted_rank"] = sim_eval_df["expected_rank"]
+                    sim_eval_df["pred_total_sec"] = sim_eval_df.get("mean_total_sec", sim_eval_df["total_p50"])
 
                     sim_metrics = evaluate_program_predictions(sim_eval_df, results_df)
 

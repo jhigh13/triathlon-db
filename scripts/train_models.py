@@ -422,6 +422,37 @@ def main():
 
                 if pack_params_by_distance:
                     bundle.metadata["pack_effect_params_by_distance"] = pack_params_by_distance
+
+                # Tier-specific pack params — learn different pack dynamics per tier
+                # WTCS (tier 1) has tighter packs, Continental (tier 3+) has wider gaps
+                pack_params_by_tier = {}
+                for tier_val, tier_label in [(1, "tier1"), (2, "tier2")]:
+                    tier_pack_data = fetch_pack_effect_data(
+                        engine,
+                        start_date=args.start_date,
+                        end_date=args.end_date,
+                        elite_only=elite_only,
+                        event_tier=tier_val,
+                    )
+                    if not tier_pack_data.empty and len(tier_pack_data) >= 50:
+                        tier_params = learn_pack_effects_from_data(tier_pack_data)
+                        pack_params_by_tier[tier_label] = pack_params_to_dict(tier_params)
+                        mlflow.log_metrics({
+                            f"pack_{tier_label}_front_bonus": tier_params.front_pack_bonus_sec,
+                            f"pack_{tier_label}_chase_penalty": tier_params.chase_penalty_sec,
+                            f"pack_{tier_label}_n_obs": tier_params.n_observations,
+                        })
+                        logger.info(
+                            f"  {tier_label}: bonus={tier_params.front_pack_bonus_sec:.1f}s, "
+                            f"penalty={tier_params.chase_penalty_sec:.1f}s "
+                            f"({tier_params.n_observations} obs, {tier_params.n_races} races)"
+                        )
+                    else:
+                        n = len(tier_pack_data) if not tier_pack_data.empty else 0
+                        logger.info(f"  {tier_label}: insufficient data ({n} rows), will use overall")
+
+                if pack_params_by_tier:
+                    bundle.metadata["pack_effect_params_by_tier"] = pack_params_by_tier
             else:
                 logger.warning("No pack effect data available, using defaults")
 
@@ -480,6 +511,36 @@ def main():
 
                 if merge_params_by_distance:
                     bundle.metadata["merge_params_by_distance"] = merge_params_by_distance
+
+                # Tier-specific merge params
+                merge_params_by_tier = {}
+                for tier_val, tier_label in [(1, "tier1"), (2, "tier2")]:
+                    tier_trans_data = fetch_swim_to_bike_transitions(
+                        engine,
+                        start_date=args.start_date,
+                        end_date=args.end_date,
+                        elite_only=elite_only,
+                        event_tier=tier_val,
+                    )
+                    if not tier_trans_data.empty and len(tier_trans_data) >= 30:
+                        tier_merge = learn_merge_params_from_data(tier_trans_data)
+                        merge_params_by_tier[tier_label] = merge_params_to_dict(tier_merge)
+                        mlflow.log_metrics({
+                            f"merge_{tier_label}_beta_0": tier_merge.beta_0,
+                            f"merge_{tier_label}_beta_gap": tier_merge.beta_gap,
+                            f"merge_{tier_label}_n_obs": tier_merge.n_observations,
+                        })
+                        logger.info(
+                            f"  {tier_label}: beta_0={tier_merge.beta_0:.3f}, "
+                            f"beta_gap={tier_merge.beta_gap:.3f} "
+                            f"({tier_merge.n_observations} obs)"
+                        )
+                    else:
+                        n = len(tier_trans_data) if not tier_trans_data.empty else 0
+                        logger.info(f"  {tier_label}: insufficient data ({n} rows), will use overall")
+
+                if merge_params_by_tier:
+                    bundle.metadata["merge_params_by_tier"] = merge_params_by_tier
             else:
                 logger.warning("No transition data available, merge params will use defaults")
 

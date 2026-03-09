@@ -218,6 +218,29 @@ def main():
         for col in weather_cols:
             if col in event_df.columns:
                 event_df[col] = event_df[col].apply(lambda v: None if (v is None or (isinstance(v, float) and pd.isna(v))) else str(v))
+        # Enrich events missing weather data via Open-Meteo
+        try:
+            from tri_analysis.weather import fetch_weather_smart
+            weather_enriched = 0
+            for idx, row in event_df.iterrows():
+                # Skip if already has weather from API
+                has_weather = row.get("temperature_air") is not None and str(row.get("temperature_air", "")).strip() != ""
+                has_coords = pd.notna(row.get("event_latitude")) and pd.notna(row.get("event_longitude"))
+                has_date = pd.notna(row.get("event_date"))
+                if not has_weather and has_coords and has_date:
+                    weather = fetch_weather_smart(
+                        row["event_latitude"], row["event_longitude"], row["event_date"]
+                    )
+                    if weather:
+                        for k, v in weather.items():
+                            if v is not None and k in event_df.columns:
+                                event_df.at[idx, k] = str(v) if k in weather_cols else v
+                        weather_enriched += 1
+            if weather_enriched > 0:
+                print(f"  Enriched {weather_enriched} events with Open-Meteo weather data")
+        except Exception as e:
+            print(f"  Weather enrichment skipped: {e}")
+
         upsert_events(event_df, engine)
         print(f"Wrote {len(event_df)} rows to {EVENTS_TABLE_NAME}")
         event_df['event_id'].drop_duplicates().to_csv('latest_events.txt', index=False, header=False)

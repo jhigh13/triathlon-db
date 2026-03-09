@@ -42,6 +42,7 @@ from tri_analysis.prediction.features import (
     build_features_for_program,
     fill_missing_features,
     get_feature_columns,
+    classify_event_tier,
 )
 from tri_analysis.prediction.train import load_model_bundle
 from tri_analysis.prediction.predict import predict_splits_and_total, format_prediction_output
@@ -194,6 +195,36 @@ def print_race_context(
     if "front_pack_rate" in sim_df.columns and sim_df["front_pack_rate"].notna().any():
         fpr = sim_df["front_pack_rate"].dropna()
         print(f"  Front pack rate (field avg): {fpr.mean():.2f}")
+
+    # ── Weather Conditions ──
+    if "temperature_air" in sim_df.columns and sim_df["temperature_air"].notna().any():
+        temp = sim_df["temperature_air"].iloc[0]
+        print(f"\n--- Weather Conditions ---")
+        print(f"  Air temperature:  {temp}°C")
+        if "apparent_temp" in sim_df.columns and sim_df["apparent_temp"].notna().any():
+            print(f"  Feels like:       {sim_df['apparent_temp'].iloc[0]}°C")
+        if "humidity" in sim_df.columns and sim_df["humidity"].notna().any():
+            print(f"  Humidity:         {sim_df['humidity'].iloc[0]}%")
+        if "wbgt" in sim_df.columns and sim_df["wbgt"].notna().any():
+            wbgt_val = sim_df["wbgt"].iloc[0]
+            heat_flag = " (HOT)" if float(wbgt_val) > 25 else ""
+            print(f"  WBGT:             {wbgt_val}°C{heat_flag}")
+        if "wind_speed_kmh" in sim_df.columns and sim_df["wind_speed_kmh"].notna().any():
+            wind = sim_df["wind_speed_kmh"].iloc[0]
+            gust = sim_df.get("wind_gust_kmh", pd.Series()).iloc[0] if "wind_gust_kmh" in sim_df.columns else None
+            gust_str = f", gusts {gust} km/h" if gust and pd.notna(gust) else ""
+            print(f"  Wind:             {wind} km/h{gust_str}")
+        if "precipitation_mm" in sim_df.columns and sim_df["precipitation_mm"].notna().any():
+            precip = sim_df["precipitation_mm"].iloc[0]
+            if float(precip) > 0:
+                print(f"  Precipitation:    {precip} mm")
+            else:
+                print(f"  Precipitation:    Dry")
+        if "cloud_cover_pct" in sim_df.columns and sim_df["cloud_cover_pct"].notna().any():
+            cloud = sim_df["cloud_cover_pct"].iloc[0]
+            print(f"  Cloud cover:      {cloud}%")
+        weather_src = event_meta.get("weather_source", "unknown")
+        print(f"  Source:           {weather_src}")
 
     # ── 3. Model Parameters ──
     print(f"\n--- Model Parameters ---")
@@ -486,6 +517,12 @@ def main():
             "Range: roughly -3 to +3."
         ),
     )
+    parser.add_argument(
+        "--no_packs",
+        action="store_true",
+        help="Disable pack effects in MC simulation (pure individual noise). "
+             "Useful for isolating whether pack logic helps or hurts accuracy.",
+    )
 
     args = parser.parse_args()
 
@@ -514,13 +551,69 @@ def main():
     logger.info(f"Event: {event_meta.get('prog_name', 'Unknown')} - {event_meta.get('event_date')}")
     logger.info(f"Location: {event_meta.get('event_venue', 'Unknown')}, {event_meta.get('event_country', 'Unknown')}")
 
+    # Fetch weather if missing — geocode if needed
+    has_weather = event_meta.get("temperature_air") is not None
+    has_coords = event_meta.get("event_latitude") is not None and event_meta.get("event_longitude") is not None
+
+    # Try to geocode if we have a venue but no coordinates
+    if not has_coords and event_meta.get("event_venue"):
+        try:
+            from tri_analysis.weather import geocode_venue
+            venue = event_meta["event_venue"]
+            country = event_meta.get("event_country")
+            logger.info(f"Geocoding venue '{venue}' ({country})...")
+            coords = geocode_venue(venue, country)
+            if coords:
+                lat, lon = coords
+                event_meta["event_latitude"] = lat
+                event_meta["event_longitude"] = lon
+                has_coords = True
+                logger.info(f"Geocoded to {lat}, {lon}")
+                # Persist to DB so we don't re-geocode next time
+                from sqlalchemy import text as sa_text
+                with engine.begin() as conn:
+                    conn.execute(sa_text(
+                        "UPDATE events SET event_latitude = :lat, event_longitude = :lon "
+                        "WHERE event_id = :eid AND event_latitude IS NULL"
+                    ), {"lat": lat, "lon": lon, "eid": key.event_id})
+            else:
+                logger.warning(f"Could not geocode venue '{venue}'")
+        except Exception as e:
+            logger.warning(f"Geocoding failed: {e}")
+
+    if not has_weather and has_coords:
+        try:
+            from tri_analysis.weather import fetch_weather_smart
+            event_date = event_meta.get("event_date")
+            lat = event_meta["event_latitude"]
+            lon = event_meta["event_longitude"]
+
+            logger.info("Fetching weather from Open-Meteo (smart routing)...")
+            weather = fetch_weather_smart(lat, lon, event_date)
+
+            if weather:
+                source = weather.get("weather_source", "unknown")
+                # Merge into event_meta for feature building
+                for k, v in weather.items():
+                    if v is not None:
+                        event_meta[k] = v
+                logger.info(
+                    f"Weather ({source}): {weather.get('temperature_air')}°C, "
+                    f"wind {weather.get('wind_speed_kmh')} km/h, "
+                    f"precip {weather.get('precipitation_mm')} mm"
+                )
+            else:
+                logger.warning("No weather data available (no source returned data)")
+        except Exception as e:
+            logger.warning(f"Could not fetch weather: {e}")
+
     # Load model bundle
     logger.info(f"Loading model from {args.model_path}")
     bundle = load_model_bundle(args.model_path)
 
     # Build features for entrants
     logger.info("Building features for start list...")
-    features_df = build_features_for_program(engine, key, use_start_list=True)
+    features_df = build_features_for_program(engine, key, use_start_list=True, event_meta_override=event_meta)
 
     if features_df.empty:
         logger.error("No athletes found in start list. Check program_entries table.")
@@ -541,8 +634,11 @@ def main():
     if not args.no_mc:
         logger.info(f"Running {args.n_sims} Monte Carlo simulations...")
 
-        # Load distance-specific pack effect params (falls back to overall)
-        pack_params = get_distance_pack_params(bundle.metadata, distance_cat)
+        # Derive event tier for tier-specific pack/merge params
+        event_tier = classify_event_tier(event_meta.get("event_name", ""))
+
+        # Load distance-specific pack effect params (falls back to tier → distance → overall)
+        pack_params = get_distance_pack_params(bundle.metadata, distance_cat, event_tier=event_tier)
         if pack_params is None:
             # Non-drafting distance or no params at all
             dist_norm = (distance_cat or "").lower().strip()
@@ -553,8 +649,8 @@ def main():
                 pack_params = PackEffectParams()
                 logger.info("No learned pack effects in bundle, using defaults")
 
-        # Load distance-specific merge params (falls back to overall)
-        merge_params = get_distance_merge_params(bundle.metadata, distance_cat)
+        # Load distance-specific merge params (falls back to tier → distance → overall)
+        merge_params = get_distance_merge_params(bundle.metadata, distance_cat, event_tier=event_tier)
         if merge_params is not None:
             logger.info(
                 f"Merge params: beta_0={merge_params.beta_0:.2f}, "
@@ -568,6 +664,10 @@ def main():
         if args.breakaway_bias != 0.0:
             logger.info(f"Breakaway bias: {args.breakaway_bias:+.1f}")
 
+        use_packs = not args.no_packs
+        if not use_packs:
+            logger.info("Pack effects DISABLED (--no_packs flag)")
+
         sim_df = run_monte_carlo(
             pred_df,
             n_sims=args.n_sims,
@@ -577,6 +677,7 @@ def main():
             breakaway_bias=args.breakaway_bias,
             distance_category=distance_cat,
             bundle_metadata=bundle.metadata,
+            use_pack_effects=use_packs,
         )
         output_df = sim_df
         display_df = format_simulation_output(sim_df)

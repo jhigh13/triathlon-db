@@ -43,12 +43,13 @@ from tri_analysis.database import get_engine
 from tri_analysis.prediction.sql import ProgramKey, fetch_event_metadata, fetch_athlete_history, fetch_start_list
 from tri_analysis.prediction.features import (
     build_features_for_program, fill_missing_features, compute_athlete_form_features,
+    classify_event_tier,
 )
 from tri_analysis.prediction.train import load_model_bundle
 from tri_analysis.prediction.predict import predict_splits_and_total
 from tri_analysis.prediction.simulate import (
     run_monte_carlo, PackEffectParams, pack_params_from_dict,
-    merge_params_from_dict, apply_pack_merges,
+    merge_params_from_dict, apply_pack_merges, assign_packs_chain,
     estimate_uncertainty, DISTANCE_SIGMA_MULTIPLIER,
     DEFAULT_SIGMA_SWIM, DEFAULT_SIGMA_BIKE, DEFAULT_SIGMA_RUN,
     DEFAULT_SIGMA_T1, DEFAULT_SIGMA_T2,
@@ -371,21 +372,38 @@ def section_perturbation(pred_df, bundle, distance_cat):
 # SECTION: Simulation Diagnostics
 # ──────────────────────────────────────────────────────────────────────
 
-def section_simulation(pred_df, bundle, distance_cat, n_sims=1000):
+def section_simulation(pred_df, bundle, distance_cat, n_sims=1000, event_tier=None):
     """Run a quick simulation and diagnose pack effects, uncertainty, calibration."""
     print(f"\n{DIVIDER}")
     print("SECTION 6: SIMULATION DIAGNOSTICS")
     print(DIVIDER)
 
-    pack_params = get_distance_pack_params(bundle.metadata, distance_cat)
-    merge_params = get_distance_merge_params(bundle.metadata, distance_cat)
+    pack_params = get_distance_pack_params(bundle.metadata, distance_cat, event_tier=event_tier)
+    merge_params = get_distance_merge_params(bundle.metadata, distance_cat, event_tier=event_tier)
 
     is_draft = (distance_cat or "").lower().strip() in DRAFT_LEGAL_DISTANCES
+    tier_label = {1: "WTCS", 2: "World Cup", 3: "Continental", 4: "Other"}.get(event_tier, "Unknown")
     print(f"\n  Distance: {distance_cat} ({'draft-legal' if is_draft else 'non-drafting'})")
-    print(f"  Pack params: front_bonus={pack_params.front_pack_bonus_sec:.1f}s, chase_penalty={pack_params.chase_penalty_sec:.1f}s, "
+    print(f"  Event tier: {event_tier} ({tier_label})")
+
+    # Show which param source was used (tier vs distance vs overall)
+    meta = bundle.metadata or {}
+    tier_key = f"tier{event_tier}" if event_tier else None
+    pack_source = "overall"
+    if tier_key and tier_key in meta.get("pack_effect_params_by_tier", {}):
+        pack_source = f"tier-specific ({tier_label})"
+    elif (distance_cat or "").lower().strip() in (meta.get("pack_effect_params_by_distance", {})):
+        pack_source = f"distance-specific ({distance_cat})"
+    merge_source = "overall"
+    if tier_key and tier_key in meta.get("merge_params_by_tier", {}):
+        merge_source = f"tier-specific ({tier_label})"
+    elif (distance_cat or "").lower().strip() in (meta.get("merge_params_by_distance", {})):
+        merge_source = f"distance-specific ({distance_cat})"
+
+    print(f"  Pack params [{pack_source}]: front_bonus={pack_params.front_pack_bonus_sec:.1f}s, chase_penalty={pack_params.chase_penalty_sec:.1f}s, "
           f"max_gap={pack_params.max_gap_sec:.1f}s")
     if merge_params:
-        print(f"  Merge params: beta_0={merge_params.beta_0:.3f}, beta_gap={merge_params.beta_gap:.3f}, "
+        print(f"  Merge params [{merge_source}]: beta_0={merge_params.beta_0:.3f}, beta_gap={merge_params.beta_gap:.3f}, "
               f"beta_chase={merge_params.beta_chase_size:.3f}")
 
     # Distance sigma
@@ -427,7 +445,7 @@ def section_simulation(pred_df, bundle, distance_cat, n_sims=1000):
               f"E[R]={row['expected_rank']:.1f}  Δ={row['rank_delta']:+.1f}")
 
     # Sim median vs det total
-    sim_medians = sim_df.set_index("athlete_full_name")["median_total_sec"]
+    sim_medians = sim_df.set_index("athlete_full_name")["total_p50"]
     det_totals = pred_df.set_index("athlete_full_name")["pred_total_sec"]
     common = sim_medians.index.intersection(det_totals.index)
     if len(common) > 0:
@@ -440,24 +458,19 @@ def section_simulation(pred_df, bundle, distance_cat, n_sims=1000):
     if is_draft and merge_params:
         swim_t1 = pred_df["pred_swim_sec"].values + pred_df.get("pred_t1_sec", pd.Series(np.zeros(len(pred_df)))).values
         sorted_idx = np.argsort(swim_t1)
+        sorted_times = swim_t1[sorted_idx]
 
-        packs = apply_pack_merges(
-            swim_exit_times=swim_t1,
-            pack_params=pack_params,
-            merge_params=merge_params,
-        )
+        # assign_packs_chain returns pack IDs in sorted order
+        pack_ids = assign_packs_chain(sorted_times, pack_params.max_gap_sec)
 
         print(f"\n  Predicted pack formation (swim+T1 exit order):")
-        pack_labels = {}
-        for pack_id, members in enumerate(packs):
-            if len(members) > 0:
-                pack_labels[pack_id] = members
-
-        for pack_id, members in sorted(pack_labels.items()):
-            n = len(members)
-            first = pred_df.iloc[members[0]]["athlete_full_name"] if members else "?"
-            gap_from_leader = swim_t1[members[0]] - swim_t1[sorted_idx[0]] if members else 0
-            print(f"    Pack {pack_id + 1}: {n} athletes, leader gap={gap_from_leader:+.1f}s "
+        for pid in range(pack_ids.max() + 1):
+            members_sorted = np.where(pack_ids == pid)[0]  # indices into sorted order
+            members_orig = sorted_idx[members_sorted]       # map back to original order
+            n = len(members_orig)
+            first = pred_df.iloc[members_orig[0]]["athlete_full_name"] if n > 0 else "?"
+            gap = sorted_times[members_sorted[0]] - sorted_times[0] if n > 0 else 0
+            print(f"    Pack {pid + 1}: {n} athletes, leader gap={gap:+.1f}s "
                   f"(e.g. {first})")
 
     # Front pack rate comparison
@@ -624,6 +637,35 @@ def main():
 
     distance_cat = event_meta.get("prog_distance_category")
 
+    # Geocode + fetch weather (mirrors predict_program.py logic)
+    has_coords = event_meta.get("event_latitude") is not None and event_meta.get("event_longitude") is not None
+    if not has_coords and event_meta.get("event_venue"):
+        try:
+            from tri_analysis.weather import geocode_venue
+            venue = event_meta["event_venue"]
+            country = event_meta.get("event_country")
+            coords = geocode_venue(venue, country)
+            if coords:
+                event_meta["event_latitude"], event_meta["event_longitude"] = coords
+                has_coords = True
+        except Exception:
+            pass
+
+    has_weather = event_meta.get("temperature_air") is not None
+    if not has_weather and has_coords:
+        try:
+            from tri_analysis.weather import fetch_weather_smart
+            weather = fetch_weather_smart(
+                event_meta["event_latitude"], event_meta["event_longitude"],
+                event_meta.get("event_date"),
+            )
+            if weather:
+                for k, v in weather.items():
+                    if v is not None:
+                        event_meta[k] = v
+        except Exception:
+            pass
+
     print(DIVIDER)
     print(f"PREDICTION PIPELINE DIAGNOSTICS")
     print(f"Event: {event_meta.get('event_name')} ({distance_cat})")
@@ -635,7 +677,7 @@ def main():
 
     # Build features and predict
     print("\nBuilding features...")
-    features_df = build_features_for_program(engine, key, use_start_list=True)
+    features_df = build_features_for_program(engine, key, use_start_list=True, event_meta_override=event_meta)
     features_df = fill_missing_features(features_df, feature_cols)
     pred_df = predict_splits_and_total(features_df, bundle, distance_category=distance_cat)
     print(f"Athletes: {len(pred_df)}")
@@ -658,7 +700,8 @@ def main():
         section_perturbation(pred_df, bundle, distance_cat)
 
     if run_all or args.section == "simulation":
-        section_simulation(pred_df, bundle, distance_cat, n_sims=args.n_sims)
+        event_tier = classify_event_tier(event_meta.get("event_name", ""))
+        section_simulation(pred_df, bundle, distance_cat, n_sims=args.n_sims, event_tier=event_tier)
 
     if args.athlete or args.section == "athlete":
         if args.athlete:

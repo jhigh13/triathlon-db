@@ -372,15 +372,21 @@ def merge_params_from_dict(d: dict) -> MergeParams:
 def get_distance_pack_params(
     bundle_metadata: dict,
     distance_category: str | None,
+    event_tier: int | None = None,
 ) -> PackEffectParams | None:
     """
-    Look up distance-specific pack params from bundle metadata.
+    Look up pack params from bundle metadata.
 
-    Falls back to the overall pack params if no distance-specific params exist.
+    Lookup order: tier-specific → distance-specific → overall.
     Returns None if the distance is non-drafting (middle/long).
+
+    Args:
+        bundle_metadata: Model bundle metadata dict
+        distance_category: Race distance ('sprint', 'standard', etc.)
+        event_tier: Event tier (1=WTCS, 2=World Cup, 3=Continental, 4=Other).
+                   When provided, tries tier-specific params first.
     """
     if distance_category is None:
-        # Fall back to overall params
         d = bundle_metadata.get("pack_effect_params")
         return pack_params_from_dict(d) if d else None
 
@@ -388,17 +394,31 @@ def get_distance_pack_params(
     if dist_key == "olympic":
         dist_key = "standard"
 
-    # Non-drafting distances: no pack effects
     if dist_key not in DRAFT_LEGAL_DISTANCES:
         logger.info(f"Distance '{dist_key}' is non-drafting, disabling pack effects")
         return None
 
-    # Try distance-specific params first
+    gap_sec = DISTANCE_PACK_GAP_SEC.get(dist_key, 3.0)
+
+    # Try tier-specific params first
+    if event_tier is not None:
+        tier_key = f"tier{event_tier}"
+        by_tier = bundle_metadata.get("pack_effect_params_by_tier", {})
+        if tier_key in by_tier:
+            params = pack_params_from_dict(by_tier[tier_key])
+            params.max_gap_sec = gap_sec
+            params.distance_category = dist_key
+            logger.info(
+                f"Using tier-specific pack params ({tier_key}, {dist_key}): "
+                f"bonus={params.front_pack_bonus_sec:.1f}s, penalty={params.chase_penalty_sec:.1f}s"
+            )
+            return params
+
+    # Try distance-specific params
     by_distance = bundle_metadata.get("pack_effect_params_by_distance", {})
     if dist_key in by_distance:
         params = pack_params_from_dict(by_distance[dist_key])
-        # Apply distance-specific gap threshold
-        params.max_gap_sec = DISTANCE_PACK_GAP_SEC.get(dist_key, 3.0)
+        params.max_gap_sec = gap_sec
         params.distance_category = dist_key
         logger.info(
             f"Using distance-specific pack params for '{dist_key}': "
@@ -411,10 +431,10 @@ def get_distance_pack_params(
     d = bundle_metadata.get("pack_effect_params")
     if d:
         params = pack_params_from_dict(d)
-        params.max_gap_sec = DISTANCE_PACK_GAP_SEC.get(dist_key, 3.0)
+        params.max_gap_sec = gap_sec
         params.distance_category = dist_key
         logger.info(
-            f"No distance-specific pack params for '{dist_key}', "
+            f"No distance/tier-specific pack params for '{dist_key}', "
             f"using overall (gap overridden to {params.max_gap_sec:.1f}s)"
         )
         return params
@@ -425,11 +445,13 @@ def get_distance_pack_params(
 def get_distance_merge_params(
     bundle_metadata: dict,
     distance_category: str | None,
+    event_tier: int | None = None,
 ) -> MergeParams | None:
     """
-    Look up distance-specific merge params from bundle metadata.
+    Look up merge params from bundle metadata.
 
-    Falls back to overall merge params. Returns None for non-drafting distances.
+    Lookup order: tier-specific → distance-specific → overall.
+    Returns None for non-drafting distances.
     """
     if distance_category is None:
         d = bundle_metadata.get("merge_params")
@@ -442,6 +464,19 @@ def get_distance_merge_params(
     if dist_key not in DRAFT_LEGAL_DISTANCES:
         return None
 
+    # Try tier-specific first
+    if event_tier is not None:
+        tier_key = f"tier{event_tier}"
+        by_tier = bundle_metadata.get("merge_params_by_tier", {})
+        if tier_key in by_tier:
+            params = merge_params_from_dict(by_tier[tier_key])
+            logger.info(
+                f"Using tier-specific merge params ({tier_key}, {dist_key}): "
+                f"beta_0={params.beta_0:.3f}, beta_gap={params.beta_gap:.3f}"
+            )
+            return params
+
+    # Try distance-specific
     by_distance = bundle_metadata.get("merge_params_by_distance", {})
     if dist_key in by_distance:
         params = merge_params_from_dict(by_distance[dist_key])
@@ -845,57 +880,133 @@ def estimate_uncertainty(
     """
     df = pred_df.copy()
 
-    # Try to get learned per-split sigmas from residual stats
-    learned_sigmas = _get_learned_sigmas(bundle_metadata, distance_category)
+    # ── Strategy: Normalized percentile variance × field spread ──
+    # Use std of each athlete's split percentile rank across races (std_swim_pct_24m).
+    # This is completely course-agnostic — measures how much an athlete's RELATIVE
+    # POSITION varies race-to-race.
+    #
+    # Convert to seconds using FIELD SPREAD (not predicted time!):
+    #   sigma_swim = std_swim_pct × field_swim_spread
+    # where field_swim_spread = p90 - p10 of predicted swim times in this race.
+    #
+    # Why field spread, not pred_time: std_pct=0.08 means position varies by ±8% of
+    # the field. If field is spread over 80s, that's ±6.4s. If we used pred_time (600s),
+    # we'd get 48s — a ~7× overestimate that swamps position-level gaps.
 
-    if learned_sigmas:
-        # Use empirical sigmas — these already encode distance-specific variance
-        base_swim = learned_sigmas.get("swim", DEFAULT_SIGMA_SWIM)
-        base_t1 = learned_sigmas.get("t1", DEFAULT_SIGMA_T1)
-        base_bike = learned_sigmas.get("bike", DEFAULT_SIGMA_BIKE)
-        base_t2 = learned_sigmas.get("t2", DEFAULT_SIGMA_T2)
-        base_run = learned_sigmas.get("run", DEFAULT_SIGMA_RUN)
-        base_total = base_swim + base_t1 + base_bike + base_t2 + base_run  # approximate
+    has_norm_variance = all(
+        col in df.columns and df[col].notna().any()
+        for col in ["std_swim_pct_24m", "std_bike_pct_24m", "std_run_pct_24m"]
+    )
+
+    if has_norm_variance:
+        # Default std_pct for athletes without enough race history
+        # 0.12 = moderate variability (~12% of field swing race-to-race)
+        DEFAULT_STD_PCT = 0.12
+
+        std_swim_pct = pd.to_numeric(df["std_swim_pct_24m"], errors="coerce").fillna(DEFAULT_STD_PCT)
+        std_bike_pct = pd.to_numeric(df["std_bike_pct_24m"], errors="coerce").fillna(DEFAULT_STD_PCT)
+        std_run_pct = pd.to_numeric(df["std_run_pct_24m"], errors="coerce").fillna(DEFAULT_STD_PCT)
+
+        # Compute field spread from predicted split times (p90 - p10)
+        # This captures how spread out THIS race's field is
+        def _field_spread(col, fallback):
+            """Compute p90-p10 field spread for a split, with fallback."""
+            if col in df.columns:
+                vals = pd.to_numeric(df[col], errors="coerce").dropna()
+                if len(vals) >= 5:
+                    return vals.quantile(0.9) - vals.quantile(0.1)
+            return fallback
+
+        # Field spreads: use predicted splits if available, else typical sprint defaults
+        spread_swim = _field_spread("pred_swim_sec", 80.0)
+        spread_bike = _field_spread("pred_bike_sec", 160.0)
+        spread_run = _field_spread("pred_run_sec", 120.0)
+
+        df["sigma_swim"] = std_swim_pct * spread_swim
+        df["sigma_bike"] = std_bike_pct * spread_bike
+        df["sigma_run"] = std_run_pct * spread_run
+        # T1/T2: proportional to swim/run sigma
+        df["sigma_t1"] = df["sigma_swim"] * 0.25
+        df["sigma_t2"] = df["sigma_run"] * 0.15
+
+        # Clamp per-split: prevent extreme values
+        df["sigma_swim"] = df["sigma_swim"].clip(2, 20)
+        df["sigma_bike"] = df["sigma_bike"].clip(4, 40)
+        df["sigma_run"] = df["sigma_run"].clip(3, 30)
+        df["sigma_t1"] = df["sigma_t1"].clip(0.5, 5)
+        df["sigma_t2"] = df["sigma_t2"].clip(0.5, 4)
+        df["sigma_total"] = df["sigma_swim"] + df["sigma_t1"] + df["sigma_bike"] + df["sigma_t2"] + df["sigma_run"]
+
         logger.info(
-            f"Using learned residual sigmas: swim={base_swim:.1f}, t1={base_t1:.1f}, "
-            f"bike={base_bike:.1f}, t2={base_t2:.1f}, run={base_run:.1f}"
+            f"Normalized sigma (field-spread): swim=[{df['sigma_swim'].min():.1f}-{df['sigma_swim'].max():.1f}] "
+            f"(spread={spread_swim:.0f}s), bike=[{df['sigma_bike'].min():.1f}-{df['sigma_bike'].max():.1f}] "
+            f"(spread={spread_bike:.0f}s), run=[{df['sigma_run'].min():.1f}-{df['sigma_run'].max():.1f}] "
+            f"(spread={spread_run:.0f}s), total=[{df['sigma_total'].min():.1f}-{df['sigma_total'].max():.1f}]"
         )
     else:
-        # Fallback to hardcoded defaults with distance multiplier
-        dist_mult = 1.0
-        if distance_category:
-            dist_mult = DISTANCE_SIGMA_MULTIPLIER.get(
-                distance_category.lower().strip(), 1.0
+        # ── Fallback: ratio-based scaling from learned residuals ──
+        learned_sigmas = _get_learned_sigmas(bundle_metadata, distance_category)
+        FIELD_SIGMA_SCALE = 0.5
+
+        if learned_sigmas:
+            base_swim = learned_sigmas.get("swim", DEFAULT_SIGMA_SWIM) * FIELD_SIGMA_SCALE
+            base_t1 = learned_sigmas.get("t1", DEFAULT_SIGMA_T1) * FIELD_SIGMA_SCALE
+            base_bike = learned_sigmas.get("bike", DEFAULT_SIGMA_BIKE) * FIELD_SIGMA_SCALE
+            base_t2 = learned_sigmas.get("t2", DEFAULT_SIGMA_T2) * FIELD_SIGMA_SCALE
+            base_run = learned_sigmas.get("run", DEFAULT_SIGMA_RUN) * FIELD_SIGMA_SCALE
+            base_total = base_swim + base_t1 + base_bike + base_t2 + base_run
+            logger.info(
+                f"Fallback: learned residual sigmas (×{FIELD_SIGMA_SCALE}): swim={base_swim:.1f}, "
+                f"bike={base_bike:.1f}, run={base_run:.1f}"
             )
-            if dist_mult != 1.0:
-                logger.info(
-                    f"Distance-specific uncertainty: {distance_category} → "
-                    f"sigma multiplier={dist_mult:.2f}"
+        else:
+            dist_mult = 1.0
+            if distance_category:
+                dist_mult = DISTANCE_SIGMA_MULTIPLIER.get(
+                    distance_category.lower().strip(), 1.0
                 )
+            base_swim = DEFAULT_SIGMA_SWIM * dist_mult
+            base_t1 = DEFAULT_SIGMA_T1 * dist_mult
+            base_bike = DEFAULT_SIGMA_BIKE * dist_mult
+            base_t2 = DEFAULT_SIGMA_T2 * dist_mult
+            base_run = DEFAULT_SIGMA_RUN * dist_mult
+            base_total = DEFAULT_SIGMA_TOTAL * dist_mult
 
-        base_swim = DEFAULT_SIGMA_SWIM * dist_mult
-        base_t1 = DEFAULT_SIGMA_T1 * dist_mult
-        base_bike = DEFAULT_SIGMA_BIKE * dist_mult
-        base_t2 = DEFAULT_SIGMA_T2 * dist_mult
-        base_run = DEFAULT_SIGMA_RUN * dist_mult
-        base_total = DEFAULT_SIGMA_TOTAL * dist_mult
+        if sigma_total_col in df.columns:
+            df["sigma_total"] = df[sigma_total_col].fillna(default_sigma)
+            df["sigma_total"] = df["sigma_total"].clip(15, 90)
+        else:
+            df["sigma_total"] = default_sigma
 
-    # Per-athlete total sigma from historical volatility
-    if sigma_total_col in df.columns:
-        df["sigma_total"] = df[sigma_total_col].fillna(default_sigma)
-        df["sigma_total"] = df["sigma_total"].clip(30, 300)
-    else:
-        df["sigma_total"] = default_sigma
+        ratio = (df["sigma_total"] / base_total) ** 1.8
+        df["sigma_swim"] = base_swim * ratio
+        df["sigma_t1"] = base_t1 * ratio
+        df["sigma_bike"] = base_bike * ratio
+        df["sigma_t2"] = base_t2 * ratio
+        df["sigma_run"] = base_run * ratio
 
-    # Per-athlete scaling: ratio of athlete's volatility to the baseline
-    # This preserves heteroscedasticity — more volatile athletes get wider bands
-    ratio = df["sigma_total"] / base_total
+    # Weather-based sigma adjustments
+    # Heat increases variance (athletes respond to heat differently)
+    if "wbgt" in df.columns:
+        wbgt_val = pd.to_numeric(df["wbgt"], errors="coerce").fillna(20.0)
+        heat_mult = 1.0 + (wbgt_val - 22.0).clip(lower=0) * 0.02  # +2% per °C above 22
+        df["sigma_bike"] *= heat_mult
+        df["sigma_run"] *= heat_mult
+        df["sigma_total"] *= heat_mult
 
-    df["sigma_swim"] = base_swim * ratio
-    df["sigma_t1"] = base_t1 * ratio
-    df["sigma_bike"] = base_bike * ratio
-    df["sigma_t2"] = base_t2 * ratio
-    df["sigma_run"] = base_run * ratio
+    # Wind increases bike variance
+    if "wind_speed_kmh" in df.columns:
+        wind_val = pd.to_numeric(df["wind_speed_kmh"], errors="coerce").fillna(10.0)
+        wind_mult = 1.0 + (wind_val - 15.0).clip(lower=0) * 0.01  # +1% per km/h above 15
+        df["sigma_bike"] *= wind_mult
+
+    # Rain increases transition and bike variance
+    if "precipitation_mm" in df.columns:
+        precip_val = pd.to_numeric(df["precipitation_mm"], errors="coerce").fillna(0.0)
+        rain_mult = pd.Series(np.where(precip_val > 1.0, 1.1, 1.0), index=df.index)
+        df["sigma_t1"] *= rain_mult
+        df["sigma_t2"] *= rain_mult
+        df["sigma_bike"] *= rain_mult
 
     return df
 
@@ -1432,6 +1543,12 @@ def _aggregate_results(
     result_df["total_p50"] = np.percentile(total_matrix, 50, axis=0)
     result_df["total_p90"] = np.percentile(total_matrix, 90, axis=0)
 
+    # Mean total time across simulations — better aggregation than mean-rank
+    # because it preserves time-domain signal (rank averaging is lossy and
+    # regresses strong predictions toward mid-field)
+    result_df["mean_total_sec"] = total_matrix.mean(axis=0)
+    result_df["mean_time_rank"] = result_df["mean_total_sec"].rank(method="min").astype(int)
+
     # Pack statistics from simulation
     if sim_pack_stats:
         for col, vals in sim_pack_stats.items():
@@ -1441,8 +1558,8 @@ def _aggregate_results(
     if diagnostics:
         result_df.attrs["sim_diagnostics"] = diagnostics
 
-    # Sort by expected rank
-    result_df = result_df.sort_values("expected_rank").reset_index(drop=True)
+    # Sort by mean simulated time (preserves more signal than mean-rank)
+    result_df = result_df.sort_values("mean_total_sec").reset_index(drop=True)
 
     top3_wins = result_df["prob_win"].nlargest(3).values
     logger.info(f"Simulation complete. Top 3 win probabilities: {top3_wins}")
