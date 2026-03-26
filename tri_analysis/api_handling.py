@@ -1,4 +1,5 @@
 import json
+import time
 import requests
 import pandas as pd
 from datetime import datetime
@@ -118,6 +119,73 @@ def fetch_race_results(athlete_id: int) -> list:
         url = page.get("next_page_url")
     return results
 
+
+def normalize_athlete_mixed_relay_results(
+    athlete_id: int,
+    athlete_results: list,
+    valid_program_pairs: set[tuple[int, int]] | None = None,
+) -> pd.DataFrame:
+    """
+    Normalize athlete-history mixed relay rows into the race_results schema.
+
+    The program results endpoint returns team-level rows for Mixed Relay, so this
+    fallback uses athlete history to recover leg-level athlete results for those
+    relay programs.
+    """
+    rows = []
+    for result in athlete_results or []:
+        prog_name = result.get("prog_name") or ""
+        event_id = result.get("event_id")
+        prog_id = result.get("prog_id")
+        if not event_id or not prog_id:
+            continue
+        if "relay" not in str(prog_name).lower():
+            continue
+        pair = (int(event_id), int(prog_id))
+        if valid_program_pairs is not None and pair not in valid_program_pairs:
+            continue
+
+        splits = result.get("splits", []) or []
+        pos_raw = result.get("position")
+        pos_str = str(pos_raw).strip() if pos_raw is not None else None
+        if pos_str and pos_str.isdigit():
+            finish_position = pos_str
+            finish_status = "FINISH"
+            position_sort = pos_str
+        else:
+            finish_position = None
+            finish_status = pos_str.upper() if pos_str else None
+            code_map = {
+                "DNF": "1000001",
+                "DNS": "1000002",
+                "DSQ": "1000003",
+                "LAP": "1000004",
+            }
+            position_sort = code_map.get(finish_status, "1000009")
+
+        row = {
+            "event_id": pair[0],
+            "prog_id": pair[1],
+            "athlete_id": athlete_id,
+            "athlete_full_name": None,
+            "SwimTime": splits[0] if len(splits) > 0 else None,
+            "T1Time": splits[1] if len(splits) > 1 else None,
+            "BikeTime": splits[2] if len(splits) > 2 else None,
+            "T2Time": splits[3] if len(splits) > 3 else None,
+            "RunTime": splits[4] if len(splits) > 4 else None,
+            "position": pos_raw,
+            "finish_status": finish_status,
+            "finish_position": finish_position,
+            "position_sort": position_sort,
+            "total_time": result.get("total_time"),
+            "start_num": result.get("team_order") or result.get("start_num"),
+        }
+        rows.append(row)
+
+    if not rows:
+        return pd.DataFrame()
+    return pd.DataFrame(rows)
+
 def fetch_events_ids(start_date, end_date, per_page=500, spec_ids=SPEC_IDS, category_ids=CATEGORY_IDS) -> list:
     """
     Fetch events from the API since a given date. Returns a list of event ids.
@@ -148,7 +216,7 @@ def fetch_events_ids(start_date, end_date, per_page=500, spec_ids=SPEC_IDS, cate
         params["page"] += 1
     return event_ids
 
-def fetch_program_ids(event_id) -> list:
+def fetch_program_ids(event_id, relay_only: bool = False) -> list:
     """
     Get program IDs for a given event. Includes:
     - Elite pipeline: Elite Men/Women, U23 Men/Women, Junior Men/Women, Mixed Relay
@@ -169,9 +237,26 @@ def fetch_program_ids(event_id) -> list:
     # Para class prefixes to be robust to minor naming variations
     para_prefixes = ("PTWC", "PTS2", "PTS3", "PTS4", "PTS5", "PTVI")
     params = {"is_race": "true"}
-    resp = requests.get(PROGRAM_LISTING_URL.format(event_id=event_id), headers=HEADERS, params=params)
-    resp.raise_for_status()
-    data = resp.json().get("data")
+    last_error = None
+    data = None
+    for attempt in range(4):
+        try:
+            resp = requests.get(
+                PROGRAM_LISTING_URL.format(event_id=event_id),
+                headers=HEADERS,
+                params=params,
+                timeout=30,
+            )
+            resp.raise_for_status()
+            data = resp.json().get("data")
+            break
+        except requests.RequestException as exc:
+            last_error = exc
+            if attempt == 3:
+                raise
+            time.sleep(1.5 * (attempt + 1))
+    if last_error and data is None:
+        raise last_error
     if not data:
         # data is None or empty, so return an empty list
         return []
@@ -183,6 +268,10 @@ def fetch_program_ids(event_id) -> list:
         if not p:
             continue
         name = p.get("prog_name") or ""
+        if relay_only:
+            if "relay" in name.lower():
+                prog_ids.append(p.get("prog_id"))
+            continue
         if (
             name in target_names
             or name in para_exact_names

@@ -1,27 +1,29 @@
 # --- Rankings import: fetch World Triathlon rankings and upsert to DB ---
-import sys
-import os
-from datetime import datetime
+import time
 
 import requests
 import pandas as pd
 from dotenv import load_dotenv
-from sqlalchemy import create_engine, text
-from config.config import HEADERS, BASE_URL, DB_URI
-from Data_Import.database import get_engine
+from sqlalchemy import text
 
-load_dotenv()
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+try:
+    from tri_analysis.config import HEADERS, BASE_URL
+    from tri_analysis.database import get_engine
+except ImportError:  # pragma: no cover
+    from config import HEADERS, BASE_URL  # type: ignore
+    from database import get_engine  # type: ignore
+
+load_dotenv(override=True)
 
 # Ranking category IDs to import
-# 13-16: World Triathlon global rankings (Elite Men/Women, U23, Junior)
+# 13-16: Current World Triathlon global/series rankings used in the prediction stack.
 # 35-44: Continental Points Lists (Europe, Americas, Africa, Asia, Oceania x Men/Women)
 RANKING_CATEGORIES = {
     # Global
-    13: "World Rankings - Elite Men",
-    14: "World Rankings - Elite Women",
-    15: "World Rankings - U23 Men",
-    16: "World Rankings - U23 Women",
+    13: "World Rankings - Male",
+    14: "World Rankings - Female",
+    15: "World Triathlon Series - Male",
+    16: "World Triathlon Series - Female",
     # Continental Points Lists
     35: "Continental Points List - Europe Elite Men",
     36: "Continental Points List - Europe Elite Women",
@@ -41,9 +43,21 @@ def fetch_rankings(ranking_cat_id: int, limit: int = 500) -> pd.DataFrame:
     Pulls the ranking snapshot for a given category, returns a normalized DataFrame.
     """
     url = f"{BASE_URL}/rankings/{ranking_cat_id}"
-    resp = requests.get(url, headers=HEADERS, params={'limit': limit})
-    resp.raise_for_status()
-    js = resp.json()['data']
+    last_error = None
+    js = None
+    for attempt in range(4):
+        try:
+            resp = requests.get(url, headers=HEADERS, params={'limit': limit}, timeout=30)
+            resp.raise_for_status()
+            js = resp.json()['data']
+            break
+        except requests.RequestException as exc:
+            last_error = exc
+            if attempt == 3:
+                raise
+            time.sleep(1.5 * (attempt + 1))
+    if last_error and js is None:
+        raise last_error
 
     published_date = pd.to_datetime(js['published']).date()
     ranking_year = published_date.year
@@ -54,7 +68,7 @@ def fetch_rankings(ranking_cat_id: int, limit: int = 500) -> pd.DataFrame:
         records.append({
             'athlete_id':     r['athlete_id'],
             'athlete_name':   r['athlete_full_name'],
-            'ranking_cat_name': js['ranking_cat_name'],
+            'ranking_cat_name': RANKING_CATEGORIES.get(ranking_cat_id, js['ranking_cat_name']),
             'ranking_cat_id': js['ranking_id'],
             'rank_position':  r['rank'],
             'total_points':   r['total'],

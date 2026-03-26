@@ -624,16 +624,22 @@ def fetch_precomputed_race_metrics(
             pm.t1_to_bike_pos_change,
             pm.bike_to_t2_pos_change,
             pm.t2_to_run_pos_change,
-            pm.n_finishers,
+            COALESCE(pm.n_finishers, rc.n_finishers) AS n_finishers,
             pm.median_total_sec,
             pm.elapsedrun
         FROM position_metrics pm
         JOIN events e
             ON pm.event_id = e.event_id
             AND pm.prog_id = e.prog_id
+        LEFT JOIN (
+            SELECT event_id, prog_id, COUNT(*) AS n_finishers
+            FROM race_results
+            WHERE finish_status = 'FINISH'
+            GROUP BY event_id, prog_id
+        ) rc ON pm.event_id = rc.event_id AND pm.prog_id = rc.prog_id
         WHERE pm.athlete_id = :athlete_id
           AND e.event_date < :before_date
-          AND pm.n_finishers IS NOT NULL
+          AND COALESCE(pm.n_finishers, rc.n_finishers) IS NOT NULL
           AND pm.elapsedrun > 0
         ORDER BY e.event_date DESC
         LIMIT :limit
@@ -713,12 +719,7 @@ def fetch_event_metadata(engine: Engine, key: ProgramKey) -> Optional[dict]:
             swim_laps,
             bike_laps,
             run_laps,
-            wind_speed_kmh,
-            wind_gust_kmh,
-            apparent_temp,
-            precipitation_mm,
-            cloud_cover_pct,
-            weather_source
+            weather
         FROM events
         WHERE event_id = :event_id
           AND prog_id = :prog_id

@@ -39,6 +39,8 @@ from tri_analysis.prediction.train import (
     cross_validate_splits,
     tune_hyperparameters,
     compute_residual_stats,
+    learn_swim_gap_distributions,
+    optimize_ensemble_weight,
 )
 from tri_analysis.prediction.features import get_feature_columns, fill_missing_features
 from tri_analysis.prediction.sql import fetch_pack_effect_data, fetch_swim_to_bike_transitions
@@ -160,6 +162,12 @@ def main():
         help="Include pack dynamics features (ema_bike_pack_7, ema_bike_gap_sec_7, etc.) "
              "in split models. Default is ability-only (excluded) since ablation showed "
              "pack features add no ranking signal and the simulation handles pack effects.",
+    )
+    parser.add_argument(
+        "--optimize_weight",
+        action="store_true",
+        help="Optimize ensemble ranker/percentile blend weight via time-based CV. "
+             "Stores optimal weight in bundle metadata (default: 0.5).",
     )
 
     args = parser.parse_args()
@@ -348,6 +356,27 @@ def main():
             # Store training mode in metadata so simulation can adjust pack effect scaling
             bundle.metadata["exclude_pack_features"] = not args.include_pack_features
 
+            # Optimize ensemble weight via CV (if requested)
+            if args.optimize_weight and bundle.model_ranker is not None:
+                logger.info("Optimizing ensemble ranker/percentile blend weight via CV...")
+                weight_result = optimize_ensemble_weight(
+                    train_df, feature_cols,
+                    model_params=model_params,
+                    time_decay_half_life=decay_hl,
+                )
+                best_w = weight_result["best_weight"]
+                bundle.metadata["ensemble_ranker_weight"] = best_w
+                mlflow.log_metric("ensemble_ranker_weight", best_w)
+                logger.info(f"Optimal ensemble weight: {best_w:.2f}")
+                print(f"\n--- Ensemble Weight Optimization ---")
+                for w in sorted(weight_result["weight_scores"].keys()):
+                    s = weight_result["weight_scores"][w]
+                    marker = " * BEST" if w == best_w else (" <-- 50/50" if w == 0.5 else "")
+                    print(f"  {w:.2f}: P@10={s['P@10']:.1%}, P@3={s['P@3']:.1%}{marker}")
+                print(f"  Stored weight: {best_w:.2f}")
+            elif args.optimize_weight:
+                logger.warning("Cannot optimize weight: no LGBMRanker trained")
+
             # Compute empirical residual covariance from training data predictions
             # This produces per-distance 5×5 covariance matrices used by the MVN noise
             # model in Monte Carlo simulation (Phase 2 improvement)
@@ -366,6 +395,21 @@ def main():
                 logger.info(f"Residual stats computed for: {list(residual_stats.keys())}")
             else:
                 logger.warning("Could not compute residual stats (insufficient data or models)")
+
+            # Learn swim gap distributions for percentile-based simulation
+            logger.info("Learning swim gap-to-leader distributions...")
+            swim_gap_dists = learn_swim_gap_distributions(train_df)
+            if swim_gap_dists:
+                bundle.metadata["swim_gap_distributions"] = swim_gap_dists
+                for dist_key, stats in swim_gap_dists.items():
+                    mlflow.log_metrics({
+                        f"swim_gap_{dist_key}_n_races": stats["n_races"],
+                        f"swim_gap_{dist_key}_median": stats["gap_p50"],
+                        f"swim_gap_{dist_key}_p90": stats["gap_p90"],
+                    })
+                logger.info(f"Swim gap distributions learned for: {list(swim_gap_dists.keys())}")
+            else:
+                logger.warning("Could not learn swim gap distributions")
 
             # Learn pack effects from historical data and store in bundle
             # Overall params (all distances combined) for backward compatibility

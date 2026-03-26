@@ -1,47 +1,50 @@
 ---
 mode: 'edit'
-description: 'Plan an implementation'
+description: 'Plan a triathlon-db implementation or experiment'
 ---
 
-Your goal is to generate an implementation plan for a specification document provided to you.
+Your goal is to generate an implementation plan for a feature, refactor, experiment, or analysis task in this repository.
 
 RULES:
 - Keep implementations simple, do not over architect
 - Do not generate real code for your plan, pseudocode is OK
-- For each step in your plan, include the objective of the step, the steps to achieve that objective, and any necessary pseudocode.
-- Call out any necessary user intervention required for each step
-- Consider accessibility part of each step and not a separate step
+- For each step in your plan, include the objective, the concrete files or modules involved, the validation approach, and any necessary pseudocode
+- Call out any necessary user intervention for each step
+- Include testing and data-validation implications where relevant
 
 FIRST:
 
-- Review the [file](../docs/summary.md) and [file](../ml_outline.md) files to understand an overview of the project.
-- Review the attached specification document to understand the requirements and objectives.
+- Review `CLAUDE.md` to understand the current project architecture and workflow.
+- Review `docs/prediction_status.md`, `docs/experiment-log.md`, and `docs/model_improvement_brainstorm.md` when the task touches prediction or experimentation.
+- Review the attached specification or user request to understand the requirements and objective.
+- Search the relevant symbols in `tri_analysis/`, `scripts/`, `streamlit_app.py`, and `tests/` before finalizing the plan.
 
 THEN:
-- Create a detailed implementation plan that outlines the steps needed to achieve the objectives of the specification document.
+- Create a detailed implementation plan that outlines the steps needed to achieve the objective.
 - The plan should be structured, clear, and easy to follow.
 - Structure your plan as follows, and output as Markdown code block
 
 ```markdown
-# Implementation Plan for [Spec Name]
+# Implementation Plan for [Task Name]
 
 - [ ] Step 1: [Brief title]
   - **Task**: [Detailed explanation of what needs to be implemented]
   - **Files**: [Maximum of 20 files, ideally less]
     - `path/to/file1.ts`: [Description of changes], [Pseudocode for implementation]
-  - **Dependencies**: [Dependencies for step]
+  - **Validation**: [Tests, scripts, or manual checks]
+  - **Risks**: [Behavioral or data risks]
 
 [Additional steps...]
 ```
 
-- After the steps to implement the pipeline, add a step to build and test the model
-- Add a step to write tests for the feature to test the accuracy of the model 
+- If the task affects prediction quality, include a validation step covering training or backtest commands and the expected metrics to watch.
+- If the task affects data pipelines or analytics outputs, include a step for regression checks on the affected scripts or dashboards.
 
 NEXT:
 
-- Iterate with me until I am satisifed with the plan
+- Iterate with me until I am satisfied with the plan.
 
 FINALLY: 
 
-- Output your plan in [folder](../docs/plan-name.md)
+- When I confirm the plan, save it under `docs/<plan-name>.md`.
 - DO NOT start implementation without my permission.

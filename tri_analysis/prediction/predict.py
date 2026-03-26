@@ -98,6 +98,13 @@ def predict_splits_and_total(
     else:
         predictions["pred_swim_sec"] = np.full(len(df), np.nan)
 
+    # Swim exit percentile prediction (for percentile-based simulation)
+    if dist_models and "swim_exit_pct" in dist_models:
+        predictions["pred_swim_exit_pct"] = dist_models["swim_exit_pct"].predict(X_split)
+    elif getattr(bundle, "model_swim_exit_pct", None) is not None:
+        predictions["pred_swim_exit_pct"] = bundle.model_swim_exit_pct.predict(X_full)
+    # No else — pred_swim_exit_pct is optional, only used by percentile swim sim mode
+
     # T1 prediction
     if dist_models and "t1" in dist_models:
         predictions["pred_t1_sec"] = dist_models["t1"].predict(X_split)
@@ -324,7 +331,7 @@ def predict_splits_and_total(
             # Percentile rank: lower pct = better finish
             pct_rank = df["pred_finish_pct"].rank(method="average", ascending=True)
 
-            RANKER_WEIGHT = 0.5
+            RANKER_WEIGHT = bundle.metadata.get("ensemble_ranker_weight", 0.5)
             df["ensemble_rank_score"] = RANKER_WEIGHT * ranker_rank + (1 - RANKER_WEIGHT) * pct_rank
             logger.info(f"Using ensemble ranking (ranker={RANKER_WEIGHT:.0%}, pct={1-RANKER_WEIGHT:.0%})")
 

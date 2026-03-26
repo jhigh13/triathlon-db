@@ -3,7 +3,7 @@
         "triathlon-db/.vscode/mcp.json: Context7": {
             "allowedModels": [
                 "copilot/claude-sonnet-4.5",
-                "copilot/gpt-5.1-codex-max"
+                "copilot/gpt-5.4"
             ]
         }
     },

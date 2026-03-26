@@ -1,5 +1,59 @@
 # Triathlon Database - File Memory
 
+## Recent File Changes (March 2026)
+
+### Mixed Relay Selection Reporting (2026-03-14)
+
+#### `scripts/analyze_mixed_relay_selection.py` (NEW)
+- **Purpose**: Build shareable mixed relay roster-selection analysis outputs from the local database
+- **Key Change**: Added a reusable script that filters to adult standard mixed relay teams, classifies relay events by event class, compares relay rosters against same-event and prior-365-day individual strength, and exports slot-level/team-level CSVs plus a draft markdown report
+- **Reason**: The mixed relay analysis had progressed beyond ad hoc terminal queries and needed repeatable outputs suitable for Excel, Power BI, or direct sharing
+- **Effect**: Mixed relay selection analysis can now be rerun into clean `outputs/` tables and a first-draft report instead of being reconstructed from notebook or terminal history
+- **Follow-up**: Updated the report writer to emit real markdown tables and a plain-language glossary so the generated draft is readable in VS Code preview and easier to explain to non-technical stakeholders
+- **Follow-up 2**: Added a second-pass same-weekend fallback match that looks for related Elite Men/Women events within one day and with shared place-style tokens in the event name, so standalone relay weekends are not misclassified as athlete-matching failures
+- **Follow-up 3**: Finalized the combined `comparison_*` lens so outputs now treat exact same-event matching as the first pass and only fall back to same-weekend related events when no exact individual comparison exists; this materially reduced false "relay-only" interpretations for cases like Hamburg weekends while preserving true non-top-2 selections in countries like Great Britain
+- **Follow-up 4**: Simplified the outward-facing outputs again so they no longer split `same_event` versus `same_weekend`; exports and the markdown report now present one combined `individual_*` category for race-weekend comparison, plus `prior_365_*` as the separate country-form lens
+- **Follow-up 5**: Added `individual_event_id`, `individual_prog_id`, and `individual_prog_name` to the slot export so Power BI can drill from a relay athlete slot into the exact comparable Elite Men/Women program and then show the full field plus same-country athletes from `race_results`
+
+#### `docs/power_bi_files/mixed_relay_powerbi_setup.md` (NEW)
+- **Purpose**: Repo-specific instructions for loading the mixed relay outputs into Power BI and building drillthrough analysis pages
+- **Key Change**: Added a concrete semantic-model recommendation, DAX measures, report-page layout, and an explicit note that historical world ranking snapshots are not yet available in `athlete_rankings`
+- **Reason**: The user wanted to analyze mixed relay selection in Power BI with country-level and race-level drillthrough, especially for Great Britain, Germany, and the United States
+- **Effect**: The Power BI build can now be done with the current exports and without guessing at model design or the limitations of the ranking snapshot data
+
+### Ranking Import Modernization (2026-03-13)
+
+#### `tri_analysis/ranking_import.py` (UPDATED)
+- **Purpose**: Import current World Triathlon ranking snapshots into `athlete_rankings`
+- **Key Change**: Replaced stale legacy imports, kept API retry/backoff, and normalized `ranking_cat_name` values from stable `ranking_cat_id` mappings instead of the generic API labels
+- **Reason**: The current importer was broken against the active package layout, and the live API now returns generic labels like `World Rankings` / `World Triathlon Series`
+- **Effect**: Current ranking snapshots now import cleanly and keep category names consistent with the ids used by downstream prediction SQL
+
+#### `tri_analysis/historical_rankings_scraper.py` / `tri_analysis/athlete_matching.py` (UPDATED)
+- **Purpose**: Scrape legacy ranking pages from `old.triathlon.org` and match scraped athletes into the current database
+- **Key Change**: Removed `Data_Import` / `Data_Upload` dependencies, switched to current `tri_analysis` modules, staged historical rankings with stable year-end snapshot dates, cached athlete-id matching, and preserved the tested `HistoricalRankingsScraper.upsert_rankings()` interface
+- **Reason**: The historical scraper no longer ran in the current repo because its imports and follow-on enrichment path were tied to archived modules
+- **Effect**: Historical WTCS ranking pages for 2016-2019 and 2021-2024 now parse and upsert into `athlete_rankings`, and targeted scraper tests pass again
+
+### Mixed Relay Athlete-Result Recovery (2026-03-12)
+
+#### `tri_analysis/api_handling.py` (UPDATED)
+- **Purpose**: Normalize API payloads for athlete, event, program, and result ingestion
+- **Key Change**: Added `normalize_athlete_mixed_relay_results()` to recover athlete-level mixed relay legs from the athlete results endpoint
+- **Reason**: Mixed Relay program results are returned as team rows with null `athlete_id`, while athlete history includes leg-level relay results with `team_id`, `team_order`, and five splits
+- **Effect**: Relay athlete performances can now be converted into the existing `race_results` schema instead of being lost during ingestion
+
+#### `tri_analysis/build_database.py` (UPDATED)
+- **Purpose**: Build and backfill the local training database from World Triathlon API sources
+- **Key Change**: After program-level ingestion, the build now detects relay programs and supplements `race_results` with athlete-level relay rows fetched from athlete history
+- **Reason**: The previous path only used program results, so mixed relay rows were dropped when `athlete_id` was null
+- **Effect**: Future database builds can persist athlete-level Mixed Relay results for programs already present in `events`
+
+#### `tri_analysis/build_database.py` / `tri_analysis/api_handling.py` (UPDATED)
+- **Key Change**: Added `RELAY_ONLY` build mode and restricted relay recovery to same-event athlete candidates instead of scanning the entire build-window athlete pool
+- **Reason**: Full-window relay recovery was much slower than the original build because it fetched athlete history for every athlete in scope
+- **Effect**: Targeted mixed relay backfills are now possible, and normal builds should spend far less time in the relay recovery phase
+
 ## Recent File Changes (January 2026)
 
 ### Two-Threshold Pack Algorithm Update (2026-01-30)

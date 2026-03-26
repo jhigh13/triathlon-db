@@ -5,7 +5,7 @@ import concurrent.futures
 import datetime
 import pandas as pd
 from dotenv import load_dotenv
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 try:
     from tri_analysis.database import get_engine, initialize_database
 except ImportError:  # pragma: no cover
@@ -36,6 +36,7 @@ from tri_analysis.api_handling import (
     fetch_program_ids,
     process_program_data,
     fetch_and_process_program_results,
+    normalize_athlete_mixed_relay_results,
 )
 from tri_analysis.upsert_tables import upsert_athlete, upsert_events, upsert_race_results
 load_dotenv(override=True)
@@ -65,6 +66,60 @@ def fetch_and_validate_athlete_info(athlete_id):
         print(f"Skipping athlete_id={athlete_id} due to error: {e}")
         return None
 
+
+def fetch_mixed_relay_results_for_athlete(athlete_id, relay_program_pairs):
+    try:
+        athlete_results = fetch_race_results(athlete_id)
+        df = normalize_athlete_mixed_relay_results(
+            athlete_id,
+            athlete_results,
+            valid_program_pairs=relay_program_pairs,
+        )
+        return df if is_valid_df(df) else None
+    except Exception as e:
+        print(f"Skipping mixed relay history for athlete_id={athlete_id} due to error: {e}")
+        return None
+
+
+def get_relay_candidate_athlete_ids(engine, race_results_df, relay_program_pairs):
+    relay_event_ids = sorted({event_id for event_id, _ in relay_program_pairs})
+    if not relay_event_ids:
+        return []
+
+    athlete_ids = set()
+    if not race_results_df.empty and "event_id" in race_results_df.columns:
+        current_ids = (
+            race_results_df[
+                race_results_df["event_id"].isin(relay_event_ids)
+                & race_results_df["athlete_id"].notna()
+            ]["athlete_id"]
+            .astype(int)
+            .tolist()
+        )
+        athlete_ids.update(current_ids)
+
+    if athlete_ids:
+        return sorted(athlete_ids)
+
+    query = text(
+        """
+        SELECT DISTINCT rr.athlete_id
+        FROM race_results rr
+        JOIN events e
+          ON rr.event_id = e.event_id
+         AND rr.prog_id = e.prog_id
+        WHERE rr.athlete_id IS NOT NULL
+          AND rr.event_id IN :event_ids
+          AND e.prog_name NOT ILIKE '%Relay%'
+        """
+    ).bindparams(bindparam("event_ids", expanding=True))
+
+    with engine.connect() as conn:
+        existing_df = pd.read_sql(query, conn, params={"event_ids": relay_event_ids})
+    if existing_df.empty:
+        return []
+    return sorted(existing_df["athlete_id"].dropna().astype(int).unique().tolist())
+
 def main(): 
 # Get database engine, drop existing tables, and initialize the database
     engine = get_engine()
@@ -79,8 +134,9 @@ def main():
     initialize_database()
 
     # Allow overriding the date window via environment variables for backfills (e.g., para-only last 4 years)
-    start_date = os.environ.get("START_DATE") or datetime.date(2026, 1, 1).strftime("%Y-%m-%d")
-    end_date = os.environ.get("END_DATE") or datetime.date(2026, 12, 31).strftime("%Y-%m-%d")
+    start_date = os.environ.get("START_DATE") or datetime.date(2024, 1, 1).strftime("%Y-%m-%d")
+    end_date = os.environ.get("END_DATE") or datetime.date(2026, 3, 31).strftime("%Y-%m-%d")
+    relay_only = os.environ.get("RELAY_ONLY", "0").strip().lower() in {"1", "true", "yes", "y"}
 
     # Initialize as an empty list to collect DataFrames from each process_program_data call
     event_df = []
@@ -93,8 +149,10 @@ def main():
     print(f"Found {len(events_id)} events from {start_date} to {end_date}.")
 
     print("Fetching program IDs for each event concurrently...")
-    with concurrent.futures.ThreadPoolExecutor(max_workers=500) as executor:
-        program_id_lists = list(executor.map(fetch_program_ids, events_id))
+    with concurrent.futures.ThreadPoolExecutor(max_workers=64) as executor:
+        program_id_lists = list(
+            executor.map(lambda event_id: fetch_program_ids(event_id, relay_only=relay_only), events_id)
+        )
 
     # Flatten the list of lists and keep track of (event_id, program_id) pairs
     event_program_pairs = [
@@ -115,13 +173,42 @@ def main():
     race_results_df = pd.concat(race_results_df, ignore_index=True) if race_results_df else pd.DataFrame()
     print(f"Processed {len(event_df)} programs and {len(race_results_df)} race results.")
 
+    relay_program_pairs = set()
+    if not event_df.empty and "prog_name" in event_df.columns:
+        relay_rows = event_df[event_df["prog_name"].astype(str).str.contains("Relay", case=False, na=False)]
+        relay_program_pairs = {
+            (int(row.event_id), int(row.prog_id))
+            for row in relay_rows[["event_id", "prog_id"]].itertuples(index=False)
+        }
+
+    if relay_program_pairs and not race_results_df.empty:
+        print(f"Recovering athlete-level relay results for {len(relay_program_pairs)} relay programs...")
+        athlete_ids = get_relay_candidate_athlete_ids(engine, race_results_df, relay_program_pairs)
+        print(f"Scanning athlete history for {len(athlete_ids)} same-event relay candidates...")
+        relay_result_dfs = []
+        if athlete_ids:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=32) as executor:
+                futures = executor.map(
+                    lambda athlete_id: fetch_mixed_relay_results_for_athlete(athlete_id, relay_program_pairs),
+                    athlete_ids,
+                )
+                for df in futures:
+                    if is_valid_df(df):
+                        relay_result_dfs.append(df)
+            if relay_result_dfs:
+                relay_results_df = pd.concat(relay_result_dfs, ignore_index=True)
+                race_results_df = pd.concat([race_results_df, relay_results_df], ignore_index=True)
+                print(f"Recovered {len(relay_results_df)} athlete-level relay result rows from athlete history.")
+        else:
+            print("No same-event athlete candidates found for relay recovery.")
+
     race_results_df = race_results_df.drop_duplicates(subset=["athlete_id", "prog_id", "total_time"]).copy()
 
 
     print("Fetching athlete information concurrently...")
     unique_athlete_ids = race_results_df["athlete_id"].dropna().unique().tolist()
     athletes_df_list = []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=100) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=32) as executor:
         for df in executor.map(fetch_and_validate_athlete_info, unique_athlete_ids):
             if df is not None:
                 athletes_df_list.append(df)

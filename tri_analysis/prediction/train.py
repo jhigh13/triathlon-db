@@ -66,6 +66,7 @@ class ModelBundle:
     model_t2: Optional[Any] = None
     model_front_pack: Optional[Any] = None
     model_total_pct: Optional[Any] = None  # Percentile model (finish_position / n_finishers)
+    model_swim_exit_pct: Optional[Any] = None  # Swim exit percentile model (swim rank / n_swimmers)
     model_ranker: Optional[Any] = None  # LGBMRanker for direct rank optimization
     ranker_imputer: Optional[Any] = None  # Imputer for ranker (not in pipeline)
     model_xgb_ranker: Optional[Any] = None  # XGBRanker for ensemble diversity
@@ -349,6 +350,7 @@ def train_baseline_models(
             "run": "run_sec",
             "total": "total_sec",
             "total_pct": "finish_pct",  # Percentile target (0=winner, 1=last)
+            "swim_exit_pct": "swim_exit_pct",  # Swim exit ranking percentile (0=first, 1=last)
         }
 
     # Verify feature columns exist
@@ -580,6 +582,7 @@ def train_baseline_models(
         model_t1=models.get("t1"),
         model_t2=models.get("t2"),
         model_total_pct=models.get("total_pct"),
+        model_swim_exit_pct=models.get("swim_exit_pct"),
         model_ranker=model_ranker,
         ranker_imputer=ranker_imputer,
         model_xgb_ranker=model_xgb_ranker,
@@ -664,7 +667,10 @@ def train_distance_split_models(
     df["_dist_norm"] = df["_dist_norm"].replace({"olympic": "standard"})
 
     distance_models = {}
-    split_targets = {"swim": "swim_sec", "t1": "t1_sec", "bike": "bike_sec", "t2": "t2_sec", "run": "run_sec"}
+    split_targets = {
+        "swim": "swim_sec", "t1": "t1_sec", "bike": "bike_sec", "t2": "t2_sec", "run": "run_sec",
+        "swim_exit_pct": "swim_exit_pct",  # Swim exit ranking percentile for simulation
+    }
     # Total model trained per-distance with FULL feature set for accurate absolute times
     total_target = {"total": "total_sec"}
 
@@ -892,6 +898,351 @@ def compute_residual_stats(
     return results
 
 
+def learn_swim_gap_distributions(
+    train_df: pd.DataFrame,
+) -> dict:
+    """
+    Learn empirical swim gap-to-leader distributions conditioned on event type.
+
+    For each race in training data, computes each finisher's swim exit percentile
+    and their gap-to-leader (seconds). Bins by (distance, tier, field_size_bucket)
+    and stores quantile functions mapping percentile → gap.
+
+    Used by the percentile-based swim simulation to convert sampled swim exit
+    percentiles into realistic time gaps.
+
+    Args:
+        train_df: Training DataFrame with swim_sec, event_tier, prog_distance_category
+
+    Returns:
+        Dict with structure:
+        {
+            "sprint": {
+                "quantiles": [0.1, 0.2, ..., 0.9],
+                "gap_at_quantile": [2.1, 4.3, ..., 45.2],  # seconds
+                "n_races": 150,
+                "n_athletes": 4200,
+            },
+            "standard": {...},
+            "overall": {...},
+        }
+    """
+    from .utils_time import parse_time_to_seconds
+
+    if "swim_sec" not in train_df.columns:
+        logger.warning("No swim_sec in training data, cannot learn gap distributions")
+        return {}
+
+    # Normalize distance
+    if "prog_distance_category" in train_df.columns:
+        dist_col = train_df["prog_distance_category"].str.lower().str.strip().replace({"olympic": "standard"})
+    else:
+        dist_col = pd.Series("unknown", index=train_df.index)
+
+    # Need event/prog identifiers to group by race
+    if "event_id" not in train_df.columns or "prog_id" not in train_df.columns:
+        logger.warning("No event_id/prog_id in training data, cannot learn gap distributions")
+        return {}
+
+    # Filter to valid swim times
+    valid = train_df["swim_sec"].notna() & (train_df["swim_sec"] > 0)
+    df = train_df[valid].copy()
+    df["_dist_norm"] = dist_col[valid]
+
+    results = {}
+    quantile_points = np.arange(0.05, 1.0, 0.05)  # 0.05, 0.10, ..., 0.95
+
+    def _compute_gap_distribution(subset_df):
+        """Compute gap-to-leader quantiles for a subset of races."""
+        all_gaps = []
+        all_pcts = []
+        race_groups = subset_df.groupby(["event_id", "prog_id"])
+        n_races = 0
+
+        for (eid, pid), race_df in race_groups:
+            if len(race_df) < 5:
+                continue
+            n_races += 1
+            leader_time = race_df["swim_sec"].min()
+            gaps = race_df["swim_sec"] - leader_time
+            pcts = race_df["swim_sec"].rank(method="average") / len(race_df)
+            all_gaps.extend(gaps.values)
+            all_pcts.extend(pcts.values)
+
+        if n_races < 10 or len(all_gaps) < 100:
+            return None
+
+        gap_arr = np.array(all_gaps)
+        pct_arr = np.array(all_pcts)
+
+        # Compute gap at each percentile quantile
+        # Sort by percentile and compute rolling gap statistics
+        sort_idx = np.argsort(pct_arr)
+        pct_sorted = pct_arr[sort_idx]
+        gap_sorted = gap_arr[sort_idx]
+
+        gap_at_quantile = []
+        for q in quantile_points:
+            # Find athletes near this percentile (±0.05 window)
+            mask = (pct_sorted >= q - 0.05) & (pct_sorted <= q + 0.05)
+            if mask.sum() > 0:
+                gap_at_quantile.append(float(np.median(gap_sorted[mask])))
+            else:
+                gap_at_quantile.append(float(np.quantile(gap_sorted, q)))
+
+        return {
+            "quantiles": quantile_points.tolist(),
+            "gap_at_quantile": gap_at_quantile,
+            "n_races": n_races,
+            "n_athletes": len(all_gaps),
+            "gap_p50": float(np.median(gap_arr)),
+            "gap_p90": float(np.quantile(gap_arr, 0.9)),
+        }
+
+    # Per-distance distributions
+    for dist_cat in df["_dist_norm"].unique():
+        dist_df = df[df["_dist_norm"] == dist_cat]
+        result = _compute_gap_distribution(dist_df)
+        if result:
+            results[dist_cat] = result
+            logger.info(
+                f"Swim gap distribution ({dist_cat}): {result['n_races']} races, "
+                f"{result['n_athletes']} athletes, median gap={result['gap_p50']:.1f}s, "
+                f"p90 gap={result['gap_p90']:.1f}s"
+            )
+
+    # Overall distribution
+    overall = _compute_gap_distribution(df)
+    if overall:
+        results["overall"] = overall
+        logger.info(
+            f"Swim gap distribution (overall): {overall['n_races']} races, "
+            f"{overall['n_athletes']} athletes"
+        )
+
+    return results
+
+
+def optimize_ensemble_weight(
+    train_df: pd.DataFrame,
+    feature_cols: list[str],
+    model_params: dict | None = None,
+    use_sample_weights: bool = True,
+    time_decay_half_life: float = 365.0,
+    weights: list[float] | None = None,
+) -> dict:
+    """
+    Find optimal ranker/percentile blend weight via time-based CV.
+
+    For each fold: trains LGBMRanker + percentile regressor on the train
+    portion, predicts on validation, sweeps blend weights, measures P@10.
+
+    Args:
+        train_df: Full training DataFrame with features, labels, event_date
+        feature_cols: Feature column names
+        model_params: Hyperparameters for the regressor
+        use_sample_weights: Whether to use tier-based sample weights
+        time_decay_half_life: Half-life for time-decay weighting
+        weights: Candidate weights to try (default: 0.25 to 0.75 step 0.05)
+
+    Returns:
+        Dict with keys: best_weight, weight_scores, fold_details
+    """
+    from .features import TIER_SAMPLE_WEIGHTS
+    from .evaluate import precision_at_k
+
+    if not USE_LIGHTGBM:
+        logger.warning("LightGBM not available, cannot optimize ensemble weight")
+        return {"best_weight": 0.5, "weight_scores": {}, "fold_details": []}
+
+    if weights is None:
+        weights = [round(w, 2) for w in np.arange(0.25, 0.80, 0.05)]
+
+    splits = time_based_cv_splits(train_df)
+    if not splits:
+        logger.error("No valid CV splits for weight optimization")
+        return {"best_weight": 0.5, "weight_scores": {}, "fold_details": []}
+
+    # Track P@10 for each weight across folds
+    weight_p10 = {w: [] for w in weights}
+    weight_p3 = {w: [] for w in weights}
+    fold_details = []
+
+    for fold_idx, (tr, va) in enumerate(splits):
+        target_col = "finish_pct"
+        if target_col not in tr.columns or "finish_position" not in tr.columns:
+            continue
+
+        tr_mask = tr[target_col].notna()
+        va_mask = va[target_col].notna()
+
+        X_tr = tr.loc[tr_mask, feature_cols]
+        y_tr = tr.loc[tr_mask, target_col]
+        X_va = va.loc[va_mask, feature_cols]
+
+        if len(y_tr) < 50 or len(X_va) < 10:
+            continue
+
+        # --- Sample weights (tier + time decay) ---
+        w_tr = None
+        if use_sample_weights and "event_tier" in tr.columns:
+            w_tr = tr.loc[tr_mask, "event_tier"].map(TIER_SAMPLE_WEIGHTS).fillna(1.0)
+        if time_decay_half_life > 0 and "event_date" in tr.columns:
+            decay_w = _compute_time_decay_weights(tr.loc[tr_mask], time_decay_half_life)
+            if decay_w is not None:
+                w_tr = (w_tr * decay_w) if w_tr is not None else decay_w
+
+        # --- Train percentile model ---
+        pct_model = create_regressor(params=model_params)
+        if w_tr is not None:
+            w_vals = w_tr.values if hasattr(w_tr, "values") else w_tr
+            pct_model.fit(X_tr, y_tr, regressor__sample_weight=w_vals)
+        else:
+            pct_model.fit(X_tr, y_tr)
+
+        # --- Train LGBMRanker ---
+        tr_fold = tr.loc[tr_mask].copy()
+        if "event_id" not in tr_fold.columns or "prog_id" not in tr_fold.columns:
+            continue
+
+        tr_fold["_race_key"] = (
+            tr_fold["event_id"].astype(str) + "_" + tr_fold["prog_id"].astype(str)
+        )
+        rank_mask = tr_fold["finish_position"].notna() & tr_fold["_race_key"].notna()
+        rank_df = tr_fold[rank_mask].copy()
+        race_counts = rank_df.groupby("_race_key").size()
+        valid_races = race_counts[race_counts >= 10].index
+        rank_df = rank_df[rank_df["_race_key"].isin(valid_races)]
+
+        if len(rank_df) < 100:
+            continue
+
+        rank_df = rank_df.sort_values("_race_key").reset_index(drop=True)
+        MAX_RELEVANCE = 30
+        race_sizes = rank_df.groupby("_race_key")["finish_position"].transform("count")
+        raw_relevance = (race_sizes - rank_df["finish_position"]).clip(lower=0)
+        rank_df["_relevance"] = raw_relevance.clip(upper=MAX_RELEVANCE).astype(int)
+        group_sizes = rank_df.groupby("_race_key").size().values
+
+        X_rank = rank_df[feature_cols].copy()
+        y_rank = rank_df["_relevance"]
+
+        ranker_imputer = SimpleImputer(strategy="median")
+        X_rank_imputed = ranker_imputer.fit_transform(X_rank)
+
+        # Ranker sample weights
+        rank_weights = None
+        if use_sample_weights and "event_tier" in rank_df.columns:
+            tier_w = rank_df["event_tier"].map(TIER_SAMPLE_WEIGHTS).fillna(1.0)
+            field_sizes = rank_df.groupby("_race_key")["finish_position"].transform("count")
+            field_w = np.where(field_sizes >= 50, 2.0,
+                      np.where(field_sizes >= 40, 1.5,
+                      np.where(field_sizes >= 30, 1.2, 1.0)))
+            rank_weights = (tier_w * field_w).values
+        if time_decay_half_life > 0 and "event_date" in rank_df.columns:
+            decay_w = _compute_time_decay_weights(rank_df, time_decay_half_life)
+            if decay_w is not None:
+                rank_weights = (rank_weights * decay_w.values) if rank_weights is not None else decay_w.values
+
+        p = {**DEFAULT_PARAMS, **(model_params or {})}
+        ranker_model = LGBMRanker(
+            objective="lambdarank",
+            lambdarank_truncation_level=10,
+            n_estimators=300,
+            max_depth=p["max_depth"],
+            learning_rate=0.05,
+            num_leaves=p.get("num_leaves", 31),
+            min_child_samples=p.get("min_child_samples", 20),
+            reg_alpha=p.get("reg_alpha", 0.0),
+            reg_lambda=p.get("reg_lambda", 0.0),
+            random_state=42,
+            verbose=-1,
+        )
+
+        fit_kwargs = {"group": group_sizes}
+        if rank_weights is not None:
+            fit_kwargs["sample_weight"] = rank_weights
+
+        try:
+            ranker_model.fit(X_rank_imputed, y_rank, **fit_kwargs)
+        except Exception as e:
+            logger.warning(f"Fold {fold_idx+1}: ranker training failed: {e}")
+            continue
+
+        # --- Predict on validation ---
+        va_fold = va.loc[va_mask].copy()
+        va_fold["pred_finish_pct"] = pct_model.predict(X_va)
+
+        X_va_rank = va_fold[feature_cols].copy()
+        X_va_imputed = ranker_imputer.transform(X_va_rank)
+        va_fold["ranker_score"] = ranker_model.predict(X_va_imputed)
+
+        # --- Sweep weights, compute P@10 per race ---
+        fold_weight_p10 = {w: [] for w in weights}
+        fold_weight_p3 = {w: [] for w in weights}
+
+        ranker_rank = va_fold["ranker_score"].rank(method="average", ascending=False)
+        pct_rank = va_fold["pred_finish_pct"].rank(method="average", ascending=True)
+
+        for w in weights:
+            va_fold["_ensemble"] = w * ranker_rank + (1 - w) * pct_rank
+            va_fold["_pred_rank"] = va_fold["_ensemble"].rank(method="min", ascending=True).astype(int)
+
+            for _, race_group in va_fold.groupby(["event_id", "prog_id"]):
+                if len(race_group) < 10 or "finish_position" not in race_group.columns:
+                    continue
+                actual = race_group.sort_values("finish_position")["athlete_id"].tolist()
+                predicted = race_group.sort_values("_pred_rank")["athlete_id"].tolist()
+                if len(actual) >= 10:
+                    fold_weight_p10[w].append(precision_at_k(predicted, actual, 10))
+                if len(actual) >= 3:
+                    fold_weight_p3[w].append(precision_at_k(predicted, actual, 3))
+
+        # Aggregate per-weight metrics for this fold
+        fold_info = {"fold": fold_idx + 1, "n_val_races": 0}
+        for w in weights:
+            if fold_weight_p10[w]:
+                mean_p10 = np.mean(fold_weight_p10[w])
+                weight_p10[w].append(mean_p10)
+                fold_info["n_val_races"] = len(fold_weight_p10[w])
+            if fold_weight_p3[w]:
+                mean_p3 = np.mean(fold_weight_p3[w])
+                weight_p3[w].append(mean_p3)
+
+        fold_details.append(fold_info)
+        logger.info(f"Fold {fold_idx+1}: swept {len(weights)} weights across {fold_info['n_val_races']} races")
+
+    # --- Aggregate across folds ---
+    weight_scores = {}
+    for w in weights:
+        if weight_p10[w]:
+            mean_p10 = np.mean(weight_p10[w])
+            mean_p3 = np.mean(weight_p3[w]) if weight_p3[w] else np.nan
+            weight_scores[w] = {"P@10": mean_p10, "P@3": mean_p3}
+
+    if not weight_scores:
+        logger.warning("No valid weight scores, defaulting to 0.5")
+        return {"best_weight": 0.5, "weight_scores": {}, "fold_details": fold_details}
+
+    # Pick weight that maximizes P@10
+    best_weight = max(weight_scores, key=lambda w: weight_scores[w]["P@10"])
+    best_p10 = weight_scores[best_weight]["P@10"]
+    baseline_p10 = weight_scores.get(0.5, {}).get("P@10", np.nan)
+
+    logger.info(f"Ensemble weight optimization complete:")
+    for w in sorted(weight_scores.keys()):
+        s = weight_scores[w]
+        marker = " <-- BEST" if w == best_weight else (" <-- baseline" if w == 0.5 else "")
+        logger.info(f"  w={w:.2f}: P@10={s['P@10']:.1%}, P@3={s['P@3']:.1%}{marker}")
+    logger.info(f"Best weight: {best_weight:.2f} (P@10={best_p10:.1%}, delta vs 0.50: {best_p10 - baseline_p10:+.1%})")
+
+    return {
+        "best_weight": best_weight,
+        "weight_scores": weight_scores,
+        "fold_details": fold_details,
+    }
+
+
 def save_model_bundle(bundle: ModelBundle, path: str) -> str:
     """
     Save a ModelBundle to disk using joblib.
@@ -1017,6 +1368,17 @@ def build_training_dataset(
             n_finishers = len(merged)
             if n_finishers > 0:
                 merged["finish_pct"] = merged["finish_position"].astype(float) / n_finishers
+
+            # Compute swim exit percentile target (0 = first out, 1 = last out)
+            # This is the ranking target for the percentile-based swim simulation
+            if n_finishers > 0 and "swim_sec" in merged.columns:
+                valid_swim = merged["swim_sec"].notna() & (merged["swim_sec"] > 0)
+                if valid_swim.sum() > 1:
+                    merged.loc[valid_swim, "swim_exit_pct"] = (
+                        merged.loc[valid_swim, "swim_sec"]
+                        .rank(method="average")
+                        .div(valid_swim.sum())
+                    )
 
             all_rows.append(merged)
 

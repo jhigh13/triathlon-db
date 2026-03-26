@@ -1,50 +1,63 @@
 ## GitHub Copilot / AI Agent Project Instructions
 
-These rules make an AI assistant immediately productive in this repository. Keep responses concise, actionable, and tailored to THIS codebase (not generic Python advice).
+These rules should keep an AI assistant productive in this repository as it exists today. Keep responses concise, actionable, and specific to this codebase rather than giving generic Python or ML advice.
 
 ### Core Principles
-1. User is strong in general coding, still learning production + ML: add brief rationale when introducing patterns (why, not just what).
-2. Use Windows PowerShell formatting: chain multiple commands with ';'. Example: `python -m venv .venv; .\.venv\Scripts\Activate.ps1; pip install -r requirements.txt`.
-3. Before non‑trivial edits: search for symbol usage (avoid breaking ETL invariants, ranking logic, pack metrics).
-4. When you create a NEW file: append a short entry to `docs/memory.md` (purpose + key points). For edits, no memory update unless behavior/role meaningfully changes.
-5. After completing a cohesive feature/module, ask: "Commit changes now? (y/n)".
+1. The user is strong in general coding and wants brief rationale when you introduce production or ML patterns. Explain why a change matters, not just what to type.
+2. Use Windows PowerShell formatting for shell examples and chain commands with ';'. Prefer the project virtual environment at `.venv`.
+3. Before non-trivial edits, search for symbol usage and mirrored logic across `tri_analysis/`, `scripts/`, `streamlit_app.py`, and `tests/`.
+4. When you create a NEW file, append a short entry to `docs/memory.md` with its purpose and the key decisions. For edits, only update `docs/memory.md` when behavior or project structure meaningfully changes.
+5. After completing a cohesive feature or module, ask: `Commit changes now? (y/n)`.
 
-### Architecture Snapshot
-Data pipeline: World Triathlon API -> ETL scripts (`Data_Import/master_data_import.py` full load; `Data_Upload/update_race_results.py` incremental) -> PostgreSQL (tables: `athlete`, `events`, `race_results`, `athlete_rankings`, `position_metrics`) -> Analytics (Streamlit `streamlit_app.py`, Power BI `.pbix` files, notebooks, ML pipeline).
-Key augmentation columns: per‑checkpoint positions (`Position_at_Swim` etc.), position deltas (negative = gained places), segment ranks (`SwimRank` ... `RunRank`). Maintain these when transforming results.
+### Current Architecture Snapshot
+- Core package: `tri_analysis/`
+- Prediction system: `tri_analysis/prediction/{features,train,predict,simulate,evaluate,sql,utils_time}.py`
+- ETL / data workflows: `tri_analysis/build_database.py`, `tri_analysis/api_handling.py`, `tri_analysis/metrics.py`, `tri_analysis/wtcs_pack_metrics.py`, `tri_analysis/weather.py`
+- Entry points: `scripts/train_models.py`, `scripts/run_backtest.py`, `scripts/predict_program.py`, `scripts/debug_diagnostics.py`, plus analysis and sweep scripts under `scripts/`
+- Analytics surfaces: `streamlit_app.py`, notebooks, Power BI assets under `docs/power_bi_files/`, and CSV/JSON outputs under `outputs/`
+- Active reference docs: `CLAUDE.md`, `docs/prediction_status.md`, `docs/experiment-log.md`, `docs/model_improvement_brainstorm.md`, and `docs/memory.md`
+
+### Prediction Baseline And Workflow Rules
+- Current documented champion: `models/bundle_elite_v45.joblib`
+- Current documented deterministic baseline: P@10 `74.2%`, P@3 `57.0%`, Spearman `0.796`
+- Training cutoff is `2025-06-30`. Do not train or evaluate with later data unless the user explicitly changes the backtest protocol.
+- Backtest period is H2 2025. Deterministic backtest with `--no_sim` is the primary ranking evaluation.
+- Monte Carlo simulation is valuable for probability outputs, not for primary ranking accuracy. Do not present MC as the preferred ranking path.
+- Never overwrite an existing model bundle. Always increment the `bundle_elite_v{N}.joblib` version.
 
 ### Frequent Workflows
-Full historical import (DESTRUCTIVE): `python main.py` (option 1). Incremental new events: same menu (option 2). Single athlete pull: option 3.
-Run Streamlit app: `streamlit run streamlit_app.py` (ensure DB + `.env` with `TRI_API_KEY`, `DB_URI`).
-Run tests: `pytest -q` (add focused tests for new ETL/ranking behaviors). Add new test files under `tests/` mirroring feature area.
-ML experimentation lives in notebooks (`model_pipeline.ipynb`)—avoid embedding heavyweight model code inside ETL scripts; isolate feature engineering utilities if reused.
+- Train a new model: `python scripts/train_models.py --output models/bundle_elite_v{N}.joblib [extra args]`
+- Run primary backtest: `python scripts/run_backtest.py --model models/bundle_elite_v{N}.joblib --no_sim`
+- Run prediction for an event: `python scripts/predict_program.py --event_id {ID} --prog_id {ID} --model_path models/bundle_elite_v{N}.joblib`
+- Run diagnostics: `python scripts/debug_diagnostics.py --event_id {ID} --prog_id {ID} --model_path {model} --section overview`
+- Find events: `python scripts/find_events.py`
+- Run the app: `streamlit run streamlit_app.py`
+- Run tests: `pytest -q`
 
-### Conventions & Patterns
-Time parsing helpers (`time_to_seconds`, `convert_time_to_seconds`, `seconds_to_hms`) appear in multiple places—reuse, do NOT re‑invent. Centralize improvements instead of duplicating.
-Cache in Streamlit via `@st.cache_data(ttl=600)` for stable lookups; if modifying queries, keep column names stable for downstream matrix builders.
-Head‑to‑head logic builds pairwise combinations with `athlete_id_a < athlete_id_b` ordering; preserve this to avoid duplicates and asymmetry bugs.
-Pack dynamics: thresholds (`max_gap_to_leader`, `max_gap_within_pack`) drive grouping—surface changes as parameters rather than hard‑coding new constants.
-Database interactions: Use SQLAlchemy engine + pandas `read_sql`; bulk logic handled in import scripts—avoid ad‑hoc DDL changes inside analytical code.
-Unique constraint on `race_results` requires pre‑deduplication (already implemented)—when adding columns, prefer `ALTER TABLE` migration script over silent schema drift.
+### Codebase Conventions
+- Reuse time helpers from `tri_analysis/prediction/utils_time.py` or existing shared utilities. Do not add another copy of time parsing and formatting logic.
+- Keep database access on the existing SQLAlchemy path via `tri_analysis.database.get_engine()` and pandas `read_sql` where the codebase already follows that pattern.
+- Preserve head-to-head pair ordering with `athlete_id_a < athlete_id_b` to avoid duplicate and asymmetric records.
+- Treat pack thresholds and related tactical assumptions as parameters when possible. Avoid hard-coded experimental constants buried in analytical code.
+- Handle DNF, DNS, DSQ, and missing split times as missing values where appropriate. Do not coerce them to zero.
+- If you modify prediction features or data access, check downstream impact across `features.py`, `train.py`, `predict.py`, `simulate.py`, `evaluate.py`, `sql.py`, and the corresponding scripts.
+- If you change output files, keep names descriptive and snake_case, matching the existing `outputs/` style.
 
-### Quality & Safety
-Before modifying ETL core logic: scan for same function name in both full + incremental scripts to keep parity (e.g., ranking + position change calculations live in both).
-Always handle DNF / missing split times gracefully (keep `NaN` rather than zero; do not bias averages/gaps).
-If adding new analytical export (CSV/JSON) follow existing naming style: snake_case, descriptive (`pp_wins_podiums_totals.csv`).
+### Quality And Safety
+- When changing ranking, pack, or metric logic, search for the same domain concept across ETL utilities, Streamlit views, scripts, and tests before editing.
+- Avoid silent schema drift. If a database shape must change, make the change explicit and describe the migration path.
+- Do not hard-code secrets or credentials. Use `.env` and existing configuration paths.
+- Do not swallow SQL or data quality errors with broad `try/except` blocks.
 
 ### When Lacking Context
-1. Perform a code search for domain terms first (e.g., "Position_at_Swim", "SwimRank").
-2. If external library uncertainty: resolve library id then fetch docs (Context7 tools) before guessing.
+1. Search the repo for the domain term first, especially in `tri_analysis/`, `scripts/`, and `docs/`.
+2. Read `CLAUDE.md` and `docs/prediction_status.md` before making modeling assumptions.
+3. If library behavior is uncertain, fetch documentation before guessing.
 
-### Pull Request / Commit Guidance
-Group related file + test + doc updates. Include: reason, data impact, backward compatibility note. Ask user before committing (see principle 5).
-
-### Minimal Example Answers
-Add column to ranking metrics? -> Update schema (if needed), adjust both import + update scripts, update Streamlit H2H or packs if they display it, add test asserting non‑null proportion.
-Add new pack threshold control? -> Parameterize in function + expose Streamlit sidebar control with sane defaults.
+### Example Guidance
+- Adding a new prediction feature: update the feature builder, training path, prediction path, and backtest coverage together; then verify the feature does not leak post-event information.
+- Adjusting pack logic: update the core pack utility, any simulation dependency, any Streamlit or export consumer, and add or revise a targeted test.
+- Investigating a model regression: run diagnostics first, compare against the champion baseline, and summarize the tier-level tradeoffs instead of only reporting overall metrics.
 
 ### Do Not
-Hard‑code secrets or API keys. Remove broad try/except swallowing SQL errors. Introduce silent schema changes. Duplicate time conversion utilities.
-
-### Legacy Rules (Preserved)
-Original learning focus and context acquisition rules still apply; integrate them with above actionable guidance.
+Do not reference the old `main.py` menu workflow or legacy `Data_Import/` and `Data_Upload/` paths as the primary architecture. Do not overwrite model files. Do not train past `2025-06-30`. Do not duplicate time utilities or introduce silent schema changes.

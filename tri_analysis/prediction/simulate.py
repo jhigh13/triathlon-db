@@ -1077,6 +1077,59 @@ def _get_residual_cov(
     return None
 
 
+def _get_swim_gap_distribution(bundle_metadata: dict | None, distance_category: str | None) -> dict | None:
+    """
+    Retrieve swim gap distribution from bundle metadata.
+
+    Looks up distance-specific first, falls back to overall.
+    Returns None if not available.
+    """
+    if not bundle_metadata:
+        return None
+
+    gap_dists = bundle_metadata.get("swim_gap_distributions")
+    if not gap_dists:
+        return None
+
+    # Try distance-specific first
+    if distance_category:
+        dist_key = distance_category.lower().strip()
+        if dist_key == "olympic":
+            dist_key = "standard"
+        dist_dist = gap_dists.get(dist_key)
+        if dist_dist:
+            return dist_dist
+
+    # Fall back to overall
+    return gap_dists.get("overall")
+
+
+def _percentile_to_gap(percentiles: np.ndarray, gap_dist: dict) -> np.ndarray:
+    """
+    Convert swim exit percentiles to gap-to-leader using learned distribution.
+
+    Uses linear interpolation between quantile points.
+
+    Args:
+        percentiles: Array of swim exit percentiles (0=first, 1=last)
+        gap_dist: Dict with 'quantiles' and 'gap_at_quantile' arrays
+
+    Returns:
+        Array of gap-to-leader values in seconds
+    """
+    q_points = np.array(gap_dist["quantiles"])
+    g_points = np.array(gap_dist["gap_at_quantile"])
+
+    # Clamp percentiles to valid range
+    pct_clamped = np.clip(percentiles, q_points[0], q_points[-1])
+
+    # Linear interpolation
+    gaps = np.interp(pct_clamped, q_points, g_points)
+
+    # Ensure non-negative
+    return np.maximum(gaps, 0.0)
+
+
 # ── Monte Carlo Simulation ──────────────────────────────────────────
 
 
@@ -1091,6 +1144,7 @@ def run_monte_carlo(
     form_share: float = DEFAULT_FORM_SHARE,
     distance_category: str | None = None,
     bundle_metadata: dict | None = None,
+    swim_mode: str = "legacy",
 ) -> pd.DataFrame:
     """
     Run causal-chain Monte Carlo simulation.
@@ -1137,6 +1191,11 @@ def run_monte_carlo(
                         uses multivariate normal sampling instead of independent
                         noise + form factor. This naturally captures split
                         correlations from the training data.
+        swim_mode: How to simulate swim times. Options:
+                  - "legacy": Add noise to predicted swim times (original approach)
+                  - "percentile": Sample swim exit percentiles, convert to gaps
+                    using learned distributions. Requires pred_swim_exit_pct
+                    column and swim_gap_distributions in bundle_metadata.
 
     Returns:
         DataFrame with original columns plus:
@@ -1170,6 +1229,34 @@ def run_monte_carlo(
             "Split predictions not fully available, using total-time simulation"
         )
         return _run_monte_carlo_total(df, n_sims, rng, use_pack_effects)
+
+    # ── Percentile swim mode setup ──
+    use_pct_swim = False
+    pred_swim_pct = None
+    swim_gap_dist = None
+
+    if swim_mode == "percentile":
+        has_pct = "pred_swim_exit_pct" in df.columns and df["pred_swim_exit_pct"].notna().all()
+        swim_gap_dist = _get_swim_gap_distribution(bundle_metadata, distance_category)
+
+        if has_pct and swim_gap_dist is not None:
+            use_pct_swim = True
+            pred_swim_pct = df["pred_swim_exit_pct"].clip(0.01, 0.99).values.astype(np.float64)
+            logger.info(
+                f"Using percentile-based swim simulation "
+                f"(gap dist: {swim_gap_dist.get('n_races', '?')} races, "
+                f"median gap={swim_gap_dist.get('gap_p50', '?'):.1f}s)"
+            )
+        else:
+            reasons = []
+            if not has_pct:
+                reasons.append("no pred_swim_exit_pct")
+            if swim_gap_dist is None:
+                reasons.append("no swim_gap_distributions in metadata")
+            logger.warning(
+                f"swim_mode='percentile' requested but falling back to legacy "
+                f"({', '.join(reasons)})"
+            )
 
     # ── Causal chain simulation with multi-pack formation ──
     # Swim → T1 → Pack Formation (swim+T1) → Bike (with drafting) → T2 → Run → Total
@@ -1276,12 +1363,14 @@ def run_monte_carlo(
     if merge_params is not None:
         merge_label = f", dynamic_merge=True, breakaway_bias={breakaway_bias:.1f}"
 
+    swim_mode_label = f", swim_mode={'percentile' if use_pct_swim else 'legacy'}"
     logger.info(
         f"Running {n_sims} causal-chain simulations for {n_athletes} athletes "
         f"(pack_effects={use_pack_effects}, pack_scale={pack_effect_scale:.1f}, "
         f"bonus={pack_params.front_pack_bonus_sec:.1f}s, "
         f"penalty={pack_params.chase_penalty_sec:.1f}s{merge_label}, "
-        f"t1t2_modeled={'yes' if has_t1 and has_t2 else 'fallback'})"
+        f"t1t2_modeled={'yes' if has_t1 and has_t2 else 'fallback'}"
+        f"{swim_mode_label})"
     )
 
     for sim in range(n_sims):
@@ -1314,6 +1403,30 @@ def run_monte_carlo(
             t1_form = form_factor * sigma_t1 * form_std
             t1_noise = rng.normal(0, sigma_t1 * noise_std)
             sim_t1 = pred_t1 + t1_form + t1_noise
+
+        # ── PERCENTILE SWIM OVERRIDE ──
+        # When using percentile-based swim, replace sim_swim with times derived
+        # from sampled percentiles and learned gap distributions. This produces
+        # more realistic swim exit orderings and gap structures.
+        if use_pct_swim:
+            # Sample noisy swim exit percentiles using Beta noise (bounded 0-1)
+            # Concentration parameter controls noise magnitude:
+            # higher = tighter around predicted percentile
+            concentration = 20.0  # Controls Beta distribution spread
+            alpha = pred_swim_pct * concentration
+            beta_param = (1.0 - pred_swim_pct) * concentration
+            # Clamp to valid Beta parameters (>0)
+            alpha = np.clip(alpha, 0.1, concentration)
+            beta_param = np.clip(beta_param, 0.1, concentration)
+            sampled_pct = rng.beta(alpha, beta_param)
+
+            # Convert percentiles to gap-to-leader using learned distribution
+            sampled_gaps = _percentile_to_gap(sampled_pct, swim_gap_dist)
+
+            # Convert gaps to absolute swim times:
+            # Use the predicted leader time (fastest predicted swimmer) as anchor
+            leader_swim_time = pred_swim.min()
+            sim_swim = leader_swim_time + sampled_gaps
 
         # ── PACK EFFECT ON BIKE (swim + T1 → bike entry order → pack formation) ──
         sim_bike_entry = sim_swim + sim_t1

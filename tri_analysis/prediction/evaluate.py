@@ -241,6 +241,7 @@ def backtest_events(
     feature_cols: Optional[list[str]] = None,
     run_simulation: bool = False,
     use_pack_effects: bool = True,
+    swim_mode: str = "legacy",
 ) -> pd.DataFrame:
     """
     Run backtests on multiple historical events.
@@ -353,6 +354,7 @@ def backtest_events(
                         distance_category=distance_cat,
                         bundle_metadata=active_bundle.metadata,
                         use_pack_effects=use_pack_effects,
+                        swim_mode=swim_mode,
                     )
 
                     # Build evaluation df using sim rankings

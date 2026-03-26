@@ -249,6 +249,9 @@ def compute_athlete_form_features(history_df: pd.DataFrame, event_date: date) ->
         "athlete_t1t2_rate": 0.0,
         "athlete_best_tier": 4,
         "ema_finish_pct_tier1": None,
+        # Cold-start indicators: let the model learn to be uncertain about new athletes
+        "n_swim_results": 0,     # Count of valid swim results (continuous cold-start signal)
+        "is_cold_start": 1,      # Binary: 1 if <3 prior races, 0 otherwise
     }
 
     if history_df.empty:
@@ -366,6 +369,16 @@ def compute_athlete_form_features(history_df: pd.DataFrame, event_date: date) ->
     cutoff_12m = pd.Timestamp(event_date) - timedelta(days=365)
     df_12m = valid_df[valid_df["event_date"] >= cutoff_12m]
     features["races_12m"] = len(df_12m)
+
+    # Cold-start indicators
+    n_total_races = len(valid_df)
+    features["is_cold_start"] = 1 if n_total_races < 3 else 0
+    # Count valid swim results specifically
+    if "swimtime_sec" in valid_df.columns:
+        n_swim = int(pd.to_numeric(valid_df["swimtime_sec"], errors="coerce").notna().sum())
+        features["n_swim_results"] = n_swim
+    else:
+        features["n_swim_results"] = 0
 
     # EWMA over last 5 races (span=5 gives alpha≈0.33)
     last_5 = valid_df.head(5)
@@ -665,6 +678,12 @@ def compute_race_relative_features(
         "ema_swim_split_pct_5": None,
         "ema_bike_split_pct_5": None,
         "ema_run_split_pct_5": None,
+        # Long-term swim baseline (12-race EMA of swim percentile)
+        "ema_swim_split_pct_12": None,
+        # Best swim percentile in last 12 months (peak swim ability)
+        "best_swim_pct_12m": None,
+        # Swim form trend: pct_5 - pct_12 (negative = swim improving)
+        "swim_form_trend": None,
         # Normalized variance: std of split percentile across races (course-agnostic)
         # Low std_swim_pct = consistent swimmer relative to field regardless of course
         "std_swim_pct_24m": None,
@@ -747,6 +766,26 @@ def compute_race_relative_features(
     features["ema_swim_split_pct_5"] = _ema_last5(df["swim_pct"])
     features["ema_bike_split_pct_5"] = _ema_last5(df["bike_pct"])
     features["ema_run_split_pct_5"] = _ema_last5(df["run_pct"])
+
+    # Long-term swim baseline: 12-race EMA (captures baseline ability vs recent form)
+    swim_pct_vals = df["swim_pct"].head(12).dropna()
+    if not swim_pct_vals.empty:
+        swim_pct_chrono = swim_pct_vals.iloc[::-1]
+        features["ema_swim_split_pct_12"] = float(
+            swim_pct_chrono.ewm(span=12, min_periods=1).mean().iloc[-1]
+        )
+
+    # Best swim percentile in last 12 months (peak swim ability)
+    if "event_date" in df.columns:
+        cutoff_12m = pd.Timestamp.now() - pd.Timedelta(days=365)
+        df_12m = df[df["event_date"] >= cutoff_12m]
+        swim_pct_12m = df_12m["swim_pct"].dropna()
+        if not swim_pct_12m.empty:
+            features["best_swim_pct_12m"] = float(swim_pct_12m.min())  # lower = better
+
+    # Swim form trend: short-term vs long-term (negative = swim improving)
+    if features["ema_swim_split_pct_5"] is not None and features["ema_swim_split_pct_12"] is not None:
+        features["swim_form_trend"] = features["ema_swim_split_pct_5"] - features["ema_swim_split_pct_12"]
 
     # T1/T2 rank percentiles
     if "t1_pct" in df.columns:
@@ -1583,6 +1622,13 @@ def get_split_feature_columns(exclude_pack: bool = False) -> list[str]:
         "ema_swim_split_pct_5",
         "ema_bike_split_pct_5",
         "ema_run_split_pct_5",
+        # Long-term swim baseline + trend (v52: swim accuracy improvement)
+        "ema_swim_split_pct_12",      # 12-race EMA of swim percentile (baseline)
+        "best_swim_pct_12m",          # Best swim percentile in last 12 months
+        "swim_form_trend",            # pct_5 - pct_12 (negative = swim improving)
+        # Cold-start indicators (v52: let model learn to be uncertain about new athletes)
+        "n_swim_results",             # Count of valid swim results
+        "is_cold_start",              # Binary: 1 if <3 prior races
         # Tier-conditioned split percentiles (v36): split performance at elite level
         "ema_swim_split_pct_tier12_5",
         "ema_bike_split_pct_tier12_5",
@@ -1688,6 +1734,13 @@ def get_feature_columns() -> list[str]:
         "ema_swim_split_pct_5",     # EMA of swim split position percentile
         "ema_bike_split_pct_5",     # EMA of bike split position percentile
         "ema_run_split_pct_5",      # EMA of run split position percentile
+        # Long-term swim baseline + trend (v52)
+        "ema_swim_split_pct_12",        # 12-race EMA of swim percentile
+        "best_swim_pct_12m",            # Best swim percentile in last 12 months
+        "swim_form_trend",              # pct_5 - pct_12 (negative = improving)
+        # Cold-start indicators (v52)
+        "n_swim_results",               # Count of valid swim results
+        "is_cold_start",                # Binary: 1 if <3 prior races
         # Tier-conditioned split percentiles (v36)
         "ema_swim_split_pct_tier12_5",  # Swim split pct at WTCS/World Cup
         "ema_bike_split_pct_tier12_5",  # Bike split pct at WTCS/World Cup

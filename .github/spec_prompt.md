@@ -1,39 +1,31 @@
 ---
 mode: 'edit'
-description: 'Plan a feature'
+description: 'Draft a repo-aware feature or experiment spec'
 ---
 
-Your goal is to generate a functional spec for implementing a feature based on the provided idea:
+Your goal is to generate a functional specification for a feature, analytical workflow, or modeling experiment described by the user.
 
-<idea>
-Obtain Historical Triathlete Rankings Data 
-
-- It should search the World Triathlon website for historical athlete rankings data.
-- The data can be obtained from web scraping at links with follwing format: 
-    - https://old.triathlon.org/rankings/world_triathlon_championship_series_2024/male
-    - https://old.triathlon.org/rankings/world_triathlon_championship_series_2024/female
-- I would like to obtain the rank, athlete name, country, and points for each athlete, along with the year of the ranking.
-- The data should then be stored in the database in the existing table called athlete_rankings
-- The eventual machine learning model will use scikit-learn, but we do not need to build the model yet.
-</idea>
-
-Before generating the spec plan, be sure to review the [file](../docs/summary.md) and to understand an overview of the project. 
+Before drafting the spec:
+- Review `CLAUDE.md` for the current architecture and workflow commands.
+- Review `docs/prediction_status.md` and `docs/model_improvement_brainstorm.md` when the request touches prediction quality or experimentation.
+- Search the relevant symbols in the codebase if the request depends on existing behavior.
 
 RULES:
-- Start by defining goal of the model as simple as possible
+- Start by defining the goal as simply as possible
 - Number functional requirements sequentially
 - Include acceptance criteria for each functional requirement
 - Use clear, concise language
-- Aim to create the most accurate model, suggesting additional feature enginnering requirement to ensure quality data as needed. 
+- Call out data dependencies, leakage risks, and backward-compatibility concerns when relevant
+- For prediction work, specify how success will be measured: P@K, Spearman, MAE, tier-specific tradeoffs, or probability quality as appropriate
 
 NEXT:
 
-- Ask me for feedback to make sure I'm happy
-- Give me additional things to consider I may not be thinking about
+- Ask me for feedback on the scope, constraints, and success criteria.
+- Give me additional considerations I may not be thinking about, especially around data quality, evaluation, and operational impact.
 
 FINALLY:
 
 When satisfied:
 
-- Output your plan in [folder](/../docs/feature-name.md)
-- DO NOT start writing any code or implementation plans. Follow instructions.
+- Save the approved spec under `docs/<feature-name>.md`.
+- DO NOT start writing code or an implementation plan until I explicitly ask for that next step.

@@ -57,6 +57,15 @@ def main():
         help="Disable pack effects in MC simulation (pure individual noise). "
              "Useful for isolating whether pack logic helps or hurts accuracy."
     )
+    parser.add_argument(
+        "--swim_mode",
+        type=str,
+        default="legacy",
+        choices=["legacy", "percentile"],
+        help="Swim simulation mode: 'legacy' (add noise to predicted times) or "
+             "'percentile' (sample from learned swim exit distributions). "
+             "Requires model trained with swim_exit_pct target."
+    )
     args = parser.parse_args()
 
     # Determine model path(s)
@@ -141,9 +150,12 @@ def main():
     sim_label = " + Monte Carlo simulation" if run_sim else ""
     if run_sim and not use_packs:
         sim_label += " (NO PACKS)"
+    if run_sim and args.swim_mode == "percentile":
+        sim_label += " (PERCENTILE SWIM)"
     print(f"\nUsing model: {model_label}{sim_label}\n")
     keys = list(test_events[['event_id', 'prog_id']].itertuples(index=False, name=None))
-    results = backtest_events(engine, keys, model_path, run_simulation=run_sim, use_pack_effects=use_packs)
+    results = backtest_events(engine, keys, model_path, run_simulation=run_sim, use_pack_effects=use_packs,
+                              swim_mode=args.swim_mode)
 
     # Compute aggregate metrics
     p3 = results.precision_at_3.mean()

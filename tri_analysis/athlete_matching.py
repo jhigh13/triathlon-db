@@ -1,7 +1,11 @@
 import logging
 from typing import Optional
 from sqlalchemy import text
-from Data_Import.database import get_engine
+
+try:
+    from tri_analysis.database import get_engine
+except ImportError:  # pragma: no cover
+    from database import get_engine  # type: ignore
 
 logger = logging.getLogger(__name__)
 
