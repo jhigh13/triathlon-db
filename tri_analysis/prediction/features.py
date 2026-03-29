@@ -684,6 +684,11 @@ def compute_race_relative_features(
         "best_swim_pct_12m": None,
         # Swim form trend: pct_5 - pct_12 (negative = swim improving)
         "swim_form_trend": None,
+        # Swim gap-to-leader features (course-normalized absolute gap)
+        # behindswim = seconds behind swim leader, comparable across courses
+        "ema_swim_behind_sec_5": None,   # 5-race EMA of gap-to-leader (short-term)
+        "ema_swim_behind_sec_12": None,  # 12-race EMA of gap-to-leader (baseline)
+        "best_swim_behind_12m": None,    # Best gap-to-leader in last 12 months
         # Normalized variance: std of split percentile across races (course-agnostic)
         # Low std_swim_pct = consistent swimmer relative to field regardless of course
         "std_swim_pct_24m": None,
@@ -786,6 +791,28 @@ def compute_race_relative_features(
     # Swim form trend: short-term vs long-term (negative = swim improving)
     if features["ema_swim_split_pct_5"] is not None and features["ema_swim_split_pct_12"] is not None:
         features["swim_form_trend"] = features["ema_swim_split_pct_5"] - features["ema_swim_split_pct_12"]
+
+    # Swim gap-to-leader (behindswim): course-normalized absolute gap
+    # Unlike raw swim seconds, gap-to-leader is comparable across courses
+    # (30s behind leader means the same whether leader swam 8:00 or 10:00)
+    if "behindswim" in df.columns:
+        behind = pd.to_numeric(df["behindswim"], errors="coerce")
+        features["ema_swim_behind_sec_5"] = _ema_last5(behind)
+
+        # 12-race EMA for baseline
+        behind_vals = behind.head(12).dropna()
+        if not behind_vals.empty:
+            behind_chrono = behind_vals.iloc[::-1]
+            features["ema_swim_behind_sec_12"] = float(
+                behind_chrono.ewm(span=12, min_periods=1).mean().iloc[-1]
+            )
+
+        # Best gap in last 12 months (lower = closer to leader = better)
+        if "event_date" in df.columns:
+            cutoff_12m = pd.Timestamp.now() - pd.Timedelta(days=365)
+            behind_12m = behind[df["event_date"] >= cutoff_12m].dropna()
+            if not behind_12m.empty:
+                features["best_swim_behind_12m"] = float(behind_12m.min())
 
     # T1/T2 rank percentiles
     if "t1_pct" in df.columns:
@@ -1626,6 +1653,10 @@ def get_split_feature_columns(exclude_pack: bool = False) -> list[str]:
         "ema_swim_split_pct_12",      # 12-race EMA of swim percentile (baseline)
         "best_swim_pct_12m",          # Best swim percentile in last 12 months
         "swim_form_trend",            # pct_5 - pct_12 (negative = swim improving)
+        # Swim gap-to-leader (v53: course-normalized swim ability)
+        "ema_swim_behind_sec_5",      # 5-race EMA of gap-to-swim-leader (seconds)
+        "ema_swim_behind_sec_12",     # 12-race EMA (baseline gap)
+        "best_swim_behind_12m",       # Best gap-to-leader in 12 months
         # Cold-start indicators (v52: let model learn to be uncertain about new athletes)
         "n_swim_results",             # Count of valid swim results
         "is_cold_start",              # Binary: 1 if <3 prior races
@@ -1738,6 +1769,10 @@ def get_feature_columns() -> list[str]:
         "ema_swim_split_pct_12",        # 12-race EMA of swim percentile
         "best_swim_pct_12m",            # Best swim percentile in last 12 months
         "swim_form_trend",              # pct_5 - pct_12 (negative = improving)
+        # Swim gap-to-leader (v53: course-normalized swim ability)
+        "ema_swim_behind_sec_5",        # 5-race EMA of gap-to-swim-leader (seconds)
+        "ema_swim_behind_sec_12",       # 12-race EMA (baseline gap)
+        "best_swim_behind_12m",         # Best gap-to-leader in 12 months
         # Cold-start indicators (v52)
         "n_swim_results",               # Count of valid swim results
         "is_cold_start",                # Binary: 1 if <3 prior races

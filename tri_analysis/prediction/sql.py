@@ -607,7 +607,7 @@ def fetch_precomputed_race_metrics(
         event_id, prog_id, event_date, event_name, swimrank, bikerank, runrank,
         t1rank, t2rank, swim_to_t1_pos_change, t1_to_bike_pos_change,
         bike_to_t2_pos_change, t2_to_run_pos_change,
-        n_finishers, median_total_sec, elapsedrun
+        n_finishers, median_total_sec, elapsedrun, behindswim
     """
     query = text("""
         SELECT
@@ -626,7 +626,8 @@ def fetch_precomputed_race_metrics(
             pm.t2_to_run_pos_change,
             COALESCE(pm.n_finishers, rc.n_finishers) AS n_finishers,
             pm.median_total_sec,
-            pm.elapsedrun
+            pm.elapsedrun,
+            pm.behindswim
         FROM position_metrics pm
         JOIN events e
             ON pm.event_id = e.event_id
