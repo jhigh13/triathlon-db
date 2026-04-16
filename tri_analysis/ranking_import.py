@@ -74,6 +74,8 @@ def fetch_rankings(ranking_cat_id: int, limit: int = 500) -> pd.DataFrame:
             'total_points':   r['total'],
             'year':           ranking_year,
             'retrieved_at':   published_date,
+            'events_current_period':  r.get('events_current_period'),
+            'events_previous_period': r.get('events_previous_period'),
         })
     return pd.DataFrame(records)
 
@@ -88,13 +90,17 @@ def upsert_rankings(df: pd.DataFrame, engine):
     insert_sql = text(
         """
         INSERT INTO athlete_rankings (
-            athlete_id, athlete_name, ranking_cat_name, ranking_cat_id, rank_position, total_points, year, retrieved_at
+            athlete_id, athlete_name, ranking_cat_name, ranking_cat_id, rank_position, total_points, year, retrieved_at,
+            events_current_period, events_previous_period
         ) VALUES (
-            :athlete_id, :athlete_name, :ranking_cat_name, :ranking_cat_id, :rank_position, :total_points, :year, :retrieved_at
+            :athlete_id, :athlete_name, :ranking_cat_name, :ranking_cat_id, :rank_position, :total_points, :year, :retrieved_at,
+            :events_current_period, :events_previous_period
         )
         ON CONFLICT (athlete_name, ranking_cat_name, year, retrieved_at) DO UPDATE SET
-            rank_position = EXCLUDED.rank_position,
-            total_points  = EXCLUDED.total_points;
+            rank_position           = EXCLUDED.rank_position,
+            total_points            = EXCLUDED.total_points,
+            events_current_period   = EXCLUDED.events_current_period,
+            events_previous_period  = EXCLUDED.events_previous_period;
         """
     )
     with engine.begin() as conn:

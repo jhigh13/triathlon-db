@@ -520,3 +520,43 @@ def normalize_program_entries(payload: dict, entry_type: str = "start") -> pd.Da
     df = df.where(~df.isna(), None)
     return df
 
+
+def fetch_athlete_ranking_breakdown(ranking_cat_id: int, athlete_id: int) -> list[dict]:
+    """
+    Fetch the per-event ranking breakdown for a single athlete in a given category.
+
+    URL: GET /rankings/{ranking_cat_id}/breakdown/{athlete_id}
+
+    Returns a list of dicts, one per scored event, with keys:
+        event_id, event_title, event_finish_date, points, period, position
+    Period 1 = current window (last 0-1 years), Period 2 = previous window (last 1-2 years).
+    Returns [] on error.
+    """
+    url = f"{BASE_URL}/rankings/{ranking_cat_id}/breakdown/{athlete_id}"
+    for attempt in range(4):
+        try:
+            resp = requests.get(
+                url,
+                headers=HEADERS,
+                timeout=30,
+            )
+            resp.raise_for_status()
+            data = resp.json().get("data", {})
+            breakdown = data.get("breakdown", [])
+            records = []
+            for b in breakdown:
+                records.append({
+                    "event_id":          b.get("event_id"),
+                    "event_title":       b.get("event_title"),
+                    "event_finish_date": b.get("event_finish_date"),
+                    "points":            b.get("points"),
+                    "period":            b.get("period"),
+                    "position":          b.get("position"),
+                    "included":          b.get("include", True),
+                })
+            return records
+        except requests.RequestException:
+            if attempt == 3:
+                return []
+            time.sleep(1.5 * (attempt + 1))
+    return []

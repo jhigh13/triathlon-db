@@ -160,7 +160,23 @@ def initialize_database():
         Column('total_points',    Float),
         Column('year',            Integer),  # year of the ranking
         Column('retrieved_at',    Date),
+        Column('events_current_period',  Integer, nullable=True),
+        Column('events_previous_period', Integer, nullable=True),
         PrimaryKeyConstraint('athlete_name','ranking_cat_name', 'year', 'retrieved_at', name='pk_athlete_rankings')
+    )
+
+    Table(
+        'athlete_ranking_breakdown', metadata,
+        Column('athlete_id',        Integer),
+        Column('ranking_cat_id',    Integer),
+        Column('event_id',          Integer),
+        Column('event_title',       String),
+        Column('event_finish_date', Date),
+        Column('points',            Float,   nullable=True),
+        Column('period',            Integer, nullable=True),  # 1=current (0-1yr), 2=previous (1-2yr)
+        Column('position',          Integer, nullable=True),
+        Column('retrieved_at',      Date),
+        PrimaryKeyConstraint('athlete_id', 'ranking_cat_id', 'event_id', name='pk_athlete_ranking_breakdown')
     )
 
     Table(
