@@ -1,0 +1,202 @@
+C:\Users\jhigh\Projects\triathlon-db\tri_analysis\prediction\features.py:2034: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[col] = defaults.get(col, 0)
+
+=== Error Analysis: models/bundle_elite_v45.joblib ===
+Test events: 90
+
+  [ 1/90] OK P@10=80% T1a n=49 2025 World Triathlon Championship Series Hamburg
+  [ 2/90] MISS P@10=70% T1a n=52 2025 World Triathlon Championship Series Hamburg
+  [ 3/90] OK P@10=80% T1a n=51 2025 World Triathlon Championship Series French Riviera
+  [ 4/90] OK P@10=90% T1a n=37 2025 World Triathlon Championship Series French Riviera
+  [ 5/90] MISS P@10=70% T1a n=36 2025 World Triathlon Championship Series Karlovy Vary
+  [ 6/90] OK P@10=90% T1a n=29 2025 World Triathlon Championship Series Karlovy Vary
+  [ 7/90] OK P@10=80% T1a n=35 2025 World Triathlon Championship Series Weihai
+  [ 8/90] OK P@10=80% T1a n=27 2025 World Triathlon Championship Series Weihai
+  [ 9/90] MISS P@10=70% T1a n=49 2025 World Triathlon Championship Finals Wollongong
+  [10/90] MISS P@10=70% T1a n=35 2025 World Triathlon Championship Finals Wollongong
+  [11/90] OK P@10=80% T1b n=18 2025 T100 Triathlon World Tour London
+  [12/90] OK P@10=90% T1b n=16 2025 T100 Triathlon World Tour London
+  [13/90] OK P@10=80% T1b n=19 2025 T100 Triathlon World Tour French Riviera
+  [14/90] OK P@10=80% T1b n=19 2025 T100 Triathlon World Tour French Riviera
+  [15/90] OK P@10=90% T1b n=17 2025 T100 Triathlon World Tour Oropesa
+  [16/90] OK P@10=90% T1b n=17 2025 T100 Triathlon World Tour Oropesa
+  [17/90] OK P@10=80% T1b n=21 2025 T100 Triathlon World Tour Wollongong
+  [18/90] OK P@10=80% T1b n=16 2025 T100 Triathlon World Tour Wollongong
+  [19/90] MISS P@10=70% T1b n=17 2025 T100 Triathlon World Tour Dubai
+  [20/90] OK P@10=90% T1b n=17 2025 T100 Triathlon World Tour Dubai
+  [21/90] OK P@10=90% T1b n=20 2025 T100 Triathlon World Championship Final Qatar
+  [22/90] MISS P@10=70% T1b n=24 2025 T100 Triathlon World Championship Final Qatar
+  [23/90] MISS P@10=60% T2 n=67 2025 World Triathlon Cup Tiszaujvaros
+  [24/90] OK P@10=80% T2 n=39 2025 World Triathlon Cup Tiszaujvaros
+  [25/90] MISS P@10=40% T2 n=58 2025 World Triathlon Cup Rome
+  [26/90] MISS P@10=50% T2 n=47 2025 World Triathlon Cup Rome
+  [27/90] OK P@10=80% T2 n=63 2025 World Triathlon Cup Vina del Mar
+  [28/90] MISS P@10=60% T2 n=34 2025 World Triathlon Cup Vina del Mar
+  [29/90] MISS P@10=40% T2 n=56 2025 World Triathlon Cup Miyazaki
+  [30/90] MISS P@10=60% T2 n=57 2025 World Triathlon Cup San Pedro de la Paz
+  [31/90] MISS P@10=60% T2 n=44 2025 World Triathlon Cup Miyazaki
+  [32/90] MISS P@10=70% T2 n=42 2025 World Triathlon Cup San Pedro de la Paz
+  [33/90] MISS P@10=60% T2 n=58 2025 World Triathlon Cup Tongyeong
+  [34/90] MISS P@10=70% T2 n=58 2025 World Triathlon Cup Florianopolis
+  [35/90] MISS P@10=70% T2 n=48 2025 World Triathlon Cup Tongyeong
+  [36/90] MISS P@10=70% T2 n=33 2025 World Triathlon Cup Florianopolis
+  [37/90] MISS P@10=60% T3 n=50 2025 Africa Triathlon Premium Cup Larache
+  [38/90] MISS P@10=70% T3 n=31 2025 Africa Triathlon Premium Cup Larache
+  [39/90] MISS P@10=70% T3 n=66 2025 Americas Triathlon Cup Magog
+  [40/90] OK P@10=80% T3 n=41 2025 Americas Triathlon Cup Magog
+  [41/90] OK P@10=90% T3 n=66 2025 Americas Triathlon Cup Montreal
+  [42/90] OK P@10=90% T3 n=53 2025 Americas Triathlon Cup Montreal
+  [43/90] OK P@10=90% T3 n=61 2025 Americas Triathlon Cup Kelowna
+  [44/90] OK P@10=80% T3 n=39 2025 Americas Triathlon Cup Kelowna
+  [45/90] OK P@10=80% T3 n=23 2025 Africa Triathlon Cup Oran
+  [46/90] MISS P@10=70% T3 n=17 2025 Africa Triathlon Cup Oran
+  [47/90] OK P@10=80% T3 n=66 2025 Asia Triathlon Cup Gamagori
+  [48/90] MISS P@10=50% T3 n=55 2025 Asia Triathlon Cup Gamagori
+  [49/90] OK P@10=80% T3 n=47 2025 Africa Triathlon Cup Taghazout
+  [50/90] MISS P@10=60% T3 n=20 2025 Africa Triathlon Cup Taghazout
+  [51/90] MISS P@10=70% T3 n=18 2025 Asia Triathlon Cup Turkestan
+  [52/90] MISS P@10=60% T3 n=56 2025 Asia Triathlon Cup Yilan
+  [53/90] MISS P@10=70% T3 n=33 2025 Asia Triathlon Cup Yilan
+  [54/90] MISS P@10=70% T3 n=35 2025 Africa Triathlon Cup and Pan-Arab Championships Hurghada
+  [55/90] OK P@10=90% T3 n=24 2025 Africa Triathlon Cup and Pan-Arab Championships Hurghada
+  [56/90] MISS P@10=40% T3 n=59 2025 Europe Triathlon Cup Ceuta
+  [57/90] OK P@10=80% T3 n=34 2025 Europe Triathlon Cup Ceuta
+  [58/90] OK P@10=80% T3 n=23 2025 Africa Triathlon Cup Kilifi
+  [59/90] MISS P@10=50% T3 n=63 2025 Europe Triathlon Cup Tenerife - Santa Cruz
+  [60/90] MISS P@10=70% T3 n=65 2025 Europe Triathlon Cup Tenerife - Santa Cruz
+  [61/90] OK P@10=90% T3 n=27 2025 Asia Triathlon Cup Chongqing
+  [62/90] MISS P@10=nan% T3 n=9 2025 Asia Triathlon Cup Chongqing
+  [63/90] OK P@10=80% T3 n=44 2025 Asia Triathlon Cup Kota Kinabalu
+  [64/90] OK P@10=90% T3 n=21 2025 Asia Triathlon Cup Kota Kinabalu
+  [65/90] MISS P@10=50% T3 n=64 2025 Europe Triathlon Cup Alanya
+  [66/90] MISS P@10=70% T3 n=51 2025 Americas Triathlon Cup Iquique
+  [67/90] OK P@10=90% T3 n=42 2025 Europe Triathlon Cup Alanya
+  [68/90] OK P@10=80% T3 n=16 2025 Americas Triathlon Cup Iquique
+  [69/90] MISS P@10=70% T3 n=63 2025 Americas Triathlon Cup Vina del Mar
+  [70/90] OK P@10=80% T3 n=31 2025 Americas Triathlon Cup Vina del Mar
+  [71/90] MISS P@10=60% T3 n=42 2025 Americas Triathlon Cup Manta
+  [72/90] OK P@10=100% T3 n=18 2025 Americas Triathlon Cup Manta
+  [73/90] MISS P@10=60% T3 n=43 2025 Americas Triathlon Cup and Iberoamerican Championships Maldonado
+  [74/90] OK P@10=90% T3 n=24 2025 Americas Triathlon Cup and Iberoamerican Championships Maldonado
+  [75/90] MISS P@10=60% T4 n=63 2025 Europe Triathlon Sprint and Relay Championships Melilla
+  [76/90] OK P@10=80% T4 n=47 2025 Europe Triathlon Sprint and Relay Championships Melilla
+  [77/90] OK P@10=80% T4 n=33 2025 Europe Triathlon Baltic Championships Otep‰‰
+  [78/90] OK P@10=90% T4 n=15 2025 Europe Triathlon Baltic Championships Otep‰‰
+  [79/90] OK P@10=80% T4 n=30 2025 Asuncion Junior Pan-American Games
+  [80/90] OK P@10=90% T4 n=27 2025 Asuncion Junior Pan-American Games
+  [81/90] OK P@10=100% T4 n=17 2025 Americas Triathlon CARIFTA  Championships Tobago
+  [82/90] OK P@10=100% T4 n=14 2025 Americas Triathlon CARIFTA  Championships Tobago
+  [83/90] MISS P@10=50% T4 n=52 2025 Europe Triathlon Championships Istanbul
+  [84/90] MISS P@10=70% T4 n=33 2025 Asia Triathlon Championships Istanbul
+  [85/90] MISS P@10=60% T4 n=44 2025 Europe Triathlon Championships Istanbul
+  [86/90] MISS P@10=60% T4 n=21 2025 Asia Triathlon Championships Istanbul
+  [87/90] OK P@10=80% T4 n=14 2025 Africa Triathlon Sprint Championships El Galala
+  [88/90] MISS P@10=70% T4 n=25 2025 Europe Triathlon Balkan Championships Mudanya-Bursa
+  [89/90] OK P@10=90% T4 n=15 2025 World Triathlon Womenís Cup Dubai
+  [90/90] MISS P@10=nan% T4 n=8 2025 Asia Triathlon West Asian Championship Fujairah
+
+================================================================================
+ERROR PATTERN ANALYSIS
+================================================================================
+
+--- Events with P@10 < 80% (42/90) ---
+  P@10=40% T2 [sprint    ] n=58 miss=6 fa=6 2025 World Triathlon Cup Rome
+  P@10=40% T2 [sprint    ] n=56 miss=6 fa=6 2025 World Triathlon Cup Miyazaki
+  P@10=40% T3 [sprint    ] n=59 miss=6 fa=6 2025 Europe Triathlon Cup Ceuta
+  P@10=50% T2 [sprint    ] n=47 miss=5 fa=5 2025 World Triathlon Cup Rome
+  P@10=50% T3 [sprint    ] n=64 miss=5 fa=5 2025 Europe Triathlon Cup Alanya
+  P@10=50% T3 [sprint    ] n=63 miss=5 fa=5 2025 Europe Triathlon Cup Tenerife - Santa Cruz
+  P@10=50% T3 [sprint    ] n=55 miss=5 fa=5 2025 Asia Triathlon Cup Gamagori
+  P@10=50% T4 [standard  ] n=52 miss=5 fa=5 2025 Europe Triathlon Championships Istanbul
+  P@10=60% T2 [sprint    ] n=57 miss=4 fa=4 2025 World Triathlon Cup San Pedro de la Paz
+  P@10=60% T3 [sprint    ] n=20 miss=4 fa=4 2025 Africa Triathlon Cup Taghazout
+  P@10=60% T3 [sprint    ] n=50 miss=4 fa=4 2025 Africa Triathlon Premium Cup Larache
+  P@10=60% T3 [sprint    ] n=56 miss=4 fa=4 2025 Asia Triathlon Cup Yilan
+  P@10=60% T2 [sprint    ] n=58 miss=4 fa=4 2025 World Triathlon Cup Tongyeong
+  P@10=60% T2 [sprint    ] n=34 miss=4 fa=4 2025 World Triathlon Cup Vina del Mar
+  P@10=60% T2 [sprint    ] n=44 miss=4 fa=4 2025 World Triathlon Cup Miyazaki
+  P@10=60% T2 [sprint    ] n=67 miss=4 fa=4 2025 World Triathlon Cup Tiszaujvaros
+  P@10=60% T3 [sprint    ] n=42 miss=4 fa=4 2025 Americas Triathlon Cup Manta
+  P@10=60% T4 [sprint    ] n=63 miss=4 fa=4 2025 Europe Triathlon Sprint and Relay Championships Melilla
+  P@10=60% T4 [standard  ] n=21 miss=4 fa=4 2025 Asia Triathlon Championships Istanbul
+  P@10=60% T4 [standard  ] n=44 miss=4 fa=4 2025 Europe Triathlon Championships Istanbul
+  P@10=60% T3 [sprint    ] n=43 miss=4 fa=4 2025 Americas Triathlon Cup and Iberoamerican Championships Maldonado
+  P@10=70% T2 [sprint    ] n=42 miss=3 fa=3 2025 World Triathlon Cup San Pedro de la Paz
+  P@10=70% T2 [sprint    ] n=58 miss=3 fa=3 2025 World Triathlon Cup Florianopolis
+  P@10=70% T2 [sprint    ] n=48 miss=3 fa=3 2025 World Triathlon Cup Tongyeong
+  P@10=70% T3 [sprint    ] n=66 miss=3 fa=3 2025 Americas Triathlon Cup Magog
+  P@10=70% T3 [sprint    ] n=17 miss=3 fa=3 2025 Africa Triathlon Cup Oran
+  P@10=70% T1a [sprint    ] n=52 miss=3 fa=3 2025 World Triathlon Championship Series Hamburg
+  P@10=70% T1a [standard  ] n=36 miss=3 fa=3 2025 World Triathlon Championship Series Karlovy Vary
+  P@10=70% T1a [standard  ] n=35 miss=3 fa=3 2025 World Triathlon Championship Finals Wollongong
+  P@10=70% T1a [standard  ] n=49 miss=3 fa=3 2025 World Triathlon Championship Finals Wollongong
+  P@10=70% T1b [middle_distance] n=24 miss=3 fa=3 2025 T100 Triathlon World Championship Final Qatar
+  P@10=70% T1b [middle_distance] n=17 miss=3 fa=3 2025 T100 Triathlon World Tour Dubai
+  P@10=70% T3 [sprint    ] n=65 miss=3 fa=3 2025 Europe Triathlon Cup Tenerife - Santa Cruz
+  P@10=70% T3 [standard  ] n=18 miss=3 fa=3 2025 Asia Triathlon Cup Turkestan
+  P@10=70% T3 [sprint    ] n=33 miss=3 fa=3 2025 Asia Triathlon Cup Yilan
+  P@10=70% T3 [sprint    ] n=35 miss=3 fa=3 2025 Africa Triathlon Cup and Pan-Arab Championships Hurghada
+  P@10=70% T3 [sprint    ] n=31 miss=3 fa=3 2025 Africa Triathlon Premium Cup Larache
+  P@10=70% T2 [sprint    ] n=33 miss=3 fa=3 2025 World Triathlon Cup Florianopolis
+  P@10=70% T3 [sprint    ] n=51 miss=3 fa=3 2025 Americas Triathlon Cup Iquique
+  P@10=70% T3 [sprint    ] n=63 miss=3 fa=3 2025 Americas Triathlon Cup Vina del Mar
+  P@10=70% T4 [standard  ] n=33 miss=3 fa=3 2025 Asia Triathlon Championships Istanbul
+  P@10=70% T4 [sprint    ] n=25 miss=3 fa=3 2025 Europe Triathlon Balkan Championships Mudanya-Bursa
+
+--- P@10 by Tier ---
+  Tier 1a: mean P@10=78.0%, 60% events >=80%, n=10
+  Tier 1b: mean P@10=82.5%, 83% events >=80%, n=12
+  Tier 2: mean P@10=62.1%, 14% events >=80%, n=14
+  Tier 3: mean P@10=74.1%, 50% events >=80%, n=38
+  Tier 4: mean P@10=77.3%, 56% events >=80%, n=16
+
+--- P@10 by Distance ---
+  middle_distance     : mean P@10=82.5%, n=12
+  sprint              : mean P@10=73.3%, n=65
+  standard            : mean P@10=71.7%, n=13
+
+--- Missed Athletes (actual top10, predicted outside) ---
+  Count: 226
+  Mean predicted rank: 16.2
+  Median predicted rank: 15
+  Predicted rank distribution:
+    Rank 11- 15: 116 athletes (51%)
+    Rank 16- 20: 70 athletes (31%)
+    Rank 21- 25: 22 athletes (10%)
+    Rank 26- 30: 5 athletes (2%)
+    Rank 31-100: 7 athletes (3%)
+
+--- False Alarms (predicted top10, actual outside) ---
+  Count: 226
+  Mean actual rank: 17.4
+  Median actual rank: 14
+  Actual rank distribution:
+    Rank 11- 15: 133 athletes (59%)
+    Rank 16- 20: 42 athletes (19%)
+    Rank 21- 25: 21 athletes (9%)
+    Rank 26- 30: 11 athletes (5%)
+    Rank 31-100: 19 athletes (8%)
+
+--- Repeat Missed Athletes (appear in 3+ events) ---
+                                 missed 3x, avg pred=12, avg actual=6
+                                 missed 3x, avg pred=24, avg actual=6
+                                 missed 3x, avg pred=13, avg actual=6
+                                 missed 3x, avg pred=12, avg actual=9
+
+--- P@10 by Field Size ---
+  Field  0-20: mean P@10=85.0%, n=20
+  Field 20-30: mean P@10=80.7%, n=15
+  Field 30-40: mean P@10=75.0%, n=16
+  Field 40-50: mean P@10=70.7%, n=14
+  Field 50-100: mean P@10=64.4%, n=25
+
+--- Percentile Model Analysis ---
+  Missed athletes pred_finish_pct:  mean=0.435, median=0.411
+  False alarm pred_finish_pct:      mean=0.290, median=0.255
+
+--- Time Error Analysis ---
+  Missed: mean time error = 63.5s (positive = predicted too slow)
+  False alarms: mean time error = -210.1s (negative = predicted too fast)
+
+Saved: outputs/error_analysis_v37.csv (452 rows)
+Saved: outputs/event_summaries_v37.csv (90 rows)

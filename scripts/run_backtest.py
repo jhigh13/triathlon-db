@@ -158,19 +158,55 @@ def main():
                               swim_mode=args.swim_mode)
 
     # Compute aggregate metrics
-    p3 = results.precision_at_3.mean()
-    p5 = results.precision_at_5.mean() if 'precision_at_5' in results.columns else float('nan')
-    p10 = results.precision_at_10.mean()
-    spearman = results.spearman_corr.mean()
-    mae = results.mae_total_sec.mean()
+    def _mean(col):
+        return results[col].mean() if col in results.columns else float('nan')
+
+    p1 = _mean('precision_at_1')
+    p3 = _mean('precision_at_3')
+    p5 = _mean('precision_at_5')
+    p10 = _mean('precision_at_10')
+    spearman = _mean('spearman_corr')
+    mae = _mean('mae_total_sec')
+    weighted = _mean('weighted_topk_score')
+    exact_podium = _mean('exact_podium')
 
     print("\n=== Backtest Results ===")
     print(f"Events evaluated: {len(results)}")
-    print(f"Precision@3:  {p3:.2%}")
-    print(f"Precision@5:  {p5:.2%}")
-    print(f"Precision@10: {p10:.2%}")
-    print(f"Spearman:     {spearman:.3f}")
-    print(f"MAE total:    {mae:.1f} sec")
+    print()
+    print("--- Top-K Headline ---")
+    print(f"  P@1 (winner):     {p1:.2%}")
+    print(f"  P@3:              {p3:.2%}")
+    print(f"  P@5:              {p5:.2%}")
+    print(f"  P@10:             {p10:.2%}")
+    print(f"  Exact podium:     {exact_podium:.2%}")
+    print(f"  Weighted top-K:   {weighted:.4f}   (0.5*P@3 + 0.3*P@5 + 0.2*P@10)")
+    print()
+    print("--- Ordering Quality ---")
+    print(f"  Spearman (all):       {spearman:.3f}")
+    for k in [3, 5, 10]:
+        col = f'spearman_within_top_{k}'
+        ndcg_col = f'ndcg_at_{k}'
+        if col in results.columns:
+            print(f"  Spearman within top-{k}: {results[col].mean():.3f}    NDCG@{k}: {results[ndcg_col].mean():.3f}")
+    print()
+    print("--- Miss Quality (lower mean_miss_rank = closer misses) ---")
+    print(f"  K  | mean_miss_rank | mean_FA_rank | top_K_displacement | misses (close/mid/far)")
+    for k in [3, 5, 10]:
+        if f'mean_miss_rank_at_{k}' in results.columns:
+            mmr = results[f'mean_miss_rank_at_{k}'].mean()
+            mfa = results[f'mean_false_alarm_rank_at_{k}'].mean()
+            disp = results[f'top_k_displacement_at_{k}'].mean()
+            close_n = results[f'miss_close_at_{k}'].sum()
+            mid_n = results[f'miss_mid_at_{k}'].sum()
+            far_n = results[f'miss_far_at_{k}'].sum()
+            total_misses = int(close_n + mid_n + far_n)
+            print(f"  {k:>2} |     {mmr:>6.2f}     |    {mfa:>6.2f}    |       {disp:>5.2f}        | "
+                  f"{int(close_n)}/{int(mid_n)}/{int(far_n)} of {total_misses} "
+                  f"({(close_n/total_misses if total_misses else 0):.0%} close)")
+    print(f"  (close = within K+5 ranks, mid = K+6..K+10, far = K+11+)")
+    print()
+    print(f"--- Times ---")
+    print(f"  MAE total:    {mae:.1f} sec")
 
     # Show results by tier
     print("\n--- Results by Tier ---")
@@ -185,11 +221,15 @@ def main():
         t_p10 = tier_results.precision_at_10.mean()
         t_sp = tier_results.spearman_corr.mean()
         t_mae = tier_results.mae_total_sec.mean()
+        t_w = tier_results.weighted_topk_score.mean() if 'weighted_topk_score' in tier_results.columns else float('nan')
+        t_mmr = tier_results.mean_miss_rank_at_10.mean() if 'mean_miss_rank_at_10' in tier_results.columns else float('nan')
         tier_metrics[tier] = {
             "p3": t_p3, "p5": t_p5, "p10": t_p10,
             "spearman": t_sp, "mae": t_mae, "n": len(tier_results),
+            "weighted": t_w, "mean_miss_rank_10": t_mmr,
         }
         print(f"  Tier {tier} ({tier_name:12s}): P@3={t_p3:.1%}, P@5={t_p5:.1%}, P@10={t_p10:.1%}, "
+              f"weighted={t_w:.3f}, miss_rank@10={t_mmr:.1f}, "
               f"Spearman={t_sp:.3f}, MAE={t_mae:.0f}s, n={len(tier_results)}")
 
     # ── Monte Carlo Simulation Results ──

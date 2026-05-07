@@ -1,0 +1,1666 @@
+==========================================================================================
+Bundle: models/bundle_elite_v56.joblib  (version: v1.0)
+  106 full features, 64 split features
+==========================================================================================
+
+--- ranker_lgbm  (top 40) ---
+                            feature ranker_lgbm
+             field_elo_gap_to_top10       3.40%
+              field_elo_gap_to_top3       3.20%
+                           elo_peak       3.16%
+                   wt_rank_position       2.61%
+               h2h_avg_position_gap       2.36%
+                    wt_total_points       2.29%
+                       h2h_win_rate       2.28%
+                    swim_form_trend       1.85%
+                ema_run_split_pct_5       1.84%
+                         tier_delta       1.72%
+        h2h_win_rate_vs_field_top10       1.66%
+               ema_bike_split_pct_5       1.63%
+        ema_swim_to_t1_pos_change_5       1.58%
+                     ema_swim_sec_5       1.51%
+       h2h_n_unknown_field_athletes       1.51%
+                  ema_t2_rank_pct_5       1.44%
+              ema_finish_pct_tier34       1.43%
+                 ema_bike_gap_sec_7       1.41%
+                  ema_t1_rank_pct_5       1.41%
+               days_since_last_race       1.41%
+        ema_bike_to_t2_pos_change_5       1.40%
+                          elo_races       1.39%
+                   std_t1t2_sec_24m       1.32%
+                    ema_bike_pack_7       1.32%
+              h2h_n_opponents_faced       1.32%
+                       ema_t2_sec_5       1.27%
+                   std_bike_sec_24m       1.26%
+      field_finish_pct_gap_to_top10       1.25%
+            ema_finish_pct_standard       1.25%
+                      form_momentum       1.23%
+                   std_swim_sec_24m       1.22%
+                  std_total_sec_24m       1.21%
+         ema_run_split_pct_tier12_5       1.21%
+                    std_run_sec_24m       1.20%
+                     bike_pack_rate       1.20%
+h2h_avg_position_gap_vs_field_top10       1.19%
+                 ema_swim_pos_pct_7       1.17%
+      field_perf_ratio_gap_to_top10       1.14%
+        ema_bike_split_pct_tier12_5       1.13%
+                   ema_perf_ratio_5       1.13%
+
+--- ranker_xgb  (top 40) ---
+                            feature ranker_xgb
+               h2h_avg_position_gap     19.29%
+                       h2h_win_rate     15.17%
+             field_elo_gap_to_top10      4.50%
+              field_elo_gap_to_top3      3.89%
+                         n_entrants      1.86%
+                   wt_rank_position      1.69%
+                    wt_total_points      1.45%
+                           elo_peak      1.36%
+               best_swim_behind_12m      1.03%
+                  best_swim_pct_12m      1.03%
+       h2h_n_unknown_field_athletes      0.99%
+                         event_tier      0.97%
+        h2h_win_rate_vs_field_top10      0.90%
+              ema_finish_pct_tier34      0.86%
+              h2h_n_opponents_faced      0.84%
+                         elo_rating      0.83%
+                     ema_swim_sec_5      0.82%
+                    races_tier1_24m      0.80%
+                         tier_delta      0.78%
+                  athlete_t1t2_rate      0.74%
+                   ema_finish_pct_3      0.68%
+               ema_finish_pct_tier1      0.67%
+                avg_swim_gap_leader      0.67%
+           h2h_win_rate_recent_180d      0.66%
+                h2h_dominance_count      0.66%
+                   std_swim_pct_24m      0.65%
+                ema_run_split_pct_5      0.65%
+          n_athletes_within_100_elo      0.65%
+                 ema_swim_gap_sec_7      0.64%
+                    n_matched_races      0.63%
+                    ema_swim_pack_7      0.62%
+         ema_run_split_pct_tier12_5      0.62%
+             field_depth_top10_mean      0.62%
+                   std_swim_sec_24m      0.61%
+                 ema_bike_gap_sec_7      0.60%
+               std_swim_gap_sec_24m      0.60%
+h2h_avg_position_gap_vs_field_top10      0.59%
+  h2h_n_shared_races_vs_field_top10      0.59%
+              ema_swim_behind_sec_5      0.58%
+                          bike_laps      0.58%
+
+--- pct_total  (top 40) ---
+                            feature pct_total
+                         elo_rating     2.83%
+                   wt_rank_position     2.63%
+             field_elo_gap_to_top10     2.58%
+              field_elo_gap_to_top3     2.41%
+                       h2h_win_rate     1.88%
+                          elo_races     1.85%
+          n_athletes_within_100_elo     1.78%
+             field_depth_top10_mean     1.73%
+                    swim_form_trend     1.58%
+               ema_bike_split_pct_5     1.56%
+                         n_entrants     1.54%
+                           elo_peak     1.54%
+       h2h_n_unknown_field_athletes     1.51%
+              ema_finish_pct_sprint     1.43%
+           n_athletes_within_50_elo     1.39%
+                      form_momentum     1.39%
+        h2h_win_rate_vs_field_top10     1.34%
+h2h_avg_position_gap_vs_field_top10     1.34%
+                 ema_bike_pos_pct_7     1.32%
+                  ema_t2_rank_pct_5     1.32%
+                         tier_delta     1.31%
+               days_since_last_race     1.27%
+               h2h_avg_position_gap     1.27%
+               ema_finish_pct_tier1     1.27%
+                         form_trend     1.24%
+        ema_swim_to_t1_pos_change_5     1.22%
+  h2h_n_shared_races_vs_field_top10     1.22%
+                    wt_total_points     1.21%
+        ema_bike_to_t2_pos_change_5     1.19%
+                     ema_t1t2_sec_5     1.19%
+                ema_run_split_pct_5     1.14%
+                  ema_t1_rank_pct_5     1.14%
+                    std_run_sec_24m     1.12%
+                       ema_t1_sec_5     1.12%
+            ema_finish_pct_standard     1.12%
+                    std_run_pct_24m     1.10%
+                   std_swim_sec_24m     1.09%
+                           humidity     1.07%
+           h2h_win_rate_recent_180d     1.07%
+                               wbgt     1.07%
+
+--- reg_total  (top 40) ---
+                      feature reg_total
+              temperature_air     8.00%
+       field_depth_top10_mean     7.99%
+                         wbgt     6.53%
+                   n_entrants     5.76%
+                     humidity     5.73%
+    distance_category_encoded     5.27%
+                   elo_rating     2.58%
+                    bike_laps     2.57%
+              ema_total_sec_5     2.55%
+                ema_run_sec_5     2.26%
+                    elo_races     2.06%
+        field_elo_gap_to_top3     1.89%
+               ema_swim_sec_5     1.73%
+                     run_laps     1.65%
+ h2h_n_unknown_field_athletes     1.31%
+               ema_bike_sec_5     1.21%
+        h2h_n_opponents_faced     1.10%
+                   event_tier     1.07%
+                 ema_t1_sec_5     1.02%
+         days_since_last_race     0.99%
+       field_elo_gap_to_top10     0.97%
+                     elo_peak     0.93%
+                   tier_delta     0.93%
+             wt_rank_position     0.83%
+    n_athletes_within_100_elo     0.82%
+                 ema_t2_sec_5     0.82%
+           ema_bike_gap_sec_7     0.76%
+field_finish_pct_gap_to_top10     0.76%
+             std_swim_sec_24m     0.76%
+              std_run_sec_24m     0.76%
+               ema_t1t2_sec_5     0.71%
+          ema_run_split_pct_5     0.71%
+           ema_distance_match     0.71%
+field_perf_ratio_gap_to_top10     0.71%
+          avg_bike_gap_leader     0.70%
+           ema_swim_pos_pct_7     0.68%
+              seed_total_rank     0.68%
+              ema_swim_pack_7     0.66%
+                 h2h_win_rate     0.66%
+        ema_swim_split_pct_12     0.65%
+
+--- reg_swim  (top 40) ---
+                     feature reg_swim
+      field_depth_top10_mean    9.69%
+             temperature_air    9.13%
+                        wbgt    8.15%
+                    humidity    7.07%
+                  n_entrants    6.09%
+   distance_category_encoded    4.13%
+                   bike_laps    2.86%
+              ema_swim_sec_5    2.20%
+                    run_laps    2.11%
+             ema_total_sec_5    1.92%
+       field_elo_gap_to_top3    1.75%
+                  elo_rating    1.63%
+                   elo_races    1.61%
+               ema_run_sec_5    1.53%
+              ema_bike_sec_5    1.44%
+h2h_n_unknown_field_athletes    1.42%
+                  event_tier    1.24%
+       h2h_n_opponents_faced    1.10%
+          ema_swim_gap_sec_7    0.98%
+         p90_swim_gap_leader    0.98%
+       ema_swim_split_pct_12    0.98%
+         ema_run_split_pct_5    0.89%
+        std_swim_gap_sec_24m    0.89%
+         avg_swim_gap_leader    0.87%
+   n_athletes_within_100_elo    0.86%
+      field_elo_gap_to_top10    0.86%
+                  tier_delta    0.86%
+        days_since_last_race    0.84%
+              ema_t1t2_sec_5    0.81%
+        ema_swim_split_pct_5    0.81%
+    n_athletes_within_50_elo    0.79%
+      ema_swim_behind_sec_12    0.75%
+          h2h_n_shared_races    0.75%
+                     wetsuit    0.74%
+        min_swim_gap_sec_24m    0.70%
+                ema_t2_sec_5    0.69%
+         avg_bike_gap_leader    0.69%
+                ema_t1_sec_5    0.62%
+             ema_swim_pack_7    0.57%
+            std_swim_sec_24m    0.57%
+
+--- reg_bike  (top 40) ---
+                            feature reg_bike
+                    temperature_air    8.84%
+             field_depth_top10_mean    8.79%
+                               wbgt    6.94%
+                           humidity    6.46%
+                         n_entrants    5.75%
+          distance_category_encoded    4.68%
+                          bike_laps    2.85%
+                    ema_total_sec_5    2.33%
+                         elo_rating    2.05%
+                           run_laps    1.81%
+              field_elo_gap_to_top3    1.80%
+                     ema_swim_sec_5    1.69%
+                      ema_run_sec_5    1.62%
+                     ema_bike_sec_5    1.57%
+                          elo_races    1.42%
+                         event_tier    1.26%
+                avg_bike_gap_leader    1.24%
+                ema_run_split_pct_5    1.10%
+       h2h_n_unknown_field_athletes    1.09%
+                         tier_delta    0.93%
+               days_since_last_race    0.90%
+              h2h_n_opponents_faced    0.85%
+          n_athletes_within_100_elo    0.83%
+               ema_bike_split_pct_5    0.79%
+                       ema_t2_sec_5    0.79%
+                           elo_peak    0.74%
+      field_finish_pct_gap_to_top10    0.74%
+             field_elo_gap_to_top10    0.71%
+                    ema_swim_pack_7    0.71%
+                       ema_t1_sec_5    0.69%
+                       h2h_win_rate    0.67%
+                    std_run_sec_24m    0.66%
+           n_athletes_within_50_elo    0.66%
+                 ema_swim_pos_pct_7    0.66%
+        ema_bike_to_t2_pos_change_5    0.66%
+                   ema_perf_ratio_5    0.64%
+                  std_total_sec_24m    0.62%
+                     n_swim_results    0.60%
+h2h_avg_position_gap_vs_field_top10    0.60%
+                    ema_bike_pack_7    0.60%
+
+--- reg_run  (top 40) ---
+                      feature reg_run
+    distance_category_encoded   5.27%
+              temperature_air   4.70%
+       field_depth_top10_mean   4.68%
+                         wbgt   4.16%
+                     humidity   3.69%
+                ema_run_sec_5   3.24%
+                   n_entrants   3.23%
+                   elo_rating   2.67%
+        field_elo_gap_to_top3   2.06%
+              ema_total_sec_5   2.06%
+          ema_run_split_pct_5   1.84%
+                    bike_laps   1.70%
+               ema_swim_sec_5   1.67%
+         days_since_last_race   1.54%
+                    elo_races   1.39%
+              std_run_sec_24m   1.32%
+               ema_bike_sec_5   1.25%
+field_finish_pct_gap_to_top10   1.21%
+                     run_laps   1.20%
+                 ema_t2_sec_5   1.16%
+            std_total_sec_24m   1.14%
+                     elo_peak   1.09%
+         ema_bike_split_pct_5   1.09%
+                   event_tier   1.08%
+        ema_swim_split_pct_12   1.02%
+       field_elo_gap_to_top10   1.01%
+        h2h_n_opponents_faced   0.99%
+                 h2h_win_rate   0.95%
+            ema_t2_rank_pct_5   0.95%
+          avg_bike_gap_leader   0.95%
+             wt_rank_position   0.94%
+ h2h_n_unknown_field_athletes   0.94%
+             std_bike_sec_24m   0.92%
+            ema_t1_rank_pct_5   0.85%
+              ema_bike_pack_7   0.85%
+         min_swim_gap_sec_24m   0.83%
+                 ema_t1_sec_5   0.82%
+       ema_swim_behind_sec_12   0.80%
+    n_athletes_within_100_elo   0.80%
+     n_athletes_within_50_elo   0.80%
+
+--- middle_distance_swim  (top 40) ---
+                    feature middle_distance_swim
+     field_depth_top10_mean               10.42%
+      ema_swim_behind_sec_5                4.71%
+               ema_t1_sec_5                4.42%
+       days_since_last_race                4.24%
+       ema_swim_split_pct_5                3.95%
+               ema_t2_sec_5                3.53%
+              ema_run_sec_5                3.30%
+        avg_bike_gap_leader                3.24%
+      ema_swim_split_pct_12                3.12%
+        p90_swim_gap_leader                3.00%
+            n_races_at_tier                2.83%
+             ema_t1t2_sec_5                2.83%
+ema_swim_to_t1_pos_change_5                2.77%
+     ema_swim_behind_sec_12                2.65%
+     seed_total_gap_to_best                2.65%
+             ema_bike_sec_5                2.47%
+          ema_t2_rank_pct_5                2.47%
+          ema_t1_rank_pct_5                2.41%
+       ema_bike_split_pct_5                2.36%
+             ema_swim_sec_5                2.24%
+       min_swim_gap_sec_24m                1.83%
+            swim_form_trend                1.65%
+       std_swim_gap_sec_24m                1.65%
+      ema_finish_pct_tier34                1.59%
+            std_run_sec_24m                1.53%
+        ema_run_split_pct_5                1.53%
+ema_bike_to_t2_pos_change_5                1.41%
+           ema_perf_ratio_5                1.30%
+           ema_finish_pct_5                1.24%
+              form_momentum                1.12%
+        avg_swim_gap_leader                1.00%
+            ema_total_sec_5                1.00%
+           ema_finish_pct_3                0.94%
+           std_bike_pct_24m                0.94%
+         ema_distance_match                0.94%
+      ema_finish_pct_sprint                0.94%
+           std_swim_sec_24m                0.88%
+           std_t1t2_sec_24m                0.82%
+             bike_pack_rate                0.77%
+ema_bike_split_pct_tier12_5                0.77%
+
+--- middle_distance_t1  (top 40) ---
+                    feature middle_distance_t1
+     field_depth_top10_mean             13.31%
+       days_since_last_race              5.38%
+       ema_bike_split_pct_5              4.78%
+        avg_bike_gap_leader              3.10%
+          ema_t1_rank_pct_5              2.99%
+            n_races_at_tier              2.99%
+             n_swim_results              2.99%
+               ema_t1_sec_5              2.99%
+ema_swim_to_t1_pos_change_5              2.82%
+        ema_run_split_pct_5              2.77%
+ema_bike_to_t2_pos_change_5              2.61%
+            swim_form_trend              2.55%
+             ema_t1t2_sec_5              2.28%
+              ema_run_sec_5              2.28%
+               ema_t2_sec_5              2.28%
+          ema_t2_rank_pct_5              2.17%
+             ema_swim_sec_5              2.12%
+             bike_pack_rate              2.01%
+           ema_perf_ratio_5              2.01%
+        avg_swim_gap_leader              1.96%
+     seed_total_gap_to_best              1.96%
+      ema_swim_behind_sec_5              1.68%
+                 form_trend              1.63%
+              form_momentum              1.63%
+        p90_swim_gap_leader              1.52%
+             ema_bike_sec_5              1.41%
+ ema_run_split_pct_tier12_5              1.41%
+       std_swim_gap_sec_24m              1.36%
+      ema_swim_split_pct_12              1.36%
+       min_swim_gap_sec_24m              1.25%
+       ema_swim_split_pct_5              1.25%
+           std_bike_sec_24m              1.20%
+       ema_finish_pct_tier1              1.14%
+           std_bike_pct_24m              1.03%
+                  races_12m              0.98%
+ema_swim_split_pct_tier12_5              0.92%
+     ema_swim_behind_sec_12              0.87%
+      ema_finish_pct_sprint              0.87%
+           std_swim_pct_24m              0.87%
+            ema_total_sec_5              0.87%
+
+--- middle_distance_bike  (top 40) ---
+                    feature middle_distance_bike
+     field_depth_top10_mean                9.81%
+       days_since_last_race                4.77%
+             ema_swim_sec_5                3.82%
+       ema_swim_split_pct_5                3.77%
+ema_bike_to_t2_pos_change_5                3.55%
+       ema_bike_split_pct_5                3.33%
+            n_races_at_tier                3.22%
+      ema_swim_split_pct_12                3.16%
+     seed_total_gap_to_best                3.16%
+        avg_bike_gap_leader                3.10%
+           ema_perf_ratio_5                2.94%
+ema_swim_to_t1_pos_change_5                2.83%
+               ema_t1_sec_5                2.83%
+        ema_run_split_pct_5                2.77%
+             ema_bike_sec_5                2.55%
+             bike_pack_rate                2.38%
+            ema_total_sec_5                2.22%
+      ema_swim_behind_sec_5                2.16%
+      ema_finish_pct_tier34                2.05%
+            swim_form_trend                1.94%
+     ema_swim_behind_sec_12                1.83%
+               ema_t2_sec_5                1.72%
+          ema_t1_rank_pct_5                1.72%
+          ema_t2_rank_pct_5                1.72%
+            std_run_sec_24m                1.66%
+                 form_trend                1.66%
+             ema_t1t2_sec_5                1.61%
+              ema_run_sec_5                1.55%
+          ema_finish_pct_12                1.44%
+       std_swim_gap_sec_24m                1.39%
+           ema_finish_pct_5                1.22%
+           ema_finish_pct_3                1.22%
+       min_swim_gap_sec_24m                1.16%
+ema_swim_split_pct_tier12_5                1.16%
+        avg_swim_gap_leader                1.05%
+ema_bike_split_pct_tier12_5                1.05%
+        p90_swim_gap_leader                1.00%
+ ema_run_split_pct_tier12_5                0.89%
+            std_run_pct_24m                0.78%
+      ema_finish_pct_sprint                0.72%
+
+--- middle_distance_t2  (top 40) ---
+                    feature middle_distance_t2
+     field_depth_top10_mean             14.42%
+       days_since_last_race              6.17%
+       ema_bike_split_pct_5              4.02%
+        avg_bike_gap_leader              3.68%
+        ema_run_split_pct_5              3.05%
+             ema_bike_sec_5              3.05%
+          ema_t2_rank_pct_5              3.00%
+ema_bike_to_t2_pos_change_5              2.94%
+             ema_t1t2_sec_5              2.77%
+      ema_swim_split_pct_12              2.60%
+               ema_t2_sec_5              2.60%
+            n_races_at_tier              2.49%
+          ema_t1_rank_pct_5              2.38%
+ema_swim_to_t1_pos_change_5              2.21%
+            swim_form_trend              2.09%
+              ema_run_sec_5              2.09%
+        avg_swim_gap_leader              1.98%
+               ema_t1_sec_5              1.98%
+          ema_finish_pct_12              1.87%
+        p90_swim_gap_leader              1.87%
+      ema_finish_pct_tier34              1.87%
+             ema_swim_sec_5              1.81%
+           ema_perf_ratio_5              1.64%
+       ema_swim_split_pct_5              1.64%
+ ema_run_split_pct_tier12_5              1.58%
+ema_swim_split_pct_tier12_5              1.58%
+            ema_total_sec_5              1.47%
+      ema_swim_behind_sec_5              1.30%
+             n_swim_results              1.24%
+       min_swim_gap_sec_24m              1.24%
+    ema_finish_pct_standard              1.19%
+            std_run_sec_24m              1.07%
+     seed_total_gap_to_best              1.07%
+           std_swim_sec_24m              1.02%
+     ema_swim_behind_sec_12              1.02%
+           ema_finish_pct_3              0.96%
+          athlete_t1t2_rate              0.96%
+            std_run_pct_24m              0.90%
+           ema_finish_pct_5              0.85%
+      ema_finish_pct_sprint              0.79%
+
+--- middle_distance_run  (top 40) ---
+                    feature middle_distance_run
+     field_depth_top10_mean               6.85%
+       days_since_last_race               6.48%
+ema_bike_split_pct_tier12_5               5.49%
+              ema_run_sec_5               4.51%
+          ema_t2_rank_pct_5               4.07%
+     seed_total_gap_to_best               3.95%
+               ema_t2_sec_5               3.70%
+        ema_run_split_pct_5               3.70%
+          ema_t1_rank_pct_5               3.46%
+        avg_bike_gap_leader               3.02%
+ema_bike_to_t2_pos_change_5               3.02%
+           ema_perf_ratio_5               2.84%
+ema_swim_to_t1_pos_change_5               2.59%
+      ema_swim_split_pct_12               2.35%
+          ema_finish_pct_12               2.28%
+       ema_bike_split_pct_5               2.16%
+             ema_swim_sec_5               1.98%
+               ema_t1_sec_5               1.73%
+            swim_form_trend               1.73%
+            ema_total_sec_5               1.73%
+      ema_swim_behind_sec_5               1.67%
+             ema_bike_sec_5               1.60%
+ema_swim_split_pct_tier12_5               1.54%
+             bike_pack_rate               1.42%
+      ema_finish_pct_tier34               1.42%
+          athlete_t1t2_rate               1.42%
+       min_swim_gap_sec_24m               1.42%
+           ema_finish_pct_3               1.36%
+             n_swim_results               1.30%
+             ema_t1t2_sec_5               1.30%
+       ema_swim_split_pct_5               1.23%
+                 form_trend               1.11%
+     ema_swim_behind_sec_12               1.11%
+       std_swim_gap_sec_24m               1.11%
+            n_races_at_tier               1.11%
+       ema_finish_pct_tier1               0.99%
+           std_bike_sec_24m               0.93%
+        p90_swim_gap_leader               0.86%
+ ema_run_split_pct_tier12_5               0.86%
+              form_momentum               0.80%
+
+--- middle_distance_swim_exit_pct  (top 40) ---
+                    feature middle_distance_swim_exit_pct
+     field_depth_top10_mean                         6.33%
+               ema_t2_sec_5                         4.06%
+       ema_swim_split_pct_5                         3.68%
+        ema_run_split_pct_5                         3.63%
+ema_swim_to_t1_pos_change_5                         3.41%
+      ema_swim_split_pct_12                         3.30%
+            swim_form_trend                         3.25%
+             ema_swim_sec_5                         3.19%
+               ema_t1_sec_5                         2.98%
+      ema_swim_behind_sec_5                         2.81%
+       ema_bike_split_pct_5                         2.60%
+              ema_run_sec_5                         2.54%
+          ema_t2_rank_pct_5                         2.38%
+      ema_finish_pct_sprint                         2.38%
+       days_since_last_race                         2.33%
+          ema_t1_rank_pct_5                         2.33%
+     ema_swim_behind_sec_12                         2.22%
+ema_bike_to_t2_pos_change_5                         2.16%
+        avg_bike_gap_leader                         2.11%
+        p90_swim_gap_leader                         2.06%
+      ema_finish_pct_tier34                         2.00%
+           ema_finish_pct_3                         1.89%
+       std_swim_gap_sec_24m                         1.84%
+             n_swim_results                         1.73%
+             ema_bike_sec_5                         1.68%
+        avg_swim_gap_leader                         1.68%
+          athlete_t1t2_rate                         1.62%
+     seed_total_gap_to_best                         1.62%
+             ema_t1t2_sec_5                         1.57%
+             bike_pack_rate                         1.52%
+           std_t1t2_sec_24m                         1.46%
+           ema_perf_ratio_5                         1.46%
+ema_swim_split_pct_tier12_5                         1.46%
+           std_bike_pct_24m                         1.46%
+            n_races_at_tier                         1.46%
+       min_swim_gap_sec_24m                         1.46%
+              form_momentum                         1.41%
+                 form_trend                         1.30%
+           std_swim_sec_24m                         1.30%
+            ema_total_sec_5                         1.30%
+
+--- middle_distance_total  (top 40) ---
+                    feature middle_distance_total
+ema_bike_to_t2_pos_change_5                 9.68%
+            swim_form_trend                 4.74%
+        avg_swim_gap_leader                 4.74%
+              ema_run_sec_5                 4.44%
+            ema_total_sec_5                 4.33%
+            races_tier1_24m                 3.73%
+       ema_bike_split_pct_5                 3.23%
+             ema_bike_sec_5                 2.82%
+             ema_swim_sec_5                 2.72%
+     field_depth_top10_mean                 2.52%
+           ema_perf_ratio_5                 2.42%
+      ema_swim_behind_sec_5                 2.32%
+               ema_t1_sec_5                 2.22%
+       days_since_last_race                 2.22%
+     ema_swim_behind_sec_12                 2.12%
+         ema_distance_match                 2.02%
+               ema_t2_sec_5                 1.92%
+        ema_run_split_pct_5                 1.92%
+      ema_finish_pct_sprint                 1.71%
+      ema_swim_split_pct_12                 1.61%
+             n_swim_results                 1.61%
+           std_t1t2_sec_24m                 1.61%
+            std_run_sec_24m                 1.51%
+             ema_t1t2_sec_5                 1.51%
+     seed_total_gap_to_best                 1.51%
+             bike_pack_rate                 1.51%
+        p90_swim_gap_leader                 1.41%
+            front_pack_rate                 1.41%
+       ema_finish_pct_tier2                 1.41%
+       ema_finish_pct_tier1                 1.31%
+           ema_finish_pct_3                 1.31%
+       min_swim_gap_sec_24m                 1.31%
+            freshness_curve                 1.31%
+          ema_t1_rank_pct_5                 1.21%
+          ema_t2_rank_pct_5                 1.21%
+          athlete_t1t2_rate                 1.11%
+       ema_swim_split_pct_5                 1.11%
+ema_bike_split_pct_tier12_5                 1.01%
+ema_swim_to_t1_pos_change_5                 1.01%
+          std_total_sec_24m                 1.01%
+
+--- sprint_swim  (top 40) ---
+                    feature sprint_swim
+     field_depth_top10_mean      29.40%
+       days_since_last_race       4.46%
+             ema_swim_sec_5       3.20%
+              ema_run_sec_5       2.97%
+            ema_total_sec_5       2.75%
+             ema_bike_sec_5       2.35%
+                    wetsuit       2.31%
+       min_swim_gap_sec_24m       2.26%
+      ema_swim_split_pct_12       1.98%
+               ema_t2_sec_5       1.89%
+        avg_bike_gap_leader       1.80%
+        ema_run_split_pct_5       1.80%
+               ema_t1_sec_5       1.76%
+        p90_swim_gap_leader       1.65%
+     ema_swim_behind_sec_12       1.63%
+     seed_total_gap_to_best       1.62%
+ema_swim_to_t1_pos_change_5       1.62%
+       std_swim_gap_sec_24m       1.52%
+       ema_swim_split_pct_5       1.43%
+       ema_bike_split_pct_5       1.41%
+          ema_t1_rank_pct_5       1.41%
+           ema_perf_ratio_5       1.40%
+ema_bike_to_t2_pos_change_5       1.36%
+          ema_t2_rank_pct_5       1.30%
+             ema_t1t2_sec_5       1.29%
+           std_t1t2_sec_24m       1.27%
+      ema_swim_behind_sec_5       1.25%
+        avg_swim_gap_leader       1.21%
+            std_run_sec_24m       1.14%
+            swim_form_trend       1.14%
+          ema_finish_pct_12       0.97%
+           std_swim_sec_24m       0.97%
+                  races_12m       0.95%
+      ema_finish_pct_sprint       0.86%
+           std_bike_sec_24m       0.86%
+           ema_finish_pct_3       0.86%
+              form_momentum       0.86%
+             bike_pack_rate       0.79%
+          std_total_sec_24m       0.77%
+            n_races_at_tier       0.73%
+
+--- sprint_t1  (top 40) ---
+                    feature sprint_t1
+     field_depth_top10_mean    36.31%
+       days_since_last_race     4.99%
+                    wetsuit     3.17%
+            ema_total_sec_5     2.28%
+              ema_run_sec_5     2.21%
+               ema_t1_sec_5     2.19%
+               ema_t2_sec_5     2.15%
+             ema_bike_sec_5     1.85%
+             ema_swim_sec_5     1.81%
+          ema_t1_rank_pct_5     1.68%
+        avg_bike_gap_leader     1.47%
+             ema_t1t2_sec_5     1.43%
+        ema_run_split_pct_5     1.41%
+ema_swim_to_t1_pos_change_5     1.41%
+           std_t1t2_sec_24m     1.37%
+       ema_bike_split_pct_5     1.36%
+            n_races_at_tier     1.25%
+          ema_t2_rank_pct_5     1.25%
+           ema_perf_ratio_5     1.25%
+       std_swim_gap_sec_24m     1.23%
+            swim_form_trend     1.21%
+          std_total_sec_24m     1.12%
+ema_bike_to_t2_pos_change_5     1.12%
+        p90_swim_gap_leader     1.10%
+     seed_total_gap_to_best     1.10%
+        avg_swim_gap_leader     1.07%
+           std_swim_sec_24m     1.07%
+           std_bike_pct_24m     0.99%
+    ema_finish_pct_standard     0.96%
+                 form_trend     0.94%
+      ema_swim_behind_sec_5     0.90%
+     ema_swim_behind_sec_12     0.90%
+           std_bike_sec_24m     0.90%
+            freshness_curve     0.90%
+       ema_swim_split_pct_5     0.90%
+              form_momentum     0.81%
+      ema_swim_split_pct_12     0.76%
+            std_run_sec_24m     0.74%
+          athlete_t1t2_rate     0.74%
+      ema_finish_pct_sprint     0.71%
+
+--- sprint_bike  (top 40) ---
+                    feature sprint_bike
+     field_depth_top10_mean      24.18%
+              ema_run_sec_5       3.54%
+       days_since_last_race       3.54%
+            ema_total_sec_5       2.91%
+             ema_bike_sec_5       2.84%
+        avg_bike_gap_leader       2.45%
+             ema_swim_sec_5       2.41%
+        ema_run_split_pct_5       2.32%
+               ema_t2_sec_5       2.06%
+ema_swim_to_t1_pos_change_5       1.77%
+                    wetsuit       1.71%
+             ema_t1t2_sec_5       1.71%
+          ema_t1_rank_pct_5       1.66%
+               ema_t1_sec_5       1.62%
+       ema_bike_split_pct_5       1.60%
+           std_swim_sec_24m       1.60%
+           ema_perf_ratio_5       1.57%
+            swim_form_trend       1.55%
+          std_total_sec_24m       1.51%
+          ema_t2_rank_pct_5       1.49%
+ema_bike_to_t2_pos_change_5       1.46%
+            n_races_at_tier       1.44%
+           std_t1t2_sec_24m       1.44%
+     seed_total_gap_to_best       1.40%
+        p90_swim_gap_leader       1.38%
+       min_swim_gap_sec_24m       1.36%
+       std_swim_gap_sec_24m       1.35%
+     ema_swim_behind_sec_12       1.35%
+        avg_swim_gap_leader       1.25%
+      ema_swim_behind_sec_5       1.18%
+           std_bike_sec_24m       1.16%
+       ema_swim_split_pct_5       1.07%
+            std_run_sec_24m       1.07%
+             bike_pack_rate       1.05%
+              form_momentum       1.05%
+             n_swim_results       1.05%
+      ema_swim_split_pct_12       1.00%
+                 form_trend       0.94%
+       ema_finish_pct_tier2       0.94%
+      ema_finish_pct_tier34       0.94%
+
+--- sprint_t2  (top 40) ---
+                    feature sprint_t2
+     field_depth_top10_mean    30.48%
+       days_since_last_race     4.97%
+               ema_t1_sec_5     2.58%
+             ema_bike_sec_5     2.22%
+          ema_t2_rank_pct_5     2.17%
+               ema_t2_sec_5     2.15%
+              ema_run_sec_5     2.01%
+            ema_total_sec_5     1.81%
+           std_t1t2_sec_24m     1.79%
+     seed_total_gap_to_best     1.72%
+        avg_bike_gap_leader     1.60%
+                    wetsuit     1.56%
+            swim_form_trend     1.56%
+             ema_t1t2_sec_5     1.54%
+          ema_t1_rank_pct_5     1.52%
+             ema_swim_sec_5     1.52%
+ema_bike_to_t2_pos_change_5     1.49%
+           std_swim_sec_24m     1.45%
+       ema_bike_split_pct_5     1.43%
+        p90_swim_gap_leader     1.40%
+ema_swim_to_t1_pos_change_5     1.38%
+        ema_run_split_pct_5     1.35%
+           std_bike_sec_24m     1.33%
+          std_total_sec_24m     1.31%
+           ema_perf_ratio_5     1.29%
+      ema_swim_split_pct_12     1.22%
+       std_swim_gap_sec_24m     1.22%
+       ema_swim_split_pct_5     1.18%
+      ema_swim_behind_sec_5     1.17%
+            n_races_at_tier     1.17%
+            std_run_sec_24m     1.17%
+                 form_trend     1.08%
+             bike_pack_rate     1.02%
+       min_swim_gap_sec_24m     0.99%
+      ema_finish_pct_tier34     0.97%
+           std_bike_pct_24m     0.93%
+              form_momentum     0.90%
+            freshness_curve     0.86%
+          athlete_t1t2_rate     0.83%
+      ema_finish_pct_sprint     0.83%
+
+--- sprint_run  (top 40) ---
+                    feature sprint_run
+     field_depth_top10_mean     12.86%
+              ema_run_sec_5      4.98%
+       days_since_last_race      3.43%
+             ema_swim_sec_5      3.31%
+        ema_run_split_pct_5      2.90%
+            ema_total_sec_5      2.71%
+        avg_bike_gap_leader      2.70%
+               ema_t2_sec_5      2.47%
+             ema_bike_sec_5      2.34%
+       ema_bike_split_pct_5      2.28%
+          ema_t1_rank_pct_5      2.17%
+          ema_t2_rank_pct_5      2.12%
+      ema_swim_behind_sec_5      1.93%
+           ema_perf_ratio_5      1.89%
+               ema_t1_sec_5      1.83%
+ema_swim_to_t1_pos_change_5      1.83%
+ema_bike_to_t2_pos_change_5      1.82%
+            std_run_sec_24m      1.82%
+       std_swim_gap_sec_24m      1.76%
+           std_swim_sec_24m      1.72%
+       ema_swim_split_pct_5      1.70%
+            swim_form_trend      1.69%
+             ema_t1t2_sec_5      1.67%
+     seed_total_gap_to_best      1.63%
+           std_t1t2_sec_24m      1.61%
+      ema_swim_split_pct_12      1.55%
+           std_bike_sec_24m      1.52%
+        p90_swim_gap_leader      1.52%
+       min_swim_gap_sec_24m      1.50%
+          std_total_sec_24m      1.44%
+    ema_finish_pct_standard      1.42%
+                 form_trend      1.40%
+             bike_pack_rate      1.39%
+           ema_finish_pct_3      1.16%
+       ema_finish_pct_tier2      1.14%
+ ema_run_split_pct_tier12_5      1.12%
+             n_swim_results      1.10%
+     ema_swim_behind_sec_12      1.10%
+      ema_finish_pct_tier34      1.10%
+          ema_finish_pct_12      0.95%
+
+--- sprint_swim_exit_pct  (top 40) ---
+                    feature sprint_swim_exit_pct
+     field_depth_top10_mean                6.74%
+            swim_form_trend                2.91%
+        ema_run_split_pct_5                2.60%
+        avg_bike_gap_leader                2.51%
+             ema_swim_sec_5                2.49%
+               ema_t1_sec_5                2.47%
+       days_since_last_race                2.44%
+    ema_finish_pct_standard                2.42%
+       std_swim_gap_sec_24m                2.42%
+ema_bike_to_t2_pos_change_5                2.40%
+      ema_swim_split_pct_12                2.37%
+          ema_t1_rank_pct_5                2.26%
+ema_swim_to_t1_pos_change_5                2.24%
+              form_momentum                2.22%
+               ema_t2_sec_5                2.21%
+          ema_t2_rank_pct_5                2.19%
+       ema_swim_split_pct_5                2.13%
+           std_swim_sec_24m                2.06%
+            n_races_at_tier                1.97%
+              ema_run_sec_5                1.97%
+       ema_bike_split_pct_5                1.95%
+           ema_perf_ratio_5                1.88%
+           std_bike_sec_24m                1.88%
+            std_run_sec_24m                1.78%
+            ema_total_sec_5                1.70%
+             ema_bike_sec_5                1.65%
+             ema_t1t2_sec_5                1.65%
+ema_swim_split_pct_tier12_5                1.63%
+     seed_total_gap_to_best                1.63%
+        avg_swim_gap_leader                1.61%
+        p90_swim_gap_leader                1.58%
+                 form_trend                1.54%
+             bike_pack_rate                1.51%
+           std_t1t2_sec_24m                1.51%
+      ema_finish_pct_tier34                1.51%
+          std_total_sec_24m                1.49%
+     ema_swim_behind_sec_12                1.49%
+      ema_swim_behind_sec_5                1.45%
+       ema_finish_pct_tier2                1.42%
+ ema_run_split_pct_tier12_5                1.36%
+
+--- sprint_total  (top 40) ---
+                    feature sprint_total
+ema_bike_to_t2_pos_change_5        6.95%
+            ema_total_sec_5        6.69%
+              ema_run_sec_5        5.34%
+            n_matched_races        5.04%
+             ema_swim_sec_5        4.24%
+             ema_bike_sec_5        3.86%
+       ema_finish_pct_tier1        3.31%
+       days_since_last_race        2.92%
+             bike_pack_rate        2.42%
+               ema_t1_sec_5        2.42%
+        ema_run_split_pct_5        2.37%
+             ema_t1t2_sec_5        2.33%
+     seed_total_gap_to_best        2.29%
+        avg_swim_gap_leader        2.25%
+ema_swim_to_t1_pos_change_5        2.20%
+               ema_t2_sec_5        2.16%
+            std_run_sec_24m        2.03%
+         ema_distance_match        1.95%
+           std_t1t2_sec_24m        1.69%
+            swim_form_trend        1.61%
+     field_depth_top10_mean        1.57%
+       ema_swim_split_pct_5        1.53%
+           std_bike_sec_24m        1.48%
+           ema_perf_ratio_5        1.48%
+            front_pack_rate        1.44%
+       ema_bike_split_pct_5        1.44%
+           ema_finish_pct_3        1.40%
+       min_swim_gap_sec_24m        1.36%
+        avg_bike_gap_leader        1.27%
+            races_tier1_24m        1.19%
+          ema_t2_rank_pct_5        1.19%
+      ema_finish_pct_sprint        1.10%
+           std_swim_sec_24m        1.06%
+                 form_trend        1.06%
+                    wetsuit        1.02%
+        p90_swim_gap_leader        1.02%
+          std_total_sec_24m        0.97%
+      ema_swim_behind_sec_5        0.97%
+     ema_swim_behind_sec_12        0.93%
+ ema_run_split_pct_tier12_5        0.89%
+
+--- standard_swim  (top 40) ---
+                    feature standard_swim
+     field_depth_top10_mean        26.09%
+       days_since_last_race         4.16%
+             ema_swim_sec_5         3.69%
+            ema_total_sec_5         2.62%
+        ema_run_split_pct_5         2.12%
+       ema_bike_split_pct_5         2.12%
+              ema_run_sec_5         2.06%
+            swim_form_trend         1.93%
+        p90_swim_gap_leader         1.93%
+               ema_t2_sec_5         1.91%
+      ema_swim_split_pct_12         1.89%
+             ema_bike_sec_5         1.81%
+             ema_t1t2_sec_5         1.76%
+ema_swim_to_t1_pos_change_5         1.72%
+       ema_swim_split_pct_5         1.57%
+     ema_swim_behind_sec_12         1.57%
+        avg_bike_gap_leader         1.57%
+               ema_t1_sec_5         1.53%
+          ema_t1_rank_pct_5         1.51%
+      ema_finish_pct_tier34         1.45%
+           std_swim_sec_24m         1.41%
+      ema_finish_pct_sprint         1.41%
+              form_momentum         1.39%
+       std_swim_gap_sec_24m         1.38%
+          ema_t2_rank_pct_5         1.34%
+           std_t1t2_sec_24m         1.30%
+      ema_swim_behind_sec_5         1.30%
+        avg_swim_gap_leader         1.28%
+ema_swim_split_pct_tier12_5         1.26%
+           ema_perf_ratio_5         1.24%
+            std_run_sec_24m         1.20%
+ema_bike_to_t2_pos_change_5         1.17%
+                 form_trend         1.15%
+       min_swim_gap_sec_24m         1.15%
+           std_bike_sec_24m         1.13%
+          std_total_sec_24m         1.05%
+ ema_run_split_pct_tier12_5         1.05%
+          athlete_t1t2_rate         1.01%
+                    wetsuit         1.01%
+     seed_total_gap_to_best         0.99%
+
+--- standard_t1  (top 40) ---
+                    feature standard_t1
+     field_depth_top10_mean      32.79%
+       days_since_last_race       4.66%
+               ema_t2_sec_5       2.72%
+               ema_t1_sec_5       2.44%
+             ema_swim_sec_5       2.44%
+              ema_run_sec_5       2.24%
+          ema_t1_rank_pct_5       2.19%
+            ema_total_sec_5       2.07%
+             ema_t1t2_sec_5       1.96%
+             ema_bike_sec_5       1.82%
+                    wetsuit       1.67%
+           std_t1t2_sec_24m       1.55%
+        avg_bike_gap_leader       1.53%
+     seed_total_gap_to_best       1.48%
+            swim_form_trend       1.46%
+           std_bike_pct_24m       1.42%
+      ema_finish_pct_sprint       1.42%
+ema_swim_to_t1_pos_change_5       1.38%
+       ema_bike_split_pct_5       1.38%
+      ema_swim_behind_sec_5       1.30%
+     ema_swim_behind_sec_12       1.27%
+          ema_t2_rank_pct_5       1.23%
+           ema_perf_ratio_5       1.23%
+          athlete_t1t2_rate       1.17%
+            freshness_curve       1.15%
+        ema_run_split_pct_5       1.13%
+           std_swim_sec_24m       1.07%
+       std_swim_gap_sec_24m       1.05%
+       min_swim_gap_sec_24m       1.00%
+      ema_finish_pct_tier34       0.98%
+        p90_swim_gap_leader       0.94%
+      ema_swim_split_pct_12       0.90%
+        avg_swim_gap_leader       0.90%
+          std_total_sec_24m       0.86%
+    ema_finish_pct_standard       0.84%
+            n_races_at_tier       0.84%
+ema_bike_split_pct_tier12_5       0.84%
+ ema_run_split_pct_tier12_5       0.81%
+           std_bike_sec_24m       0.79%
+             bike_pack_rate       0.79%
+
+--- standard_bike  (top 40) ---
+                    feature standard_bike
+     field_depth_top10_mean        23.35%
+       days_since_last_race         3.62%
+             ema_swim_sec_5         3.55%
+              ema_run_sec_5         2.64%
+               ema_t1_sec_5         2.32%
+             ema_bike_sec_5         2.28%
+            ema_total_sec_5         2.25%
+          ema_t2_rank_pct_5         2.17%
+            swim_form_trend         2.11%
+               ema_t2_sec_5         2.04%
+ema_bike_to_t2_pos_change_5         1.94%
+        avg_bike_gap_leader         1.87%
+       ema_bike_split_pct_5         1.81%
+           ema_perf_ratio_5         1.79%
+             ema_t1t2_sec_5         1.72%
+           std_swim_sec_24m         1.70%
+ema_swim_split_pct_tier12_5         1.68%
+          ema_t1_rank_pct_5         1.59%
+ema_swim_to_t1_pos_change_5         1.51%
+       std_swim_gap_sec_24m         1.40%
+        ema_run_split_pct_5         1.40%
+       ema_swim_split_pct_5         1.32%
+      ema_swim_split_pct_12         1.30%
+           std_t1t2_sec_24m         1.28%
+      ema_swim_behind_sec_5         1.28%
+           std_bike_sec_24m         1.28%
+          std_total_sec_24m         1.26%
+     seed_total_gap_to_best         1.26%
+           std_bike_pct_24m         1.23%
+          ema_finish_pct_12         1.21%
+                    wetsuit         1.17%
+      ema_finish_pct_tier34         1.17%
+      ema_finish_pct_sprint         1.17%
+              form_momentum         1.11%
+            std_run_sec_24m         1.11%
+                 form_trend         1.08%
+        p90_swim_gap_leader         1.08%
+ema_bike_split_pct_tier12_5         1.04%
+     ema_swim_behind_sec_12         1.02%
+            freshness_curve         1.02%
+
+--- standard_t2  (top 40) ---
+                    feature standard_t2
+     field_depth_top10_mean      22.49%
+       days_since_last_race       4.15%
+          ema_t2_rank_pct_5       2.91%
+               ema_t2_sec_5       2.77%
+     seed_total_gap_to_best       2.37%
+             ema_t1t2_sec_5       2.17%
+             ema_swim_sec_5       2.13%
+          ema_t1_rank_pct_5       2.11%
+            swim_form_trend       2.01%
+            ema_total_sec_5       1.93%
+               ema_t1_sec_5       1.67%
+        avg_bike_gap_leader       1.67%
+       ema_bike_split_pct_5       1.61%
+            std_run_sec_24m       1.61%
+       std_swim_gap_sec_24m       1.61%
+           std_t1t2_sec_24m       1.59%
+           std_swim_sec_24m       1.57%
+             ema_bike_sec_5       1.52%
+           std_bike_pct_24m       1.50%
+       min_swim_gap_sec_24m       1.50%
+ema_bike_to_t2_pos_change_5       1.48%
+      ema_finish_pct_sprint       1.44%
+ema_swim_to_t1_pos_change_5       1.42%
+              ema_run_sec_5       1.42%
+      ema_swim_behind_sec_5       1.40%
+        ema_run_split_pct_5       1.36%
+           ema_perf_ratio_5       1.34%
+      ema_swim_split_pct_12       1.32%
+           std_bike_sec_24m       1.30%
+ema_swim_split_pct_tier12_5       1.26%
+       ema_swim_split_pct_5       1.26%
+          std_total_sec_24m       1.26%
+        p90_swim_gap_leader       1.22%
+     ema_swim_behind_sec_12       1.20%
+              form_momentum       1.16%
+          ema_finish_pct_12       1.12%
+        avg_swim_gap_leader       1.06%
+          athlete_t1t2_rate       1.04%
+            n_races_at_tier       1.04%
+      ema_finish_pct_tier34       1.02%
+
+--- standard_run  (top 40) ---
+                    feature standard_run
+     field_depth_top10_mean       10.93%
+              ema_run_sec_5        3.47%
+             ema_swim_sec_5        2.81%
+       days_since_last_race        2.79%
+ema_bike_to_t2_pos_change_5        2.66%
+        ema_run_split_pct_5        2.66%
+      ema_finish_pct_sprint        2.48%
+            std_run_sec_24m        2.40%
+ema_swim_to_t1_pos_change_5        2.38%
+          ema_t2_rank_pct_5        2.31%
+               ema_t2_sec_5        2.23%
+          ema_t1_rank_pct_5        2.19%
+       ema_bike_split_pct_5        2.11%
+       std_swim_gap_sec_24m        2.06%
+            ema_total_sec_5        2.06%
+               ema_t1_sec_5        2.04%
+        avg_bike_gap_leader        2.02%
+           ema_perf_ratio_5        2.00%
+           std_t1t2_sec_24m        1.90%
+                 form_trend        1.84%
+              form_momentum        1.82%
+             ema_bike_sec_5        1.80%
+       min_swim_gap_sec_24m        1.76%
+      ema_swim_split_pct_12        1.76%
+            swim_form_trend        1.73%
+             ema_t1t2_sec_5        1.73%
+           std_swim_sec_24m        1.65%
+     ema_swim_behind_sec_12        1.59%
+      ema_swim_behind_sec_5        1.51%
+ ema_run_split_pct_tier12_5        1.45%
+           std_bike_sec_24m        1.40%
+          std_total_sec_24m        1.40%
+        p90_swim_gap_leader        1.38%
+     seed_total_gap_to_best        1.34%
+       ema_swim_split_pct_5        1.34%
+           ema_finish_pct_3        1.32%
+          athlete_t1t2_rate        1.28%
+      ema_finish_pct_tier34        1.22%
+             bike_pack_rate        1.18%
+ema_bike_split_pct_tier12_5        1.16%
+
+--- standard_swim_exit_pct  (top 40) ---
+                    feature standard_swim_exit_pct
+     field_depth_top10_mean                  4.58%
+       days_since_last_race                  2.89%
+            swim_form_trend                  2.65%
+          ema_t2_rank_pct_5                  2.56%
+       ema_bike_split_pct_5                  2.54%
+      ema_swim_split_pct_12                  2.54%
+ema_bike_to_t2_pos_change_5                  2.50%
+        ema_run_split_pct_5                  2.41%
+           std_t1t2_sec_24m                  2.39%
+      ema_finish_pct_sprint                  2.34%
+ema_swim_to_t1_pos_change_5                  2.34%
+             ema_swim_sec_5                  2.32%
+              form_momentum                  2.28%
+        avg_swim_gap_leader                  2.26%
+            std_run_sec_24m                  2.26%
+               ema_t1_sec_5                  2.26%
+           ema_perf_ratio_5                  2.21%
+               ema_t2_sec_5                  2.21%
+                 form_trend                  2.15%
+      ema_swim_behind_sec_5                  2.06%
+       ema_swim_split_pct_5                  1.98%
+     ema_swim_behind_sec_12                  1.87%
+           std_swim_sec_24m                  1.84%
+             ema_bike_sec_5                  1.80%
+          ema_t1_rank_pct_5                  1.78%
+             bike_pack_rate                  1.71%
+     seed_total_gap_to_best                  1.71%
+       std_swim_gap_sec_24m                  1.65%
+        p90_swim_gap_leader                  1.63%
+ema_bike_split_pct_tier12_5                  1.61%
+          std_total_sec_24m                  1.60%
+             ema_t1t2_sec_5                  1.56%
+      ema_finish_pct_tier34                  1.52%
+ema_swim_split_pct_tier12_5                  1.52%
+       ema_finish_pct_tier2                  1.50%
+          athlete_t1t2_rate                  1.48%
+       ema_finish_pct_tier1                  1.48%
+        avg_bike_gap_leader                  1.48%
+ ema_run_split_pct_tier12_5                  1.47%
+           std_bike_sec_24m                  1.39%
+
+--- standard_total  (top 40) ---
+                    feature standard_total
+             ema_swim_sec_5          4.40%
+            n_matched_races          4.40%
+              ema_run_sec_5          3.88%
+            ema_total_sec_5          3.67%
+ema_bike_to_t2_pos_change_5          3.11%
+       days_since_last_race          2.91%
+               ema_t2_sec_5          2.66%
+            std_run_sec_24m          2.58%
+             ema_bike_sec_5          2.50%
+       ema_bike_split_pct_5          2.50%
+             bike_pack_rate          2.18%
+      ema_swim_split_pct_12          1.98%
+           std_bike_sec_24m          1.98%
+      ema_finish_pct_sprint          1.94%
+        ema_run_split_pct_5          1.94%
+               ema_t1_sec_5          1.90%
+             ema_t1t2_sec_5          1.86%
+       ema_finish_pct_tier1          1.86%
+         ema_distance_match          1.82%
+     ema_swim_behind_sec_12          1.78%
+           std_bike_pct_24m          1.74%
+       min_swim_gap_sec_24m          1.70%
+           ema_perf_ratio_5          1.70%
+           std_swim_sec_24m          1.70%
+ema_swim_to_t1_pos_change_5          1.66%
+     seed_total_gap_to_best          1.66%
+          ema_finish_pct_12          1.61%
+            swim_form_trend          1.61%
+                 form_trend          1.61%
+      ema_swim_behind_sec_5          1.57%
+            front_pack_rate          1.53%
+          std_total_sec_24m          1.53%
+        p90_swim_gap_leader          1.49%
+        avg_swim_gap_leader          1.41%
+        avg_bike_gap_leader          1.33%
+            races_tier1_24m          1.29%
+           ema_finish_pct_5          1.25%
+           std_t1t2_sec_24m          1.25%
+    ema_finish_pct_standard          1.25%
+            freshness_curve          1.21%
+
+--- super_sprint_swim  (top 40) ---
+                    feature super_sprint_swim
+     field_depth_top10_mean            21.00%
+           ema_perf_ratio_5             3.32%
+          ema_t1_rank_pct_5             3.21%
+        avg_swim_gap_leader             3.14%
+        ema_run_split_pct_5             3.07%
+        avg_bike_gap_leader             2.92%
+ema_swim_to_t1_pos_change_5             2.92%
+        p90_swim_gap_leader             2.89%
+       ema_swim_split_pct_5             2.74%
+       ema_bike_split_pct_5             2.74%
+     seed_total_gap_to_best             2.56%
+       min_swim_gap_sec_24m             2.49%
+          ema_t2_rank_pct_5             2.38%
+ema_bike_to_t2_pos_change_5             2.38%
+     ema_swim_behind_sec_12             2.24%
+               ema_t2_sec_5             2.16%
+      ema_swim_split_pct_12             2.16%
+               ema_t1_sec_5             2.02%
+            swim_form_trend             1.95%
+      ema_finish_pct_sprint             1.95%
+      ema_finish_pct_tier34             1.80%
+      ema_swim_behind_sec_5             1.80%
+       std_swim_gap_sec_24m             1.80%
+ ema_run_split_pct_tier12_5             1.55%
+              ema_run_sec_5             1.48%
+             ema_swim_sec_5             1.44%
+    ema_finish_pct_standard             1.37%
+ema_swim_split_pct_tier12_5             1.33%
+             ema_t1t2_sec_5             1.30%
+             bike_pack_rate             1.23%
+       days_since_last_race             1.19%
+           ema_finish_pct_5             1.15%
+                    wetsuit             1.12%
+ema_bike_split_pct_tier12_5             1.08%
+            ema_total_sec_5             1.05%
+             ema_bike_sec_5             1.05%
+           ema_finish_pct_3             1.01%
+          ema_finish_pct_12             0.79%
+          std_total_sec_24m             0.72%
+            front_pack_rate             0.69%
+
+--- super_sprint_t1  (top 40) ---
+                    feature super_sprint_t1
+     field_depth_top10_mean          11.52%
+ ema_run_split_pct_tier12_5           3.81%
+          ema_t1_rank_pct_5           3.63%
+        ema_run_split_pct_5           3.56%
+          ema_t2_rank_pct_5           3.35%
+    ema_finish_pct_standard           3.24%
+ema_swim_to_t1_pos_change_5           2.92%
+      ema_finish_pct_sprint           2.92%
+            swim_form_trend           2.89%
+           ema_perf_ratio_5           2.85%
+ema_bike_to_t2_pos_change_5           2.71%
+               ema_t1_sec_5           2.68%
+       std_swim_gap_sec_24m           2.50%
+       ema_bike_split_pct_5           2.47%
+        avg_swim_gap_leader           2.47%
+          athlete_t1t2_rate           2.43%
+               ema_t2_sec_5           2.22%
+        avg_bike_gap_leader           2.18%
+      ema_swim_behind_sec_5           2.15%
+             bike_pack_rate           2.11%
+                    wetsuit           1.94%
+             ema_t1t2_sec_5           1.90%
+      ema_swim_split_pct_12           1.76%
+     seed_total_gap_to_best           1.66%
+ema_swim_split_pct_tier12_5           1.52%
+ema_bike_split_pct_tier12_5           1.48%
+      ema_finish_pct_tier34           1.48%
+          ema_finish_pct_12           1.41%
+       ema_swim_split_pct_5           1.41%
+       days_since_last_race           1.41%
+        p90_swim_gap_leader           1.30%
+       ema_finish_pct_tier1           1.27%
+              ema_run_sec_5           1.16%
+             ema_bike_sec_5           1.13%
+           ema_finish_pct_3           1.13%
+     ema_swim_behind_sec_12           1.06%
+                 form_trend           0.99%
+             ema_swim_sec_5           0.92%
+                  races_12m           0.92%
+       min_swim_gap_sec_24m           0.88%
+
+--- super_sprint_bike  (top 40) ---
+                    feature super_sprint_bike
+     field_depth_top10_mean            22.35%
+           ema_perf_ratio_5             4.92%
+      ema_finish_pct_sprint             4.00%
+            swim_form_trend             3.89%
+        avg_bike_gap_leader             3.36%
+        avg_swim_gap_leader             3.17%
+       ema_bike_split_pct_5             3.13%
+        p90_swim_gap_leader             2.97%
+               ema_t2_sec_5             2.82%
+     ema_swim_behind_sec_12             2.59%
+          ema_t2_rank_pct_5             2.59%
+ema_bike_to_t2_pos_change_5             2.56%
+      ema_swim_split_pct_12             2.52%
+        ema_run_split_pct_5             2.48%
+       min_swim_gap_sec_24m             2.40%
+          ema_t1_rank_pct_5             2.40%
+      ema_swim_behind_sec_5             2.02%
+           ema_finish_pct_3             1.98%
+ema_swim_to_t1_pos_change_5             1.98%
+             ema_bike_sec_5             1.95%
+               ema_t1_sec_5             1.95%
+             ema_t1t2_sec_5             1.83%
+       ema_swim_split_pct_5             1.83%
+     seed_total_gap_to_best             1.79%
+             bike_pack_rate             1.26%
+              ema_run_sec_5             1.22%
+       days_since_last_race             1.18%
+    ema_finish_pct_standard             1.11%
+             ema_swim_sec_5             1.11%
+       std_swim_gap_sec_24m             1.07%
+            ema_total_sec_5             0.99%
+          ema_finish_pct_12             0.84%
+          std_total_sec_24m             0.69%
+           ema_finish_pct_5             0.69%
+           std_swim_sec_24m             0.65%
+           std_t1t2_sec_24m             0.57%
+            n_races_at_tier             0.57%
+      ema_finish_pct_tier34             0.53%
+            freshness_curve             0.46%
+            front_pack_rate             0.46%
+
+--- super_sprint_t2  (top 40) ---
+                    feature super_sprint_t2
+     field_depth_top10_mean          10.58%
+               ema_t1_sec_5           7.12%
+ema_swim_to_t1_pos_change_5           3.73%
+      ema_finish_pct_sprint           3.46%
+          ema_t2_rank_pct_5           3.20%
+            swim_form_trend           3.01%
+             ema_t1t2_sec_5           2.89%
+ema_bike_to_t2_pos_change_5           2.85%
+        ema_run_split_pct_5           2.70%
+       ema_bike_split_pct_5           2.70%
+          ema_t1_rank_pct_5           2.66%
+        p90_swim_gap_leader           2.55%
+             ema_swim_sec_5           2.44%
+           ema_perf_ratio_5           2.44%
+     ema_swim_behind_sec_12           2.44%
+               ema_t2_sec_5           2.40%
+            freshness_curve           2.40%
+       ema_swim_split_pct_5           2.36%
+    ema_finish_pct_standard           2.32%
+     seed_total_gap_to_best           2.13%
+      ema_finish_pct_tier34           2.13%
+       min_swim_gap_sec_24m           2.09%
+             bike_pack_rate           2.06%
+       std_swim_gap_sec_24m           1.87%
+        avg_swim_gap_leader           1.87%
+       days_since_last_race           1.83%
+        avg_bike_gap_leader           1.67%
+           ema_finish_pct_3           1.67%
+      ema_swim_split_pct_12           1.60%
+      ema_swim_behind_sec_5           1.48%
+             ema_bike_sec_5           1.37%
+                    wetsuit           1.18%
+           ema_finish_pct_5           1.14%
+            front_pack_rate           1.14%
+              ema_run_sec_5           0.95%
+                 form_trend           0.84%
+           std_swim_sec_24m           0.76%
+ema_bike_split_pct_tier12_5           0.72%
+          ema_finish_pct_12           0.69%
+ ema_run_split_pct_tier12_5           0.69%
+
+--- super_sprint_run  (top 40) ---
+                    feature super_sprint_run
+     field_depth_top10_mean           18.62%
+           ema_perf_ratio_5            4.30%
+      ema_finish_pct_sprint            4.05%
+        ema_run_split_pct_5            3.80%
+ema_bike_to_t2_pos_change_5            3.40%
+             ema_t1t2_sec_5            2.82%
+            swim_form_trend            2.78%
+               ema_t1_sec_5            2.75%
+          ema_t1_rank_pct_5            2.75%
+      ema_swim_behind_sec_5            2.57%
+ema_swim_to_t1_pos_change_5            2.46%
+        avg_bike_gap_leader            2.46%
+       ema_bike_split_pct_5            2.31%
+               ema_t2_sec_5            2.24%
+     seed_total_gap_to_best            2.17%
+       std_swim_gap_sec_24m            2.13%
+       min_swim_gap_sec_24m            2.06%
+          ema_t2_rank_pct_5            1.88%
+        avg_swim_gap_leader            1.88%
+        p90_swim_gap_leader            1.81%
+    ema_finish_pct_standard            1.77%
+      ema_swim_split_pct_12            1.74%
+     ema_swim_behind_sec_12            1.74%
+              ema_run_sec_5            1.70%
+             ema_swim_sec_5            1.70%
+       ema_swim_split_pct_5            1.59%
+       days_since_last_race            1.59%
+ ema_run_split_pct_tier12_5            1.45%
+      ema_finish_pct_tier34            1.45%
+ema_bike_split_pct_tier12_5            1.34%
+             bike_pack_rate            1.34%
+             ema_bike_sec_5            1.27%
+                 form_trend            0.94%
+              form_momentum            0.90%
+           ema_finish_pct_5            0.90%
+           ema_finish_pct_3            0.80%
+            ema_total_sec_5            0.76%
+ema_swim_split_pct_tier12_5            0.65%
+            front_pack_rate            0.65%
+       ema_finish_pct_tier2            0.65%
+
+--- super_sprint_swim_exit_pct  (top 40) ---
+                    feature super_sprint_swim_exit_pct
+     field_depth_top10_mean                      5.59%
+          ema_t2_rank_pct_5                      3.96%
+           ema_perf_ratio_5                      3.86%
+        avg_bike_gap_leader                      3.76%
+          ema_t1_rank_pct_5                      3.69%
+ema_bike_to_t2_pos_change_5                      3.62%
+       ema_bike_split_pct_5                      3.56%
+               ema_t1_sec_5                      3.52%
+ema_swim_to_t1_pos_change_5                      3.49%
+      ema_swim_behind_sec_5                      3.32%
+        avg_swim_gap_leader                      2.89%
+       std_swim_gap_sec_24m                      2.86%
+        ema_run_split_pct_5                      2.83%
+            swim_form_trend                      2.79%
+       min_swim_gap_sec_24m                      2.73%
+      ema_swim_split_pct_12                      2.66%
+       ema_swim_split_pct_5                      2.66%
+      ema_finish_pct_sprint                      2.56%
+     seed_total_gap_to_best                      2.53%
+     ema_swim_behind_sec_12                      2.39%
+             ema_swim_sec_5                      2.19%
+        p90_swim_gap_leader                      2.13%
+              ema_run_sec_5                      2.09%
+       days_since_last_race                      2.09%
+             bike_pack_rate                      1.89%
+      ema_finish_pct_tier34                      1.83%
+            ema_total_sec_5                      1.80%
+             ema_t1t2_sec_5                      1.76%
+ ema_run_split_pct_tier12_5                      1.70%
+    ema_finish_pct_standard                      1.63%
+             ema_bike_sec_5                      1.63%
+               ema_t2_sec_5                      1.60%
+ema_swim_split_pct_tier12_5                      1.60%
+          ema_finish_pct_12                      1.43%
+           ema_finish_pct_3                      0.96%
+ema_bike_split_pct_tier12_5                      0.90%
+            front_pack_rate                      0.90%
+                 form_trend                      0.86%
+              form_momentum                      0.73%
+       ema_finish_pct_tier2                      0.57%
+
+--- super_sprint_total  (top 40) ---
+                    feature super_sprint_total
+ema_bike_to_t2_pos_change_5              6.53%
+            n_matched_races              4.88%
+      ema_swim_behind_sec_5              4.28%
+      ema_finish_pct_sprint              3.98%
+         ema_distance_match              3.90%
+            front_pack_rate              3.60%
+        avg_swim_gap_leader              3.45%
+           ema_perf_ratio_5              3.08%
+            swim_form_trend              3.08%
+       ema_bike_split_pct_5              2.85%
+      ema_swim_split_pct_12              2.78%
+        ema_run_split_pct_5              2.78%
+          ema_t1_rank_pct_5              2.70%
+               ema_t1_sec_5              2.55%
+               ema_t2_sec_5              2.48%
+       ema_swim_split_pct_5              2.33%
+                    wetsuit              2.33%
+             ema_t1t2_sec_5              2.18%
+     ema_swim_behind_sec_12              2.10%
+     seed_total_gap_to_best              2.10%
+ema_swim_to_t1_pos_change_5              2.10%
+           ema_finish_pct_3              1.80%
+            races_tier1_24m              1.73%
+       min_swim_gap_sec_24m              1.73%
+            ema_total_sec_5              1.73%
+       days_since_last_race              1.73%
+             ema_swim_sec_5              1.73%
+     field_depth_top10_mean              1.73%
+ ema_run_split_pct_tier12_5              1.65%
+          ema_t2_rank_pct_5              1.58%
+    ema_finish_pct_standard              1.50%
+             bike_pack_rate              1.50%
+        p90_swim_gap_leader              1.50%
+            freshness_curve              1.43%
+ema_bike_split_pct_tier12_5              1.43%
+        avg_bike_gap_leader              1.43%
+           ema_finish_pct_5              1.35%
+          ema_finish_pct_12              1.35%
+              ema_run_sec_5              1.13%
+ema_swim_split_pct_tier12_5              0.83%
+
+==========================================================================================
+COMBINED  (top 40 by mean %-importance across 35 models)
+==========================================================================================
+                    feature mean_pct max_pct ranker_lgbm ranker_xgb pct_total reg_total reg_swim reg_bike reg_run middle_distance_swim middle_distance_t1 middle_distance_bike middle_distance_t2 middle_distance_run middle_distance_swim_exit_pct middle_distance_total sprint_swim sprint_t1 sprint_bike sprint_t2 sprint_run sprint_swim_exit_pct sprint_total standard_swim standard_t1 standard_bike standard_t2 standard_run standard_swim_exit_pct standard_total super_sprint_swim super_sprint_t1 super_sprint_bike super_sprint_t2 super_sprint_run super_sprint_swim_exit_pct super_sprint_total
+     field_depth_top10_mean    12.89   36.31        0.00       0.62      1.73      7.99     9.69     8.79    4.68                10.42              13.31                 9.81              14.42                6.85                          6.33                  2.52       29.40     36.31       24.18     30.48      12.86                 6.74         1.57         26.09       32.79         23.35       22.49        10.93                   4.58           0.93             21.00           11.52             22.35           10.58            18.62                       5.59               1.73
+       days_since_last_race     2.91    6.48        1.41       0.50      1.27      0.99     0.84     0.90    1.54                 4.24               5.38                 4.77               6.17                6.48                          2.33                  2.22        4.46      4.99        3.54      4.97       3.43                 2.44         2.92          4.16        4.66          3.62        4.15         2.79                   2.89           2.91              1.19            1.41              1.18            1.83             1.59                       2.09               1.73
+ema_bike_to_t2_pos_change_5     2.42    9.68        1.40       0.50      1.19      0.44     0.39     0.66    0.59                 1.41               2.61                 3.55               2.94                3.02                          2.16                  9.68        1.36      1.12        1.46      1.49       1.82                 2.40         6.95          1.17        0.73          1.94        1.48         2.66                   2.50           3.11              2.38            2.71              2.56            2.85             3.40                       3.62               6.53
+              ema_run_sec_5     2.33    5.34        0.88       0.50      0.95      2.26     1.53     1.62    3.24                 3.30               2.28                 1.55               2.09                4.51                          2.54                  4.44        2.97      2.21        3.54      2.01       4.98                 1.97         5.34          2.06        2.24          2.64        1.42         3.47                   1.26           3.88              1.48            1.16              1.22            0.95             1.70                       2.09               1.13
+             ema_swim_sec_5     2.29    4.40        1.51       0.82      0.76      1.73     2.20     1.69    1.67                 2.24               2.12                 3.82               1.81                1.98                          3.19                  2.72        3.20      1.81        2.41      1.52       3.31                 2.49         4.24          3.69        2.44          3.55        2.13         2.81                   2.32           4.40              1.44            0.92              1.11            2.44             1.70                       2.19               1.73
+        ema_run_split_pct_5     2.19    3.80        1.84       0.65      1.14      0.71     0.89     1.10    1.84                 1.53               2.77                 2.77               3.05                3.70                          3.63                  1.92        1.80      1.41        2.32      1.35       2.90                 2.60         2.37          2.12        1.13          1.40        1.36         2.66                   2.41           1.94              3.07            3.56              2.48            2.70             3.80                       2.83               2.78
+               ema_t1_sec_5     2.18    7.12        1.00       0.43      1.12      1.02     0.62     0.69    0.82                 4.42               2.99                 2.83               1.98                1.73                          2.98                  2.22        1.76      2.19        1.62      2.58       1.83                 2.47         2.42          1.53        2.44          2.32        1.67         2.04                   2.26           1.90              2.02            2.68              1.95            7.12             2.75                       3.52               2.55
+       ema_bike_split_pct_5     2.12    4.78        1.63       0.58      1.56      0.51     0.34     0.79    1.09                 2.36               4.78                 3.33               4.02                2.16                          2.60                  3.23        1.41      1.36        1.60      1.43       2.28                 1.95         1.44          2.12        1.38          1.81        1.61         2.11                   2.54           2.50              2.74            2.47              3.13            2.70             2.31                       3.56               2.85
+               ema_t2_sec_5     2.10    4.06        1.27       0.38      1.05      0.82     0.69     0.79    1.16                 3.53               2.28                 1.72               2.60                3.70                          4.06                  1.92        1.89      2.15        2.06      2.15       2.47                 2.21         2.16          1.91        2.72          2.04        2.77         2.23                   2.21           2.66              2.16            2.22              2.82            2.40             2.24                       1.60               2.48
+            swim_form_trend     1.98    4.74        1.85       0.46      1.58      0.41     0.38     0.41    0.61                 1.65               2.55                 1.94               2.09                1.73                          3.25                  4.74        1.14      1.21        1.55      1.56       1.69                 2.91         1.61          1.93        1.46          2.11        2.01         1.73                   2.65           1.61              1.95            2.89              3.89            3.01             2.78                       2.79               3.08
+            ema_total_sec_5     1.95    6.69        0.88       0.51      0.68      2.55     1.92     2.33    2.06                 1.00               0.87                 2.22               1.47                1.73                          1.30                  4.33        2.75      2.28        2.91      1.81       2.71                 1.70         6.69          2.62        2.07          2.25        1.93         2.06                   1.34           3.67              1.05            0.74              0.99            0.46             0.76                       1.80               1.73
+        avg_bike_gap_leader     1.94    3.76        1.09       0.55      0.73      0.70     0.69     1.24    0.95                 3.24               3.10                 3.10               3.68                3.02                          2.11                  0.60        1.80      1.47        2.45      1.60       2.70                 2.51         1.27          1.57        1.53          1.87        1.67         2.02                   1.48           1.33              2.92            2.18              3.36            1.67             2.46                       3.76               1.43
+ema_swim_to_t1_pos_change_5     1.93    3.73        1.58       0.44      1.22      0.46     0.39     0.52    0.69                 2.77               2.82                 2.83               2.21                2.59                          3.41                  1.01        1.62      1.41        1.77      1.38       1.83                 2.24         2.20          1.72        1.38          1.51        1.42         2.38                   2.34           1.66              2.92            2.92              1.98            3.73             2.46                       3.49               2.10
+          ema_t2_rank_pct_5     1.91    4.07        1.44       0.44      1.32      0.59     0.29     0.50    0.95                 2.47               2.17                 1.72               3.00                4.07                          2.38                  1.21        1.30      1.25        1.49      2.17       2.12                 2.19         1.19          1.34        1.23          2.17        2.91         2.31                   2.56           1.17              2.38            3.35              2.59            3.20             1.88                       3.96               1.58
+          ema_t1_rank_pct_5     1.90    3.69        1.41       0.46      1.14      0.44     0.51     0.35    0.85                 2.41               2.99                 1.72               2.38                3.46                          2.33                  1.21        1.41      1.68        1.66      1.52       2.17                 2.26         0.81          1.51        2.19          1.59        2.11         2.19                   1.78           1.05              3.21            3.63              2.40            2.66             2.75                       3.69               2.70
+           ema_perf_ratio_5     1.90    4.92        1.13       0.48      1.04      0.61     0.51     0.64    0.52                 1.30               2.01                 2.94               1.64                2.84                          1.46                  2.42        1.40      1.25        1.57      1.29       1.89                 1.88         1.48          1.24        1.23          1.79        1.34         2.00                   2.21           1.70              3.32            2.85              4.92            2.44             4.30                       3.86               3.08
+             ema_bike_sec_5     1.79    3.86        0.76       0.42      0.90      1.21     1.44     1.57    1.25                 2.47               1.41                 2.55               3.05                1.60                          1.68                  2.82        2.35      1.85        2.84      2.22       2.34                 1.65         3.86          1.81        1.82          2.28        1.52         1.80                   1.80           2.50              1.05            1.13              1.95            1.37             1.27                       1.63               0.45
+      ema_swim_split_pct_12     1.68    3.30        0.75       0.40      0.53      0.65     0.98     0.35    1.02                 3.12               1.36                 3.16               2.60                2.35                          3.30                  1.61        1.98      0.76        1.00      1.22       1.55                 2.37         0.72          1.89        0.90          1.30        1.32         1.76                   2.54           1.98              2.16            1.76              2.52            1.60             1.74                       2.66               2.78
+             ema_t1t2_sec_5     1.66    2.89        0.99       0.39      1.19      0.71     0.81     0.36    0.75                 2.83               2.28                 1.61               2.77                1.30                          1.57                  1.51        1.29      1.43        1.71      1.54       1.67                 1.65         2.33          1.76        1.96          1.72        2.17         1.73                   1.56           1.86              1.30            1.90              1.83            2.89             2.82                       1.76               2.18
+      ema_swim_behind_sec_5     1.65    4.71        0.88       0.58      1.00      0.37     0.51     0.45    0.54                 4.71               1.68                 2.16               1.30                1.67                          2.81                  2.32        1.25      0.90        1.18      1.17       1.93                 1.45         0.97          1.30        1.30          1.28        1.40         1.51                   2.06           1.57              1.80            2.15              2.02            1.48             2.57                       3.32               4.28
+     seed_total_gap_to_best     1.63    3.95        1.05       0.39      0.73      0.32     0.38     0.38    0.57                 2.65               1.96                 3.16               1.07                3.95                          1.62                  1.51        1.62      1.10        1.40      1.72       1.63                 1.63         2.29          0.99        1.48          1.26        2.37         1.34                   1.71           1.66              2.56            1.66              1.79            2.13             2.17                       2.53               2.10
+       ema_swim_split_pct_5     1.56    3.95        0.89       0.35      0.68      0.31     0.81     0.35    0.73                 3.95               1.25                 3.77               1.64                1.23                          3.68                  1.11        1.43      0.90        1.07      1.18       1.70                 2.13         1.53          1.57        0.48          1.32        1.26         1.34                   1.98           0.89              2.74            1.41              1.83            2.36             1.59                       2.66               2.33
+      ema_finish_pct_sprint     1.54    4.05        1.00       0.41      1.43      0.44     0.36     0.43    0.78                 0.94               0.87                 0.72               0.79                0.31                          2.38                  1.71        0.86      0.71        0.70      0.83       0.75                 1.35         1.10          1.41        1.42          1.17        1.44         2.48                   2.34           1.94              1.95            2.92              4.00            3.46             4.05                       2.56               3.98
+        avg_swim_gap_leader     1.54    4.74        0.55       0.67      0.76      0.36     0.87     0.28    0.71                 1.00               1.96                 1.05               1.98                0.49                          1.68                  4.74        1.21      1.07        1.25      0.72       0.90                 1.61         2.25          1.28        0.90          0.96        1.06         1.11                   2.26           1.41              3.14            2.47              3.17            1.87             1.88                       2.89               3.45
+        p90_swim_gap_leader     1.45    3.00        0.96       0.53      0.78      0.44     0.98     0.52    0.42                 3.00               1.52                 1.00               1.87                0.86                          2.06                  1.41        1.65      1.10        1.38      1.40       1.52                 1.58         1.02          1.93        0.94          1.08        1.22         1.38                   1.63           1.49              2.89            1.30              2.97            2.55             1.81                       2.13               1.50
+     ema_swim_behind_sec_12     1.40    2.65        0.96       0.42      0.46      0.37     0.75     0.31    0.80                 2.65               0.87                 1.83               1.02                1.11                          2.22                  2.12        1.63      0.90        1.35      0.81       1.10                 1.49         0.93          1.57        1.27          1.02        1.20         1.59                   1.87           1.78              2.24            1.06              2.59            2.44             1.74                       2.39               2.10
+       min_swim_gap_sec_24m     1.31    2.73        0.59       0.39      0.58      0.39     0.70     0.21    0.83                 1.83               1.25                 1.16               1.24                1.42                          1.46                  1.31        2.26      0.67        1.36      0.99       1.50                 1.06         1.36          1.15        1.00          0.83        1.50         1.76                   0.91           1.70              2.49            0.88              2.40            2.09             2.06                       2.73               1.73
+       std_swim_gap_sec_24m     1.28    2.86        1.04       0.60      0.81      0.36     0.89     0.43    0.71                 1.65               1.36                 1.39               0.51                1.11                          1.84                  0.00        1.52      1.23        1.35      1.22       1.76                 2.42         0.38          1.38        1.05          1.40        1.61         2.06                   1.65           0.77              1.80            2.50              1.07            1.87             2.13                       2.86               0.00
+             bike_pack_rate     1.22    2.42        1.20       0.48      0.75      0.31     0.27     0.29    0.45                 0.77               2.01                 2.38               0.79                1.42                          1.52                  1.51        0.79      0.65        1.05      1.02       1.39                 1.51         2.42          0.55        0.79          0.92        0.90         1.18                   1.71           2.18              1.23            2.11              1.26            2.06             1.34                       1.89               1.50
+      ema_finish_pct_tier34     1.10    2.13        1.43       0.86      0.85      0.25     0.24     0.26    0.50                 1.59               0.76                 2.05               1.87                1.42                          2.00                  0.91        0.68      0.67        0.94      0.97       1.10                 1.51         0.17          1.45        0.98          1.17        1.02         1.22                   1.52           1.05              1.80            1.48              0.53            2.13             1.45                       1.83               0.00
+            std_run_sec_24m     1.06    2.58        1.20       0.52      1.12      0.76     0.31     0.66    1.32                 1.53               0.33                 1.66               1.07                0.68                          0.70                  1.51        1.14      0.74        1.07      1.17       1.82                 1.78         2.03          1.20        0.59          1.11        1.61         2.40                   2.26           2.58              0.43            0.67              0.19            0.11             0.47                       0.40               0.00
+           std_t1t2_sec_24m     1.04    2.39        1.32       0.54      0.90      0.54     0.22     0.50    0.66                 0.82               0.81                 0.55               0.57                0.68                          1.46                  1.61        1.27      1.37        1.44      1.79       1.61                 1.51         1.69          1.30        1.55          1.28        1.59         1.90                   2.39           1.25              0.32            0.53              0.57            0.49             0.33                       0.30               0.60
+    ema_finish_pct_standard     1.03    3.24        1.25       0.54      1.12      0.31     0.24     0.36    0.64                 0.47               0.54                 0.44               1.19                0.56                          1.14                  0.50        0.72      0.96        0.88      0.79       1.42                 2.42         0.68          0.59        0.84          0.77        0.74         0.97                   0.78           1.25              1.37            3.24              1.11            2.32             1.77                       1.63               1.50
+ ema_run_split_pct_tier12_5     1.01    3.81        1.21       0.62      1.02      0.37     0.36     0.45    0.42                 0.59               1.41                 0.89               1.58                0.86                          1.24                  0.30        0.37      0.42        0.63      0.61       1.12                 1.36         0.89          1.05        0.81          0.91        0.62         1.45                   1.47           1.09              1.55            3.81              0.38            0.69             1.45                       1.70               1.65
+           std_swim_sec_24m     1.00    2.06        1.22       0.61      1.09      0.76     0.57     0.59    0.69                 0.88               0.65                 0.72               1.02                0.12                          1.30                  0.81        0.97      1.07        1.60      1.45       1.72                 2.06         1.06          1.41        1.07          1.70        1.57         1.65                   1.84           1.70              0.18            0.32              0.65            0.76             0.29                       0.53               0.45
+           ema_finish_pct_3     0.98    1.98        0.48       0.68      0.95      0.36     0.10     0.28    0.54                 0.94               0.54                 1.22               0.96                1.36                          1.89                  1.31        0.86      0.63        0.72      0.65       1.16                 1.06         1.40          0.73        0.71          0.77        0.92         1.32                   1.35           1.09              1.01            1.13              1.98            1.67             0.80                       0.96               1.80
+ema_bike_split_pct_tier12_5     0.97    5.49        1.13       0.50      0.80      0.15     0.12     0.59    0.69                 0.77               0.49                 1.05               0.79                5.49                          1.14                  1.01        0.39      0.31        0.57      0.61       0.62                 1.17         0.59          0.88        0.84          1.04        0.98         1.16                   1.61           1.05              1.08            1.48              0.38            0.72             1.34                       0.90               1.43
+                 form_trend     0.96    2.15        0.82       0.44      1.24      0.37     0.24     0.21    0.66                 0.53               1.63                 1.66               0.74                1.11                          1.30                  0.81        0.66      0.94        0.94      1.08       1.40                 1.54         1.06          1.15        0.71          1.08        0.72         1.84                   2.15           1.61              0.51            0.99              0.38            0.84             0.94                       0.86               0.53
+            n_races_at_tier     0.94    3.22        0.53       0.48      0.42      0.10     0.05     0.14    0.10                 2.83               2.99                 3.22               2.49                1.11                          1.46                  0.10        0.73      1.25        1.44      1.17       0.95                 1.97         0.72          0.53        0.84          0.83        1.04         0.81                   1.17           1.05              0.29            0.46              0.57            0.34             0.54                       0.13               0.15
+          ema_finish_pct_12     0.92    2.28        0.98       0.52      0.83      0.36     0.51     0.40    0.66                 0.47               0.71                 1.44               1.87                2.28                          0.60                  0.81        0.97      0.42        0.74      0.47       0.95                 0.95         0.72          0.65        0.67          1.21        1.12         1.03                   1.19           1.61              0.79            1.41              0.84            0.69             0.65                       1.43               1.35
+
+==========================================================================================
+ALL 106 FEATURES (training column order)
+==========================================================================================
+    1. ema_swim_sec_5
+    2. ema_bike_sec_5
+    3. ema_run_sec_5
+    4. ema_total_sec_5
+    5. ema_t1_sec_5
+    6. ema_t2_sec_5
+    7. ema_t1t2_sec_5
+    8. std_t1t2_sec_24m
+    9. std_total_sec_24m
+   10. std_swim_sec_24m
+   11. std_bike_sec_24m
+   12. std_run_sec_24m
+   13. std_swim_pct_24m
+   14. std_bike_pct_24m
+   15. std_run_pct_24m
+   16. days_since_last_race
+   17. races_12m
+   18. ema_finish_pct_3
+   19. ema_finish_pct_5
+   20. ema_finish_pct_12
+   21. form_trend
+   22. ema_perf_ratio_5
+   23. ema_swim_split_pct_5
+   24. ema_bike_split_pct_5
+   25. ema_run_split_pct_5
+   26. ema_swim_split_pct_12
+   27. best_swim_pct_12m
+   28. swim_form_trend
+   29. ema_swim_behind_sec_5
+   30. ema_swim_behind_sec_12
+   31. best_swim_behind_12m
+   32. n_swim_results
+   33. is_cold_start
+   34. ema_swim_split_pct_tier12_5
+   35. ema_bike_split_pct_tier12_5
+   36. ema_run_split_pct_tier12_5
+   37. ema_finish_pct_sprint
+   38. ema_finish_pct_standard
+   39. athlete_t1t2_rate
+   40. tier_delta
+   41. n_races_at_tier
+   42. ema_finish_pct_tier1
+   43. ema_finish_pct_tier2
+   44. ema_finish_pct_tier34
+   45. races_tier1_24m
+   46. races_tier2_24m
+   47. races_tier34_24m
+   48. form_momentum
+   49. ema_swim_pos_pct_7
+   50. ema_bike_pos_pct_7
+   51. ema_swim_pack_7
+   52. ema_bike_pack_7
+   53. ema_swim_gap_sec_7
+   54. ema_bike_gap_sec_7
+   55. std_swim_gap_sec_24m
+   56. min_swim_gap_sec_24m
+   57. front_pack_rate
+   58. avg_swim_gap_leader
+   59. p90_swim_gap_leader
+   60. bike_pack_rate
+   61. avg_bike_gap_leader
+   62. elo_rating
+   63. elo_peak
+   64. elo_races
+   65. wt_rank_position
+   66. wt_total_points
+   67. seed_total_rank
+   68. seed_total_gap_to_best
+   69. field_depth_top10_mean
+   70. n_entrants
+   71. event_tier
+   72. distance_category_encoded
+   73. wetsuit
+   74. temperature_air
+   75. humidity
+   76. wbgt
+   77. wind_speed_kmh
+   78. wind_gust_kmh
+   79. apparent_temp
+   80. precipitation_mm
+   81. cloud_cover_pct
+   82. bike_laps
+   83. run_laps
+   84. freshness_curve
+   85. ema_t1_rank_pct_5
+   86. ema_t2_rank_pct_5
+   87. ema_swim_to_t1_pos_change_5
+   88. ema_bike_to_t2_pos_change_5
+   89. ema_distance_match
+   90. n_matched_races
+   91. h2h_win_rate
+   92. h2h_avg_position_gap
+   93. h2h_n_shared_races
+   94. h2h_n_opponents_faced
+   95. h2h_win_rate_vs_field_top10
+   96. h2h_avg_position_gap_vs_field_top10
+   97. h2h_n_shared_races_vs_field_top10
+   98. h2h_win_rate_recent_180d
+   99. h2h_n_unknown_field_athletes
+  100. h2h_dominance_count
+  101. field_elo_gap_to_top10
+  102. field_elo_gap_to_top3
+  103. field_finish_pct_gap_to_top10
+  104. field_perf_ratio_gap_to_top10
+  105. n_athletes_within_50_elo
+  106. n_athletes_within_100_elo
+
+Saved combined table to outputs/v56_feature_importance.csv

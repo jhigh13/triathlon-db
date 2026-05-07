@@ -33,6 +33,8 @@ from tri_analysis.database import get_engine
 from tri_analysis.prediction.train import (
     build_training_dataset,
     train_baseline_models,
+    train_cascade_models,
+    train_hierarchical_models,
     train_distance_split_models,
     save_model_bundle,
     cross_validate,
@@ -168,6 +170,51 @@ def main():
         action="store_true",
         help="Optimize ensemble ranker/percentile blend weight via time-based CV. "
              "Stores optimal weight in bundle metadata (default: 0.5).",
+    )
+    parser.add_argument(
+        "--lambdarank_truncation_level",
+        type=int,
+        default=10,
+        help="LGBMRanker NDCG truncation level. Smaller = more focus on top positions. "
+             "Default 10 (NDCG@10). Try 5 or 3 for top-K-focused ranking.",
+    )
+    parser.add_argument(
+        "--inverse_rank_weight",
+        action="store_true",
+        help="Add inverse-rank sample weighting (1/sqrt(finish_position)) to the LGBMRanker "
+             "training. Top finishers contribute more to the loss. Stacks on tier/field/decay weights.",
+    )
+    parser.add_argument(
+        "--use_cascade",
+        action="store_true",
+        help="Train the cascade architecture (Stage 1 binary classifier + Stage 2 focused ranker). "
+             "Stored alongside the existing ranker; predict.py uses cascade when both stages are present.",
+    )
+    parser.add_argument(
+        "--cascade_top_k",
+        type=int,
+        default=15,
+        help="Cascade top-K threshold for Stage 1 binary label and Stage 2 training subset. Default 15.",
+    )
+    parser.add_argument(
+        "--cascade_n_candidates",
+        type=int,
+        default=20,
+        help="How many athletes Stage 1 keeps for Stage 2 ranking at inference. Default 20.",
+    )
+    parser.add_argument(
+        "--use_hierarchical",
+        action="store_true",
+        help="Train the hierarchical ability + context model (v59+). "
+             "Stage 1 = athlete-only ability predictor; Stage 2 = LGBMRanker on enhanced "
+             "features that include the field's Stage 1 ability distribution. "
+             "Stored alongside existing models; predict.py uses hierarchical when both stages are present.",
+    )
+    parser.add_argument(
+        "--hierarchical_n_folds",
+        type=int,
+        default=5,
+        help="Number of CV folds for leak-free Stage 1 OOF predictions. Default 5.",
     )
 
     args = parser.parse_args()
@@ -324,7 +371,13 @@ def main():
             bundle = train_baseline_models(
                 train_df, feature_cols, model_params=model_params,
                 time_decay_half_life=decay_hl,
+                lambdarank_truncation_level=args.lambdarank_truncation_level,
+                inverse_rank_weight=args.inverse_rank_weight,
             )
+            mlflow.log_params({
+                "lambdarank_truncation_level": args.lambdarank_truncation_level,
+                "inverse_rank_weight": args.inverse_rank_weight,
+            })
 
             # Log training metrics
             if bundle.metadata.get("training_metrics"):
@@ -355,6 +408,63 @@ def main():
 
             # Store training mode in metadata so simulation can adjust pack effect scaling
             bundle.metadata["exclude_pack_features"] = not args.include_pack_features
+
+            # Train cascade models (Stage 1 binary + Stage 2 focused ranker)
+            if args.use_cascade:
+                logger.info(
+                    f"Training cascade models (top_k_threshold={args.cascade_top_k}, "
+                    f"n_candidates={args.cascade_n_candidates})..."
+                )
+                cascade_out = train_cascade_models(
+                    train_df, feature_cols,
+                    top_k_threshold=args.cascade_top_k,
+                    n_candidates=args.cascade_n_candidates,
+                    model_params=model_params,
+                    time_decay_half_life=decay_hl,
+                )
+                bundle.cascade_stage1 = cascade_out["stage1_model"]
+                bundle.cascade_stage1_imputer = cascade_out["stage1_imputer"]
+                bundle.cascade_stage2 = cascade_out["stage2_model"]
+                bundle.cascade_stage2_imputer = cascade_out["stage2_imputer"]
+                bundle.cascade_top_k_threshold = cascade_out["top_k_threshold"]
+                bundle.cascade_n_candidates = cascade_out["n_candidates"]
+                bundle.metadata["cascade"] = cascade_out["metrics"]
+                mlflow.log_params({
+                    "use_cascade": True,
+                    "cascade_top_k": args.cascade_top_k,
+                    "cascade_n_candidates": args.cascade_n_candidates,
+                })
+                if cascade_out.get("metrics"):
+                    for k, v in cascade_out["metrics"].items():
+                        if isinstance(v, (int, float)):
+                            mlflow.log_metric(f"cascade_{k}", v)
+
+            # Train hierarchical ability + context models (Stage 1 ability + Stage 2 context ranker)
+            if args.use_hierarchical:
+                logger.info(
+                    f"Training hierarchical models (n_folds={args.hierarchical_n_folds})..."
+                )
+                hier_out = train_hierarchical_models(
+                    train_df, feature_cols,
+                    model_params=model_params,
+                    time_decay_half_life=decay_hl,
+                    n_folds=args.hierarchical_n_folds,
+                )
+                bundle.hierarchical_stage1 = hier_out["stage1_model"]
+                bundle.hierarchical_stage1_imputer = hier_out["stage1_imputer"]
+                bundle.hierarchical_stage1_features = hier_out["stage1_features"]
+                bundle.hierarchical_stage2 = hier_out["stage2_model"]
+                bundle.hierarchical_stage2_imputer = hier_out["stage2_imputer"]
+                bundle.hierarchical_stage2_features = hier_out["stage2_features"]
+                bundle.metadata["hierarchical"] = hier_out["metrics"]
+                mlflow.log_params({
+                    "use_hierarchical": True,
+                    "hierarchical_n_folds": args.hierarchical_n_folds,
+                })
+                if hier_out.get("metrics"):
+                    for k, v in hier_out["metrics"].items():
+                        if isinstance(v, (int, float)):
+                            mlflow.log_metric(f"hierarchical_{k}", v)
 
             # Optimize ensemble weight via CV (if requested)
             if args.optimize_weight and bundle.model_ranker is not None:

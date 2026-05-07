@@ -1,78 +1,78 @@
-"""Quick script to find Cuba events and upcoming races with start lists."""
+"""List upcoming Elite events in the next 8 weeks with start-list availability."""
 
 from __future__ import annotations
 
 import sys
 from pathlib import Path
 
-# Allow running this file directly (e.g. `python .\scripts\find_events.py`)
-# while still importing from the repo root package folders like `tri_analysis/`.
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from tri_analysis.database import get_engine
 import pandas as pd
 from sqlalchemy import text
 
-pd.set_option('display.width', 200)
-pd.set_option('display.max_colwidth', 60)
+from tri_analysis.database import get_engine
+
+pd.set_option("display.width", 220)
+pd.set_option("display.max_colwidth", 60)
+pd.set_option("display.max_rows", 200)
+
+WINDOW_WEEKS = 8
+
 engine = get_engine()
 
-print("=" * 80)
-print("Searching for Cuba/Havana events...")
-print("=" * 80)
+print("=" * 90)
+print(f"Upcoming Elite events in the next {WINDOW_WEEKS} weeks")
+print("=" * 90)
 
 with engine.connect() as conn:
     df = pd.read_sql(
-        text("""
-        SELECT DISTINCT event_id, prog_id, event_name, prog_name, event_date
-        FROM events 
-        WHERE event_name ILIKE :pattern1 OR event_name ILIKE :pattern2
-        ORDER BY event_date DESC
-        LIMIT 20
-        """),
+        text(
+            """
+            SELECT
+                e.event_date,
+                e.event_id,
+                e.prog_id,
+                e.event_name,
+                e.prog_name,
+                COALESCE(pe.n_entries, 0) AS n_entries
+            FROM events e
+            LEFT JOIN (
+                SELECT event_id, prog_id, COUNT(*) AS n_entries
+                FROM program_entries
+                WHERE is_active = TRUE
+                GROUP BY event_id, prog_id
+            ) pe
+              ON pe.event_id = e.event_id
+             AND pe.prog_id = e.prog_id
+            WHERE e.event_date >= CURRENT_DATE
+              AND e.event_date < CURRENT_DATE + (:weeks * INTERVAL '7 days')
+              AND e.prog_name IN ('Elite Men', 'Elite Women')
+            ORDER BY e.event_date, e.event_name, e.prog_name
+            """
+        ),
         conn,
-        params={"pattern1": "%cuba%", "pattern2": "%havana%"}
+        params={"weeks": WINDOW_WEEKS},
     )
-    print(df.to_string())
 
-print("\n" + "=" * 80)
-print("Events with active program_entries (start lists)...")
-print("=" * 80)
+if df.empty:
+    print(f"\nNo upcoming Elite events found in the next {WINDOW_WEEKS} weeks.")
+    print("Tip: refresh start lists with  `python -m tri_analysis.update_program_entries`")
+else:
+    with_entries = df[df["n_entries"] > 0]
+    without_entries = df[df["n_entries"] == 0]
 
-with engine.connect() as conn:
-    df2 = pd.read_sql(
-        text("""
-        SELECT DISTINCT e.event_id, e.prog_id, e.event_name, e.prog_name, e.event_date,
-               COUNT(pe.athlete_id) as n_entries
-        FROM events e 
-        JOIN program_entries pe ON e.event_id=pe.event_id AND e.prog_id=pe.prog_id 
-        WHERE pe.is_active=TRUE 
-        GROUP BY e.event_id, e.prog_id, e.event_name, e.prog_name, e.event_date
-        ORDER BY e.event_date
-        LIMIT 30
-        """),
-        conn
-    )
-    if df2.empty:
-        print("No active start lists found.")
-    else:
-        print(df2.to_string())
+    print(f"\nTotal: {len(df)} programs across {df['event_id'].nunique()} events")
+    print(f"  with start lists:    {len(with_entries)}")
+    print(f"  without start lists: {len(without_entries)}")
 
-print("\n" + "=" * 80)
-print("February 2025 events (recent Americas Cup events)...")
-print("=" * 80)
+    if not with_entries.empty:
+        print("\n--- With active start lists ---")
+        print(with_entries.to_string(index=False))
 
-with engine.connect() as conn:
-    df3 = pd.read_sql(
-        text("""
-        SELECT DISTINCT event_id, prog_id, event_name, prog_name, event_date
-        FROM events 
-        WHERE event_date BETWEEN '2025-02-01' AND '2025-02-28'
-          AND (prog_name = 'Elite Men' OR prog_name = 'Elite Women')
-        ORDER BY event_date
-        """),
-        conn
-    )
-    print(df3.to_string())
+    if not without_entries.empty:
+        print("\n--- No start list yet ---")
+        print(without_entries.to_string(index=False))
+
+    print("\nTip: refresh start lists with  `python -m tri_analysis.update_program_entries`")

@@ -249,6 +249,12 @@ def predict_splits_and_total(
     # Prevent predictions from being unreasonably slow compared to historical performance.
     # If pred_total_sec is more than 10% slower than EMA, anchor it closer to EMA.
     # When anchoring adjusts the total, proportionally rescale splits to maintain consistency.
+    #
+    # IMPORTANT: only apply when ema_total_sec_5 actually comes from the target
+    # distance. For athletes with no history at this distance, ema_distance_match=0
+    # and the EMA is dominated by other distances (e.g. a sprint-only athlete being
+    # predicted at Olympic distance). Anchoring against that EMA would slam the
+    # Olympic prediction down to a sprint time and rescale splits to a sprint pace.
     MAX_SLOWDOWN_FACTOR = 1.10  # Max 10% slower than EMA
 
     if "ema_total_sec_5" in df.columns:
@@ -258,6 +264,18 @@ def predict_splits_and_total(
 
         # Where prediction exceeds max allowed, cap it and rescale splits
         over_limit = pred_total > max_allowed
+
+        # Gate on distance-match — skip athletes whose EMA isn't from this distance
+        if "ema_distance_match" in df.columns:
+            distance_mismatch = (df["ema_distance_match"] != 1)
+            n_skipped = int((over_limit & distance_mismatch).sum())
+            over_limit = over_limit & ~distance_mismatch
+            if n_skipped:
+                logger.info(
+                    f"Skipped EMA anchoring for {n_skipped} athletes whose ema_total_sec_5 "
+                    f"comes from a different distance (ema_distance_match=0)"
+                )
+
         if over_limit.any():
             anchor_scale = max_allowed[over_limit] / pred_total[over_limit]
             df.loc[over_limit, "pred_total_sec"] = max_allowed[over_limit]
@@ -314,13 +332,122 @@ def predict_splits_and_total(
     df["pred_split_total_delta"] = delta
 
     # Compute predicted rank
-    # Priority: (1) LGBMRanker if available, (2) percentile model, (3) absolute time
+    # Priority:
+    #   (-1) Hierarchical if both stages present — Stage 1 ability score for every athlete,
+    #        derive field-ability features, Stage 2 ranker scores all athletes (no filter).
+    #   (0) Cascade if both cascade stages present — hard filter on Stage 1.
+    #   (1) Ensemble (LGBMRanker + percentile)
+    #   (2) LGBMRanker only
+    #   (3) Percentile only
+    #   (4) Absolute time
+    has_hierarchical = (
+        getattr(bundle, "hierarchical_stage1", None) is not None
+        and getattr(bundle, "hierarchical_stage2", None) is not None
+        and getattr(bundle, "hierarchical_stage1_imputer", None) is not None
+        and getattr(bundle, "hierarchical_stage2_imputer", None) is not None
+        and getattr(bundle, "hierarchical_stage1_features", None)
+        and getattr(bundle, "hierarchical_stage2_features", None)
+    )
+    has_cascade = (
+        getattr(bundle, "cascade_stage1", None) is not None
+        and getattr(bundle, "cascade_stage2", None) is not None
+        and getattr(bundle, "cascade_stage1_imputer", None) is not None
+        and getattr(bundle, "cascade_stage2_imputer", None) is not None
+    )
     has_ranker = (
         hasattr(bundle, "model_ranker") and bundle.model_ranker is not None
         and hasattr(bundle, "ranker_imputer") and bundle.ranker_imputer is not None
     )
 
-    if has_ranker and has_pct_model:
+    if has_hierarchical:
+        try:
+            from .features import compute_stage1_field_features
+
+            # Stage 1: compute ability score for every athlete
+            s1_features = list(bundle.hierarchical_stage1_features)
+            missing_s1 = [c for c in s1_features if c not in df.columns]
+            if missing_s1:
+                logger.warning(f"Hierarchical Stage 1 missing columns: {missing_s1[:5]}...")
+                for c in missing_s1:
+                    df[c] = np.nan
+            X_s1 = df[s1_features].copy()
+            X_s1_imp = bundle.hierarchical_stage1_imputer.transform(X_s1)
+            df["stage1_ability_score"] = bundle.hierarchical_stage1.predict(X_s1_imp)
+
+            # Derive field-ability features (operates on this single field)
+            field_feats = compute_stage1_field_features(df["stage1_ability_score"])
+            for col in field_feats.columns:
+                df[col] = field_feats[col].values
+
+            # Stage 2: rank with enhanced features
+            s2_features = list(bundle.hierarchical_stage2_features)
+            missing_s2 = [c for c in s2_features if c not in df.columns]
+            if missing_s2:
+                logger.warning(f"Hierarchical Stage 2 missing columns: {missing_s2[:5]}...")
+                for c in missing_s2:
+                    df[c] = np.nan
+            X_s2 = df[s2_features].copy()
+            X_s2_imp = bundle.hierarchical_stage2_imputer.transform(X_s2)
+            stage2_scores = bundle.hierarchical_stage2.predict(X_s2_imp)
+            df["hierarchical_score"] = stage2_scores
+            df["predicted_rank"] = (
+                pd.Series(stage2_scores, index=df.index)
+                .rank(method="min", ascending=False)
+                .astype(int)
+            )
+            logger.info(
+                f"Using hierarchical ranking: Stage 1 ({len(s1_features)} feats) → "
+                f"ability score → Stage 2 ({len(s2_features)} feats) → rank"
+            )
+        except Exception as e:
+            logger.warning(f"Hierarchical ranking failed, falling back: {e}")
+            has_hierarchical = False  # Fall through to next priority below
+
+    if not has_hierarchical and has_cascade:
+        try:
+            n_field = len(df)
+            n_candidates = int(getattr(bundle, "cascade_n_candidates", 20))
+            n_candidates = min(n_candidates, n_field)
+
+            X_full = df[bundle.feature_columns].copy()
+
+            # Stage 1: P(top-K) for every athlete
+            X_s1 = bundle.cascade_stage1_imputer.transform(X_full)
+            stage1_proba = bundle.cascade_stage1.predict_proba(X_s1)[:, 1]
+            df["cascade_stage1_score"] = stage1_proba
+
+            # Pick top-N candidates by Stage 1 score
+            stage1_rank = df["cascade_stage1_score"].rank(method="first", ascending=False)
+            candidate_mask = stage1_rank <= n_candidates
+
+            # Stage 2: rank only the candidates
+            X_s2 = bundle.cascade_stage2_imputer.transform(X_full)
+            stage2_scores = bundle.cascade_stage2.predict(X_s2)
+            df["cascade_stage2_score"] = stage2_scores
+
+            # Within the candidate pool, higher Stage 2 score = better finish
+            cand_df = df.loc[candidate_mask].copy()
+            cand_df["_cand_rank"] = cand_df["cascade_stage2_score"].rank(method="first", ascending=False).astype(int)
+
+            # Outside the candidate pool, rank by Stage 1 score (descending) starting at N+1
+            outside_df = df.loc[~candidate_mask].copy()
+            outside_df["_out_rank"] = (
+                outside_df["cascade_stage1_score"].rank(method="first", ascending=False).astype(int)
+                + n_candidates
+            )
+
+            # Stitch back together by index
+            ranks = pd.concat([cand_df["_cand_rank"], outside_df["_out_rank"]]).sort_index()
+            df["predicted_rank"] = ranks.astype(int)
+            logger.info(
+                f"Using cascade ranking: Stage 1 → top-{n_candidates} of {n_field} candidates, "
+                f"Stage 2 ranks them"
+            )
+        except Exception as e:
+            logger.warning(f"Cascade ranking failed, falling back: {e}")
+            has_cascade = False  # Fall through to next priority below
+
+    if not has_hierarchical and not has_cascade and has_ranker and has_pct_model:
         try:
             X_rank = df[bundle.feature_columns].copy()
             X_rank_imputed = bundle.ranker_imputer.transform(X_rank)
@@ -339,7 +466,7 @@ def predict_splits_and_total(
         except Exception as e:
             logger.warning(f"Ensemble ranking failed, falling back to percentile: {e}")
             df["predicted_rank"] = df["pred_finish_pct"].rank(method="min", ascending=True).astype(int)
-    elif has_ranker:
+    elif not has_hierarchical and not has_cascade and has_ranker:
         try:
             X_rank = df[bundle.feature_columns].copy()
             X_rank_imputed = bundle.ranker_imputer.transform(X_rank)
@@ -350,9 +477,9 @@ def predict_splits_and_total(
         except Exception as e:
             logger.warning(f"Ranker prediction failed, falling back: {e}")
             df["predicted_rank"] = df["pred_total_sec"].rank(method="min", ascending=True).astype(int)
-    elif has_pct_model:
+    elif not has_hierarchical and not has_cascade and has_pct_model:
         df["predicted_rank"] = df["pred_finish_pct"].rank(method="min", ascending=True).astype(int)
-    else:
+    elif not has_hierarchical and not has_cascade:
         df["predicted_rank"] = df["pred_total_sec"].rank(method="min", ascending=True).astype(int)
 
     # Sort by predicted rank

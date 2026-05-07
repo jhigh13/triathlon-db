@@ -1,0 +1,112 @@
+C:\Users\jhigh\Projects\triathlon-db\tri_analysis\prediction\features.py:2034: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[col] = defaults.get(col, 0)
+Analyzing 90 events...
+
+======================================================================
+1. P@10 BY FIELD SIZE BUCKET
+======================================================================
+              n_events  mean_p10  mean_p3  mean_field_size  mean_cold_start_pct  mean_cold_start_miss_frac
+field_bucket                                                                                              
+<20                 20     0.865    0.683           15.850                0.497                      0.417
+20-30               15     0.807    0.600           23.733                0.305                      0.344
+30-40               16     0.750    0.542           34.250                0.235                      0.198
+40-50               14     0.707    0.524           44.929                0.208                      0.143
+50+                 25     0.644    0.480           58.920                0.183                      0.124
+
+======================================================================
+2. COLD-START ATHLETES (n_matched_races < 3)
+======================================================================
+Total events: 90
+Mean cold-start % per field: 28.6%
+Mean cold-start misses as fraction of all misses: 24.2%
+
+Correlation: field_size vs cold_start_pct: -0.472
+Correlation: cold_start_pct vs P@10: 0.422
+Correlation: field_size vs P@10: -0.559
+
+======================================================================
+3. MISSED ATHLETE ANALYSIS (actual top-10, predicted outside top-10)
+======================================================================
+Total misses across all events: 226
+Cold-start misses: 49 (21.7%)
+
+Missed athletes by predicted rank bucket:
+                  count  cold_start_count  mean_n_races  pct_of_misses
+pred_rank_bucket                                                      
+11-12                52                17      8.865385           23.0
+13-15                64                12     10.640625           28.3
+16-20                70                15     11.285714           31.0
+21-30                27                 4     11.148148           11.9
+30+                   7                 0      7.428571            3.1
+
+Missed athletes by field-size bucket:
+              count  cold_start_count  cold_start_pct  mean_n_races
+field_bucket                                                       
+<20              27                14           0.519         3.481
+20-30            29                10           0.345         6.414
+30-40            40                 7           0.175        11.350
+40-50            41                 3           0.073        13.927
+50+              89                15           0.169        11.652
+
+======================================================================
+4. BY-TIER COLD START ANALYSIS
+======================================================================
+
+Tier 1 (Unknown): n=12
+  Mean field size: 37
+  Mean P@10: 78.3%
+  Mean cold-start %: 5.2%
+  Mean cold-start miss fraction: 6.9%
+  Mean n_matched_races (all athletes): 14.7
+  Q25 n_matched_races: 10.3
+
+Tier 2 (World Cup): n=14
+  Mean field size: 50
+  Mean P@10: 62.1%
+  Mean cold-start %: 5.4%
+  Mean cold-start miss fraction: 6.5%
+  Mean n_matched_races (all athletes): 15.1
+  Q25 n_matched_races: 8.8
+
+Tier 3 (Continental): n=40
+  Mean field size: 40
+  Mean P@10: 75.2%
+  Mean cold-start %: 32.5%
+  Mean cold-start miss fraction: 27.7%
+  Mean n_matched_races (all athletes): 7.7
+  Q25 n_matched_races: 1.9
+
+Tier 4 (Other): n=24
+  Mean field size: 24
+  Mean P@10: 80.0%
+  Mean cold-start %: 47.2%
+  Mean cold-start miss fraction: 37.2%
+  Mean n_matched_races (all athletes): 5.0
+  Q25 n_matched_races: 1.8
+
+======================================================================
+5. WORST 10 EVENTS BY P@10
+======================================================================
+  P@10=40% | field=58 | cold_start=2 (3%) | cold_miss_frac=33% | T2 | 2025 World Triathlon Cup Rome [Elite Men]
+  P@10=40% | field=56 | cold_start=3 (5%) | cold_miss_frac=33% | T2 | 2025 World Triathlon Cup Miyazaki [Elite Men]
+  P@10=40% | field=59 | cold_start=29 (49%) | cold_miss_frac=67% | T3 | 2025 Europe Triathlon Cup Ceuta [Elite Men]
+  P@10=50% | field=47 | cold_start=3 (6%) | cold_miss_frac=0% | T2 | 2025 World Triathlon Cup Rome [Elite Women]
+  P@10=50% | field=55 | cold_start=16 (29%) | cold_miss_frac=0% | T3 | 2025 Asia Triathlon Cup Gamagori [Elite Women]
+  P@10=50% | field=63 | cold_start=10 (16%) | cold_miss_frac=20% | T3 | 2025 Europe Triathlon Cup Tenerife - Santa Cruz [Elite Men]
+  P@10=50% | field=64 | cold_start=22 (34%) | cold_miss_frac=40% | T3 | 2025 Europe Triathlon Cup Alanya [Elite Men]
+  P@10=50% | field=52 | cold_start=12 (23%) | cold_miss_frac=0% | T4 | 2025 Europe Triathlon Championships Istanbul [Elite Men]
+  P@10=60% | field=67 | cold_start=9 (13%) | cold_miss_frac=25% | T2 | 2025 World Triathlon Cup Tiszaujvaros [Elite Men]
+  P@10=60% | field=34 | cold_start=2 (6%) | cold_miss_frac=0% | T2 | 2025 World Triathlon Cup Vina del Mar [Elite Women]
+
+======================================================================
+6. SUMMARY & KEY FINDINGS
+======================================================================
+Small fields (<30): P@10=84.0%, cold-start=41.5%, n=35
+Large fields (40+): P@10=66.7%, cold-start=19.2%, n=39
+P@10 gap: 17.3%
+
+All misses: 226 total
+  Cold-start misses: 49 (21.7%)
+  Warm misses: 177 (78.3%)
+  Cold-start mean pred rank: 14.8
+  Warm mean pred rank: 16.6
