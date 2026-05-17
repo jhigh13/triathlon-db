@@ -463,6 +463,243 @@ def collect_race_data(engine, events_df: pd.DataFrame) -> list[dict]:
     return rows
 
 
+# ── Deep-dive helpers (detailed splits, season norms, startlist) ──────────────
+
+def load_detailed_splits(xlsx_path: str) -> dict[str, pd.DataFrame]:
+    """Load detailed per-lap splits Excel for a single race.
+
+    Returns {'men': df, 'women': df} with columns:
+        Rank, Bib, Name, Nat,
+        swim_sec, bike_sec, run_sec, total_sec,
+        end_swim_elapsed, end_bike_elapsed, end_run_elapsed,
+        dnf (bool — True if Total contained DNF/LAP)
+
+    Handles both Male/female sheet naming variants and both
+    T1.1/T2.1 (women) and TA1/TA2 (men) discipline-column variants.
+    """
+    xl = pd.ExcelFile(xlsx_path)
+    sheets_lc = {n.lower(): n for n in xl.sheet_names}
+    out: dict[str, pd.DataFrame] = {}
+    for gender, candidates in [
+        ("men",   ["male", "men", "m"]),
+        ("women", ["female", "women", "f"]),
+    ]:
+        sheet = next((sheets_lc[c] for c in candidates if c in sheets_lc), None)
+        if not sheet:
+            continue
+        df = pd.read_excel(xl, sheet_name=sheet)
+        cols = list(df.columns)
+
+        t1_col = "T1.1" if "T1.1" in cols else ("TA1" if "TA1" in cols else None)
+        t2_col = "T2.1" if "T2.1" in cols else ("TA2" if "TA2" in cols else None)
+
+        for col, target in [("Swim", "swim_sec"), ("Bike", "bike_sec"), ("Run", "run_sec")]:
+            df[target] = df[col].apply(parse_time_to_seconds) if col in cols else None
+
+        df["t1_sec"] = df[t1_col].apply(parse_time_to_seconds) if t1_col else 0
+        df["t2_sec"] = df[t2_col].apply(parse_time_to_seconds) if t2_col else 0
+
+        # Non-finishers are marked DNF/DNS/LAP in the Rank column (Total is 'n.a.')
+        rank_str = df["Rank"].astype(str)
+        total_str = df["Total"].astype(str)
+        df["dnf"] = (
+            rank_str.str.contains(r"DNF|DNS|LAP", case=False, na=False)
+            | total_str.str.contains(r"DNF|DNS|LAP", case=False, na=False)
+        )
+        df["total_sec"] = df["Total"].apply(parse_time_to_seconds)
+
+        df["end_swim_elapsed"] = df["swim_sec"]
+        bike_cumulative = (
+            df["swim_sec"].fillna(0)
+            + df["t1_sec"].fillna(0)
+            + df["bike_sec"].fillna(0)
+        )
+        df["end_bike_elapsed"] = bike_cumulative.where(
+            df["swim_sec"].notna() & df["bike_sec"].notna(),
+            pd.NA,
+        )
+        df["end_run_elapsed"] = df["total_sec"]
+
+        keep = ["Rank", "Bib", "Name", "Nat",
+                "swim_sec", "bike_sec", "run_sec", "total_sec",
+                "end_swim_elapsed", "end_bike_elapsed", "end_run_elapsed",
+                "dnf"]
+        out[gender] = df[[c for c in keep if c in df.columns]].copy()
+    return out
+
+
+def compute_pack_scatter(df: pd.DataFrame) -> dict[str, dict]:
+    """For each leg, compute scatter data: gap-to-leader vs placement-at-checkpoint.
+
+    Returns dict keyed by leg label ('Swim', 'Bike', 'Run') with:
+        {"points": [{"name": ..., "gap": ..., "placement": ..., "in_lead_swim": bool}],
+         "leader_time": float | None}
+
+    Swim-exit lead pack = athletes within 15s of the swim leader.
+    Run leg includes finishers only (DNF/LAP excluded).
+    """
+    out: dict[str, dict] = {}
+
+    swim_valid = df[df["end_swim_elapsed"].notna()].copy()
+    if swim_valid.empty:
+        lead_swim_names: set = set()
+    else:
+        swim_leader = float(swim_valid["end_swim_elapsed"].min())
+        lead_swim_names = set(
+            swim_valid.loc[swim_valid["end_swim_elapsed"] - swim_leader <= 15, "Name"]
+        )
+
+    for leg_col, label, finishers_only in [
+        ("end_swim_elapsed", "Swim", False),
+        ("end_bike_elapsed", "Bike", False),
+        ("end_run_elapsed",  "Run",  True),
+    ]:
+        sub = df[df[leg_col].notna()].copy()
+        if finishers_only:
+            sub = sub[~sub["dnf"]]
+        if sub.empty:
+            out[label] = {"points": [], "leader_time": None}
+            continue
+        sub = sub.sort_values(leg_col).reset_index(drop=True)
+        leader_time = float(sub[leg_col].iloc[0])
+        sub["gap"] = sub[leg_col].astype(float) - leader_time
+        sub["placement"] = sub.index + 1
+        out[label] = {
+            "points": [
+                {
+                    "name": row["Name"],
+                    "gap": float(row["gap"]),
+                    "placement": int(row["placement"]),
+                    "in_lead_swim": row["Name"] in lead_swim_names,
+                }
+                for _, row in sub.iterrows()
+            ],
+            "leader_time": leader_time,
+        }
+    return out
+
+
+def map_excel_names_to_athlete_ids(engine, event_id: int, prog_id: int, names: list[str]) -> dict[str, int]:
+    """Match Excel athlete names to athlete_ids via race_results for the same historical race."""
+    sql = text("""
+        SELECT athlete_id, athlete_full_name
+        FROM race_results
+        WHERE event_id = :eid AND prog_id = :pid AND athlete_id IS NOT NULL
+    """)
+    df = pd.read_sql(sql, engine, params={"eid": event_id, "pid": prog_id})
+    lookup = {str(n).lower().strip(): int(aid) for aid, n in zip(df.athlete_id, df.athlete_full_name)}
+    return {n: lookup[str(n).lower().strip()] for n in names if str(n).lower().strip() in lookup}
+
+
+def query_wtcs_season_splits(engine, athlete_ids: list[int], venue_date,
+                             gender: str) -> pd.DataFrame:
+    """WTCS Standard-distance splits for the given athletes in the 12 months
+    ending at venue_date. Excludes DNF/DNS/LAP/DSQ rows and the venue race itself.
+
+    Returns columns: athlete_id, event_date, event_name, swim_sec, bike_sec, run_sec.
+    """
+    if not athlete_ids:
+        return pd.DataFrame(columns=["athlete_id", "event_date", "event_name",
+                                     "swim_sec", "bike_sec", "run_sec"])
+    gender_clause = (
+        "(e.prog_name ILIKE '%Elite Men%' AND e.prog_name NOT ILIKE '%Women%')"
+        if gender.lower().startswith("m")
+        else "e.prog_name ILIKE '%Elite Women%'"
+    )
+    sql = text(f"""
+        SELECT rr.athlete_id, e.event_date, e.event_name, e.event_venue,
+               rr.swimtime, rr.biketime, rr.runtime
+        FROM race_results rr
+        JOIN events e USING (event_id, prog_id)
+        WHERE rr.athlete_id = ANY(:athlete_ids)
+          AND e.cat_name ILIKE '%Championship Series%'
+          AND (e.prog_distance_category IS NULL OR e.prog_distance_category ILIKE 'standard')
+          AND e.event_date BETWEEN (:venue_date - INTERVAL '12 months') AND :venue_date
+          AND {gender_clause}
+          AND (rr.finish_status IS NULL OR rr.finish_status NOT IN ('DNF', 'DNS', 'DSQ', 'LAP'))
+    """)
+    df = pd.read_sql(sql, engine, params={"athlete_ids": list(athlete_ids),
+                                          "venue_date": venue_date})
+    for src, dst in [("swimtime", "swim_sec"), ("biketime", "bike_sec"), ("runtime", "run_sec")]:
+        df[dst] = df[src].apply(parse_time_to_seconds)
+    return df
+
+
+def find_upcoming_event(engine, venue: str) -> dict | None:
+    """Find the upcoming/most-recent-future event_id at this venue (men's prog as anchor)."""
+    sql = text("""
+        SELECT event_id, MIN(event_date) AS event_date, MIN(event_name) AS event_name
+        FROM events
+        WHERE (event_venue ILIKE :v OR event_name ILIKE :v)
+          AND event_date >= CURRENT_DATE
+        GROUP BY event_id
+        ORDER BY event_date ASC
+        LIMIT 1
+    """)
+    df = pd.read_sql(sql, engine, params={"v": f"%{venue}%"})
+    if df.empty:
+        return None
+    return df.iloc[0].to_dict()
+
+
+def query_top_by_world_ranking(engine, gender: str, on_startlist_event_id: int | None,
+                               limit: int = 3) -> pd.DataFrame:
+    """Top N athletes by current world ranking. If on_startlist_event_id is given,
+    restrict to athletes on that event's startlist."""
+    cat_id = 13 if gender.lower().startswith("m") else 14
+    if on_startlist_event_id:
+        sql = text("""
+            WITH latest AS (
+              SELECT MAX(retrieved_at) AS dt FROM athlete_rankings WHERE ranking_cat_id = :cat
+            )
+            SELECT DISTINCT ar.athlete_id, ar.athlete_name,
+                   ar.rank_position, ar.total_points
+            FROM athlete_rankings ar
+            JOIN latest l ON ar.retrieved_at = l.dt
+            JOIN program_entries pe
+              ON pe.athlete_id = ar.athlete_id
+             AND pe.event_id = :eid
+             AND pe.is_active = TRUE
+             AND pe.entry_type = 'start'
+            WHERE ar.ranking_cat_id = :cat
+            ORDER BY ar.rank_position ASC
+            LIMIT :lim
+        """)
+        return pd.read_sql(sql, engine, params={"cat": cat_id, "eid": on_startlist_event_id,
+                                                "lim": limit})
+    sql = text("""
+        SELECT ar.athlete_id, ar.athlete_name, ar.rank_position, ar.total_points
+        FROM athlete_rankings ar
+        WHERE ar.ranking_cat_id = :cat
+          AND ar.retrieved_at = (SELECT MAX(retrieved_at) FROM athlete_rankings WHERE ranking_cat_id = :cat)
+        ORDER BY ar.rank_position ASC
+        LIMIT :lim
+    """)
+    return pd.read_sql(sql, engine, params={"cat": cat_id, "lim": limit})
+
+
+def query_prior_podium_on_startlist(engine, prior_event_id: int, prior_prog_id: int,
+                                    upcoming_event_id: int) -> pd.DataFrame:
+    """Athletes on the upcoming startlist who finished top-3 at the prior race."""
+    sql = text("""
+        SELECT rr.athlete_id, rr.athlete_full_name,
+               rr.position_sort AS position, rr.total_time
+        FROM race_results rr
+        JOIN program_entries pe
+          ON pe.athlete_id = rr.athlete_id
+         AND pe.event_id = :upcoming
+         AND pe.is_active = TRUE
+         AND pe.entry_type = 'start'
+        WHERE rr.event_id = :prior_eid AND rr.prog_id = :prior_pid
+          AND rr.position_sort IS NOT NULL
+          AND rr.position_sort <= 3
+        ORDER BY rr.position_sort
+    """)
+    return pd.read_sql(sql, engine, params={"upcoming": upcoming_event_id,
+                                            "prior_eid": prior_event_id,
+                                            "prior_pid": prior_prog_id})
+
+
 # ── Open-Meteo / geocoding helpers ────────────────────────────────────────────
 
 _GEOCODE_CACHE: dict = {}
@@ -1900,7 +2137,356 @@ def add_race_overview_slide(
                      font_size=11, color=DARK_GRAY)
 
 
+# ── Deep-dive slides (single-race detailed analysis) ──────────────────────────
+
+def add_pack_dynamics_slide(prs: Presentation, splits_df: pd.DataFrame,
+                            gender: str, venue: str, year: int):
+    """Three scatter plots: gap-to-leader vs placement at end of swim/bike/run."""
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    add_slide_chrome(slide, f"Pack Dynamics — Elite {gender.title()} ({year})", venue)
+
+    if splits_df is None or splits_df.empty:
+        _add_textbox(slide, "Detailed split data unavailable.",
+                     Inches(0.3), Inches(3.5), Inches(12.73), Inches(0.5),
+                     font_size=14, color=DARK_GRAY, italic=True, align=PP_ALIGN.CENTER)
+        return
+
+    data = compute_pack_scatter(splits_df)
+    leg_titles = {"Swim": "Swim Exit", "Bike": "T2 (Bike Exit)", "Run": "Finish"}
+
+    fig, axes = plt.subplots(1, 3, figsize=(15, 5.0))
+    fig.patch.set_facecolor("white")
+
+    for ax, leg in zip(axes, ["Swim", "Bike", "Run"]):
+        d = data.get(leg, {"points": []})
+        pts = d["points"]
+        if not pts:
+            ax.set_title(f"{leg_titles[leg]}: no data", fontsize=12)
+            ax.set_facecolor("white")
+            continue
+        lead_pts  = [p for p in pts if p["in_lead_swim"]]
+        other_pts = [p for p in pts if not p["in_lead_swim"]]
+
+        if other_pts:
+            ax.scatter([p["gap"] for p in other_pts],
+                       [p["placement"] for p in other_pts],
+                       s=70, c=C_GRAY, alpha=0.55, edgecolor="white", linewidth=0.8,
+                       label="Other")
+        if lead_pts:
+            ax.scatter([p["gap"] for p in lead_pts],
+                       [p["placement"] for p in lead_pts],
+                       s=100, c=C_RED, alpha=0.9, edgecolor="white", linewidth=1.2,
+                       label="Swim lead pack (≤15s)")
+
+        for p in pts[:3]:
+            last_name = str(p["name"]).split()[-1]
+            ax.annotate(f"{p['placement']}. {last_name}",
+                        (p["gap"], p["placement"]),
+                        xytext=(6, 0), textcoords="offset points",
+                        fontsize=8, va="center", color=C_NAVY, fontweight="bold")
+
+        ax.set_title(f"At {leg_titles[leg]}", fontsize=12, pad=8, fontweight="bold")
+        ax.set_xlabel("Gap to leader (s)", fontsize=10)
+        ax.set_ylabel("Position", fontsize=10)
+        ax.invert_yaxis()
+        ax.grid(True, alpha=0.3, linestyle="--")
+        ax.set_facecolor("white")
+        if lead_pts and other_pts:
+            ax.legend(fontsize=8, loc="lower right", framealpha=0.85)
+
+    plt.tight_layout(pad=1.5)
+    slide.shapes.add_picture(fig_to_image(fig),
+                             Inches(0.2), Inches(1.3), Inches(12.93), Inches(5.4))
+
+    _add_textbox(
+        slide,
+        "Each point = one athlete; position derives from elapsed time at the checkpoint. "
+        "Red points are athletes who exited the swim within 15s of the leader — "
+        "trace them across the three plots to see whether the early swim group held to the line.",
+        Inches(0.3), Inches(6.78), Inches(12.73), Inches(0.55),
+        font_size=10, color=DARK_GRAY, italic=True, align=PP_ALIGN.CENTER,
+    )
+
+
+def add_top_splits_vs_season_slide(prs: Presentation, splits_df: pd.DataFrame,
+                                   engine, gender: str, venue: str,
+                                   year: int, prior_event_id: int,
+                                   prior_prog_id: int, venue_date):
+    """Top 3 splits per discipline at this race vs each athlete's WTCS 12-month best/avg."""
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    add_slide_chrome(slide, f"Top Splits vs Season Norms — Elite {gender.title()} ({year})", venue)
+
+    _add_textbox(
+        slide,
+        "Top 3 split times at this race vs each athlete's best and average split "
+        "across WTCS Standard-distance races in the 12 months before the race.",
+        Inches(0.3), Inches(1.18), Inches(12.73), Inches(0.4),
+        font_size=10.5, color=DARK_GRAY, italic=True, align=PP_ALIGN.CENTER,
+    )
+
+    if splits_df is None or splits_df.empty:
+        _add_textbox(slide, "Detailed split data unavailable.",
+                     Inches(0.3), Inches(3.5), Inches(12.73), Inches(0.5),
+                     font_size=14, color=DARK_GRAY, italic=True, align=PP_ALIGN.CENTER)
+        return
+
+    # Identify top 3 per discipline (finishers only — DNF rows excluded)
+    finishers = splits_df[~splits_df["dnf"]].copy()
+    top_by_leg: dict[str, list[dict]] = {}
+    for leg_label, col in [("Swim", "swim_sec"), ("Bike", "bike_sec"), ("Run", "run_sec")]:
+        valid = finishers[finishers[col].notna()].nsmallest(3, col)
+        top_by_leg[leg_label] = [{"name": r["Name"], "split_sec": float(r[col])}
+                                 for _, r in valid.iterrows()]
+
+    all_names = list({p["name"] for plist in top_by_leg.values() for p in plist})
+    name_to_aid = map_excel_names_to_athlete_ids(engine, prior_event_id, prior_prog_id, all_names)
+
+    aids = list(name_to_aid.values())
+    season_df = query_wtcs_season_splits(engine, aids, venue_date, gender)
+    season_df = season_df[season_df.event_date < venue_date]
+
+    norms_by_aid: dict[int, dict] = {}
+    for aid, g in season_df.groupby("athlete_id"):
+        norms_by_aid[int(aid)] = {
+            "swim_best": g["swim_sec"].min(skipna=True) if g["swim_sec"].notna().any() else None,
+            "swim_avg":  g["swim_sec"].mean(skipna=True) if g["swim_sec"].notna().any() else None,
+            "bike_best": g["bike_sec"].min(skipna=True) if g["bike_sec"].notna().any() else None,
+            "bike_avg":  g["bike_sec"].mean(skipna=True) if g["bike_sec"].notna().any() else None,
+            "run_best":  g["run_sec"].min(skipna=True)  if g["run_sec"].notna().any()  else None,
+            "run_avg":   g["run_sec"].mean(skipna=True) if g["run_sec"].notna().any()  else None,
+            "n":         int(g.shape[0]),
+        }
+
+    panel_width = Inches(4.2)
+    panel_left  = [Inches(0.3), Inches(4.55), Inches(8.8)]
+    panel_top   = Inches(1.7)
+    bar_color   = {"Swim": C_LIGHT_BLUE, "Bike": C_NAVY, "Run": C_RED}
+
+    for left, leg_label in zip(panel_left, ["Swim", "Bike", "Run"]):
+        bar = slide.shapes.add_shape(1, left, panel_top, panel_width, Inches(0.35))
+        bar.fill.solid()
+        bar.fill.fore_color.rgb = RGBColor.from_string(bar_color[leg_label].lstrip("#"))
+        bar.line.fill.background()
+        _add_textbox(slide, leg_label.upper(),
+                     left + Inches(0.1), panel_top + Inches(0.04),
+                     panel_width - Inches(0.2), Inches(0.28),
+                     font_size=13, bold=True, color=WHITE, align=PP_ALIGN.CENTER)
+
+        tbl_top = panel_top + Inches(0.4)
+        cols = [("Athlete", 1.65), ("Split", 0.72), ("Best", 0.72), ("Avg", 0.72), ("Δ Avg", 0.55)]
+        n_rows = 1 + len(top_by_leg[leg_label])
+        tbl_shape = slide.shapes.add_table(
+            n_rows, len(cols), left, tbl_top, panel_width, Inches(0.4 * n_rows + 0.1)
+        )
+        tbl = tbl_shape.table
+        for ci, (_, w) in enumerate(cols):
+            tbl.columns[ci].width = Inches(w)
+        for ci, (hdr, _) in enumerate(cols):
+            _set_cell(tbl.cell(0, ci), hdr, bold=True, color=WHITE, bg_color=NAVY,
+                      font_size=9)
+
+        leg_key = leg_label.lower()
+        for ri, entry in enumerate(top_by_leg[leg_label], start=1):
+            bg = LIGHT_GRAY if ri % 2 == 0 else WHITE
+            aid = name_to_aid.get(entry["name"])
+            norms = norms_by_aid.get(aid) if aid is not None else None
+            best = norms.get(f"{leg_key}_best") if norms else None
+            avg  = norms.get(f"{leg_key}_avg")  if norms else None
+            split = entry["split_sec"]
+            best_s = seconds_to_mmss(best) if best is not None and not pd.isna(best) else "—"
+            avg_s  = seconds_to_mmss(avg)  if avg  is not None and not pd.isna(avg)  else "—"
+            split_s = seconds_to_mmss(split)
+            if avg is not None and not pd.isna(avg):
+                delta = int(round(split - float(avg)))
+                if delta < 0:
+                    delta_s = f"{delta}s"
+                    delta_color = RGBColor(0x1B, 0x7F, 0x3A)  # green
+                elif delta > 0:
+                    delta_s = f"+{delta}s"
+                    delta_color = RGBColor(0xC0, 0x00, 0x00)  # red
+                else:
+                    delta_s = "0s"
+                    delta_color = DARK_GRAY
+            else:
+                delta_s = "—"
+                delta_color = DARK_GRAY
+            last_first = str(entry["name"])
+            parts = last_first.split()
+            short_name = f"{parts[0][0]}. {parts[-1]}" if len(parts) > 1 else last_first
+            _set_cell(tbl.cell(ri, 0), short_name, font_size=8.5, bg_color=bg, align=PP_ALIGN.LEFT)
+            _set_cell(tbl.cell(ri, 1), split_s, font_size=8.5, bold=True, bg_color=bg)
+            _set_cell(tbl.cell(ri, 2), best_s,  font_size=8.5, bg_color=bg)
+            _set_cell(tbl.cell(ri, 3), avg_s,   font_size=8.5, bg_color=bg)
+            _set_cell(tbl.cell(ri, 4), delta_s, font_size=8.5, bold=True, bg_color=bg,
+                      color=delta_color)
+
+    _add_textbox(
+        slide,
+        "Best / Avg = athlete's WTCS Standard-distance splits in the 12 months ending the day before this race. "
+        "Δ Avg = this race's split minus the athlete's 12-month average; "
+        "green = faster than average, red = slower.",
+        Inches(0.3), Inches(6.4), Inches(12.73), Inches(0.55),
+        font_size=9, color=MID_GRAY, italic=True, align=PP_ALIGN.CENTER,
+    )
+
+
+def add_who_to_watch_slide(prs: Presentation, engine, venue: str,
+                           upcoming_event_id: int | None,
+                           prior_men: dict | None,
+                           prior_women: dict | None):
+    """Single slide covering both genders: top 3 by ranking + returning prior-year podium."""
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    add_slide_chrome(slide, f"Who to Watch — {venue} Race Week", "")
+
+    panel_w = Inches(6.2)
+    gap     = Inches(0.3)
+    left_m  = Inches(0.3)
+    left_w  = left_m + panel_w + gap
+    panel_top = Inches(1.3)
+
+    for left, gender, prior in [(left_m, "Men", prior_men),
+                                (left_w, "Women", prior_women)]:
+        header = slide.shapes.add_shape(1, left, panel_top, panel_w, Inches(0.4))
+        header.fill.solid()
+        header.fill.fore_color.rgb = NAVY
+        header.line.fill.background()
+        _add_textbox(slide, f"ELITE {gender.upper()}",
+                     left + Inches(0.1), panel_top + Inches(0.05),
+                     panel_w - Inches(0.2), Inches(0.32),
+                     font_size=14, bold=True, color=WHITE, align=PP_ALIGN.CENTER)
+
+        rankings_df = query_top_by_world_ranking(engine, gender,
+                                                 on_startlist_event_id=upcoming_event_id,
+                                                 limit=3)
+        rankings_label = "Top 3 Ranked on Startlist" if (upcoming_event_id and not rankings_df.empty) else "Top 3 by World Ranking"
+        if rankings_df.empty and upcoming_event_id:
+            rankings_df = query_top_by_world_ranking(engine, gender,
+                                                     on_startlist_event_id=None, limit=3)
+            rankings_label = "Top 3 by World Ranking (no startlist data yet)"
+
+        sub_top = panel_top + Inches(0.5)
+        sub_bar = slide.shapes.add_shape(1, left, sub_top, panel_w, Inches(0.3))
+        sub_bar.fill.solid()
+        sub_bar.fill.fore_color.rgb = RED
+        sub_bar.line.fill.background()
+        _add_textbox(slide, rankings_label,
+                     left + Inches(0.1), sub_top + Inches(0.02),
+                     panel_w - Inches(0.2), Inches(0.26),
+                     font_size=11, bold=True, color=WHITE)
+
+        tbl_top = sub_top + Inches(0.35)
+        rank_cols = [("Rank", 0.8), ("Athlete", 3.6), ("Points", 1.6)]
+        n_rows = 1 + max(len(rankings_df), 1)
+        tbl_shape = slide.shapes.add_table(n_rows, len(rank_cols), left, tbl_top,
+                                           panel_w, Inches(0.34 * n_rows + 0.1))
+        tbl = tbl_shape.table
+        for ci, (_, w) in enumerate(rank_cols):
+            tbl.columns[ci].width = Inches(w)
+        for ci, (hdr, _) in enumerate(rank_cols):
+            _set_cell(tbl.cell(0, ci), hdr, bold=True, color=WHITE, bg_color=NAVY, font_size=10)
+        if rankings_df.empty:
+            _set_cell(tbl.cell(1, 0), "—", font_size=10, bg_color=WHITE)
+            _set_cell(tbl.cell(1, 1), "No ranking data found", font_size=10, bg_color=WHITE,
+                      align=PP_ALIGN.LEFT, italic=True)
+            _set_cell(tbl.cell(1, 2), "—", font_size=10, bg_color=WHITE)
+        else:
+            for ri, r in enumerate(rankings_df.itertuples(index=False), start=1):
+                bg = LIGHT_GRAY if ri % 2 == 0 else WHITE
+                pts = f"{int(r.total_points):,}" if r.total_points else "—"
+                _set_cell(tbl.cell(ri, 0), str(int(r.rank_position)),
+                          font_size=10, bold=True, bg_color=bg)
+                _set_cell(tbl.cell(ri, 1), str(r.athlete_name),
+                          font_size=10, bg_color=bg, align=PP_ALIGN.LEFT)
+                _set_cell(tbl.cell(ri, 2), pts, font_size=10, bg_color=bg)
+
+        # Prior-year podium block
+        podium_top = tbl_top + Inches(0.34 * n_rows + 0.4)
+        podium_bar = slide.shapes.add_shape(1, left, podium_top, panel_w, Inches(0.3))
+        podium_bar.fill.solid()
+        podium_bar.fill.fore_color.rgb = RED
+        podium_bar.line.fill.background()
+        podium_label = "Returning Podium Athletes on Startlist" if upcoming_event_id else f"Last Year's Podium at {venue}"
+        _add_textbox(slide, podium_label,
+                     left + Inches(0.1), podium_top + Inches(0.02),
+                     panel_w - Inches(0.2), Inches(0.26),
+                     font_size=11, bold=True, color=WHITE)
+
+        body_top = podium_top + Inches(0.35)
+        if upcoming_event_id and prior:
+            podium_df = query_prior_podium_on_startlist(
+                engine, prior["event_id"], prior["prog_id"], upcoming_event_id
+            )
+            if podium_df.empty:
+                _add_textbox(slide,
+                             "None of last year's podium are on the current startlist.",
+                             left + Inches(0.1), body_top + Inches(0.1),
+                             panel_w - Inches(0.2), Inches(0.5),
+                             font_size=10.5, color=DARK_GRAY, italic=True)
+            else:
+                for ri, r in enumerate(podium_df.itertuples(index=False)):
+                    txt = f"{int(r.position)}.  {r.athlete_full_name}   ({r.total_time})"
+                    _add_textbox(slide, txt,
+                                 left + Inches(0.15),
+                                 body_top + Inches(0.05 + 0.32 * ri),
+                                 panel_w - Inches(0.3), Inches(0.32),
+                                 font_size=11, bold=(ri == 0), color=DARK_GRAY)
+        elif prior:
+            # No startlist available — just list last year's top 3
+            sql = text("""
+                SELECT position_sort AS position, athlete_full_name, total_time
+                FROM race_results
+                WHERE event_id = :eid AND prog_id = :pid
+                  AND position_sort IS NOT NULL AND position_sort <= 3
+                ORDER BY position_sort
+            """)
+            podium_df = pd.read_sql(sql, engine, params={"eid": prior["event_id"],
+                                                         "pid": prior["prog_id"]})
+            if podium_df.empty:
+                _add_textbox(slide, "No prior-race podium data found.",
+                             left + Inches(0.1), body_top + Inches(0.1),
+                             panel_w - Inches(0.2), Inches(0.5),
+                             font_size=10.5, color=DARK_GRAY, italic=True)
+            else:
+                for ri, r in enumerate(podium_df.itertuples(index=False)):
+                    txt = f"{int(r.position)}.  {r.athlete_full_name}   ({r.total_time})"
+                    _add_textbox(slide, txt,
+                                 left + Inches(0.15),
+                                 body_top + Inches(0.05 + 0.32 * ri),
+                                 panel_w - Inches(0.3), Inches(0.32),
+                                 font_size=11, bold=(ri == 0), color=DARK_GRAY)
+        else:
+            _add_textbox(slide, "No prior race history at this venue.",
+                         left + Inches(0.1), body_top + Inches(0.1),
+                         panel_w - Inches(0.2), Inches(0.5),
+                         font_size=10.5, color=DARK_GRAY, italic=True)
+
+    _add_textbox(
+        slide,
+        "Rankings = current World Triathlon rankings snapshot; startlist intersect uses program_entries when available.",
+        Inches(0.3), Inches(7.05), Inches(12.73), Inches(0.25),
+        font_size=9, color=MID_GRAY, italic=True, align=PP_ALIGN.CENTER,
+    )
+
+
 # ── Main ────────────────────────────────────────────────────────────────────────
+
+def _autodiscover_detailed_splits(venue: str) -> str | None:
+    """Look in data/ for 'Detailed results <Venue> <YYYY>.xlsx' (most recent year)."""
+    data_dir = os.path.join(REPO_ROOT, "data")
+    if not os.path.isdir(data_dir):
+        return None
+    pattern = re.compile(rf"^Detailed results {re.escape(venue)} (\d{{4}})\.xlsx$",
+                         re.IGNORECASE)
+    matches = []
+    for fn in os.listdir(data_dir):
+        m = pattern.match(fn)
+        if m:
+            matches.append((int(m.group(1)), os.path.join(data_dir, fn)))
+    if not matches:
+        return None
+    matches.sort(reverse=True)
+    return matches[0][1]
+
 
 def main():
     parser = argparse.ArgumentParser(description="Generate venue historical race analysis PPT")
@@ -1908,6 +2494,12 @@ def main():
     parser.add_argument("--years", type=int, default=8, help="Years to look back (default: 8)")
     parser.add_argument("--gender", choices=["men", "women", "both"], default="both")
     parser.add_argument("--output", default=None, help="Output .pptx filename (optional)")
+    parser.add_argument("--deep-dive", action="store_true",
+                        help="Force the single-race deep-dive section (auto-enabled when N≤1 prior race)")
+    parser.add_argument("--detailed-splits", default=None,
+                        help="Path to detailed per-lap splits Excel (auto-discovered in data/ if omitted). Implies --deep-dive.")
+    parser.add_argument("--upcoming-event-id", type=int, default=None,
+                        help="Event ID of the upcoming race for 'Who to Watch' (auto-detected if omitted)")
     args = parser.parse_args()
 
     fname = args.output or f"{args.venue.replace(' ', '_')}_{date.today()}.pptx"
@@ -1953,6 +2545,43 @@ def main():
             seen_eids.add(row["event_id"])
             unique_env_rows.append(row)
 
+    # ── Deep-dive trigger ─────────────────────────────────────────────────────
+    n_men   = len(men_data)
+    n_women = len(women_data)
+    auto_trigger = max(n_men, n_women) <= 1
+    deep_dive = args.deep_dive or bool(args.detailed_splits) or auto_trigger
+    if deep_dive:
+        reason = "explicit flag" if (args.deep_dive or args.detailed_splits) else "N<=1 prior race per gender"
+        print(f"Deep-dive mode ON (reason: {reason})")
+
+    detailed: dict[str, pd.DataFrame] = {}
+    upcoming = None
+    if deep_dive:
+        xlsx_path = args.detailed_splits or _autodiscover_detailed_splits(args.venue)
+        if xlsx_path and os.path.exists(xlsx_path):
+            print(f"Loading detailed splits: {xlsx_path}")
+            try:
+                detailed = load_detailed_splits(xlsx_path)
+            except Exception as exc:
+                print(f"  Warning: failed to load detailed splits ({exc}); deep-dive split slides will be skipped")
+                detailed = {}
+        else:
+            print("  No detailed-splits Excel found (looked in data/); split-based deep-dive slides will be skipped")
+
+        if args.upcoming_event_id:
+            upcoming = {"event_id": int(args.upcoming_event_id), "event_date": None,
+                        "event_name": f"Upcoming event {args.upcoming_event_id}"}
+        else:
+            upcoming = find_upcoming_event(engine, args.venue)
+            if upcoming:
+                print(f"  Upcoming event detected: {upcoming['event_name']} ({upcoming['event_date']}) — event_id={upcoming['event_id']}")
+            else:
+                print("  No upcoming event found at this venue; 'Who to Watch' will use rankings-only mode")
+
+    # Prior-race anchor per gender (for athlete_id lookup + podium queries)
+    prior_men   = men_data[-1]   if men_data   else None
+    prior_women = women_data[-1] if women_data else None
+
     print("Building PowerPoint...")
     prs = Presentation()
     prs.slide_width  = SLIDE_W
@@ -1964,6 +2593,14 @@ def main():
     add_course_map_slide(prs, args.venue, all_data, venue_content)
     add_environmental_risk_slide(prs, args.venue, unique_env_rows)
 
+    if deep_dive and (prior_men or prior_women):
+        add_who_to_watch_slide(
+            prs, engine, args.venue,
+            upcoming_event_id=upcoming["event_id"] if upcoming else None,
+            prior_men={"event_id": prior_men["event_id"], "prog_id": prior_men["prog_id"]} if prior_men else None,
+            prior_women={"event_id": prior_women["event_id"], "prog_id": prior_women["prog_id"]} if prior_women else None,
+        )
+
     gender_sections = []
     if men_data   and args.gender in ("men",   "both"): gender_sections.append(("Men",   men_data))
     if women_data and args.gender in ("women", "both"): gender_sections.append(("Women", women_data))
@@ -1973,6 +2610,19 @@ def main():
         add_section_divider(prs, gender_label)
         add_race_overview_slide(prs, gender_label, data, args.venue, venue_content)
         add_overview_slide(prs, data, gender_label, args.venue)
+
+        # Deep-dive slides (single-race detail) — insert after Results Summary
+        if deep_dive:
+            gkey = gender_label.lower()
+            splits_df = detailed.get(gkey)
+            prior = data[-1]
+            if splits_df is not None and not splits_df.empty:
+                add_pack_dynamics_slide(prs, splits_df, gender_label, args.venue, prior["year"])
+                add_top_splits_vs_season_slide(
+                    prs, splits_df, engine, gender_label, args.venue,
+                    prior["year"], prior["event_id"], prior["prog_id"], prior["date"],
+                )
+
         add_swim_slide(prs, data, gender_label, args.venue)
         add_bike_evolution_slide(prs, data, gender_label, args.venue)
         add_run_slide(prs, data, gender_label, args.venue)

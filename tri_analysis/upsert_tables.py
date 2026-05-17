@@ -126,6 +126,8 @@ def upsert_events(df, engine):
             "wind",
             "weather",
             "wetsuit",
+            "technical_delegates",
+            "drafting",
             "wind_speed_kmh",
             "wind_gust_kmh",
             "apparent_temp",
