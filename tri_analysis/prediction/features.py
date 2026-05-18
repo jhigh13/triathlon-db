@@ -33,6 +33,9 @@ from .sql import (
     fetch_wt_ranking_points,
     fetch_precomputed_race_metrics,
     fetch_head_to_head_results,
+    fetch_batch_athlete_history,
+    fetch_batch_precomputed_race_metrics,
+    fetch_batch_pack_history,
 )
 from .utils_time import parse_time_to_seconds
 
@@ -1308,6 +1311,35 @@ def build_features_for_program(
     # Compute features for each athlete
     athlete_features_list = []
 
+    # Batch-fetch all athlete data in 3 queries instead of 3*N queries
+    all_athlete_ids = [int(row["athlete_id"]) for _, row in athletes_df.iterrows()
+                       if not pd.isna(row["athlete_id"])]
+
+    batch_history = fetch_batch_athlete_history(
+        engine, all_athlete_ids, event_date, limit_per_athlete=50, elite_only=elite_only
+    )
+    batch_metrics = fetch_batch_precomputed_race_metrics(
+        engine, all_athlete_ids, event_date, limit_per_athlete=50
+    )
+    batch_pack = fetch_batch_pack_history(
+        engine, all_athlete_ids, event_date, limit_per_athlete=100,
+        distance_category=distance_category
+    )
+    # Fallback pack data for athletes with <3 distance-specific records
+    if distance_category:
+        batch_pack_all = fetch_batch_pack_history(
+            engine, all_athlete_ids, event_date, limit_per_athlete=100,
+            distance_category=None
+        )
+    else:
+        batch_pack_all = batch_pack
+
+    # Index batch data by athlete_id for fast lookup
+    history_by_athlete = {aid: grp for aid, grp in batch_history.groupby("athlete_id")} if not batch_history.empty else {}
+    metrics_by_athlete = {aid: grp for aid, grp in batch_metrics.groupby("athlete_id")} if not batch_metrics.empty else {}
+    pack_by_athlete = {aid: grp for aid, grp in batch_pack.groupby("athlete_id")} if not batch_pack.empty else {}
+    pack_all_by_athlete = {aid: grp for aid, grp in batch_pack_all.groupby("athlete_id")} if not batch_pack_all.empty else {}
+
     for _, row in athletes_df.iterrows():
         athlete_id = row["athlete_id"]
         if pd.isna(athlete_id):
@@ -1315,15 +1347,8 @@ def build_features_for_program(
 
         athlete_id = int(athlete_id)
 
-        # Fetch ALL history (not distance-filtered) for cross-distance features
-        all_history_df = fetch_athlete_history(
-            engine,
-            athlete_id,
-            event_date,
-            limit=50,
-            distance_category=None,  # All distances
-            elite_only=elite_only
-        )
+        # Use batch-fetched data instead of individual queries
+        all_history_df = history_by_athlete.get(athlete_id, pd.DataFrame())
 
         # Filter to matching distance in Python for distance-specific features
         used_fallback = True  # Assume fallback unless we get a clean match
@@ -1355,22 +1380,13 @@ def build_features_for_program(
 
         n_matched_races = len(matched_history) if not used_fallback else 0
 
-        # Fetch precomputed race metrics (split ranks, n_finishers, median)
-        # from position_metrics table — much faster than fetching full race fields
-        precomputed_df = fetch_precomputed_race_metrics(
-            engine, athlete_id, event_date, limit=50
-        )
+        # Use batch-fetched precomputed metrics
+        precomputed_df = metrics_by_athlete.get(athlete_id, pd.DataFrame())
 
-        # Fetch pack history, filtering by distance to avoid mixing Olympic and Sprint gaps
-        pack_df = fetch_pack_history(
-            engine, athlete_id, event_date, limit=100, distance_category=distance_category
-        )
-
-        # If too few pack records with matching distance, fall back to all pack history
-        # Threshold of 3 ensures athletes with limited distance-specific data
-        # (e.g., fast swimmers with few sprint races) get representative pack rates
+        # Use batch-fetched pack history with distance fallback
+        pack_df = pack_by_athlete.get(athlete_id, pd.DataFrame())
         if len(pack_df) < 3 and distance_category:
-            pack_df = fetch_pack_history(engine, athlete_id, event_date, limit=100)
+            pack_df = pack_all_by_athlete.get(athlete_id, pd.DataFrame())
 
         # Compute features
         form_feats = compute_athlete_form_features(matched_history, event_date)

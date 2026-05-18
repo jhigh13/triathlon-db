@@ -1,5 +1,15 @@
 # Triathlon Database - File Memory
 
+## Recent File Changes (April 2026)
+
+### Local-to-Supabase Backup Sync Path (2026-04-21)
+
+#### `scripts/sync_local_to_supabase.py` (NEW)
+- **Purpose**: Provide a fast backup path to sync a local DB date window directly into Supabase without re-fetching World Triathlon API data
+- **Key Change**: Added a CLI script that loads `events`, `race_results`, and related `athlete` rows from local Postgres, filters by `--start-date/--end-date`, aligns to target-table columns, and upserts into Supabase
+- **Reason**: API-based rebuilds can be interrupted or slow; this gives a deterministic recovery/sync workflow for reruns
+- **Effect**: Future uploads can be done with one command against existing local data while preserving upsert semantics and date-scoped control
+
 ## Recent File Changes (March 2026)
 
 ### Mixed Relay Selection Reporting (2026-03-14)

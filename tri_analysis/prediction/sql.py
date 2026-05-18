@@ -584,6 +584,182 @@ def fetch_wt_ranking_points(
     return df
 
 
+def fetch_batch_athlete_history(
+    engine: Engine,
+    athlete_ids: list[int],
+    before_date: date,
+    limit_per_athlete: int = 50,
+    elite_only: bool = False,
+) -> pd.DataFrame:
+    """
+    Fetch race history for multiple athletes in a single query.
+
+    Returns the same columns as fetch_athlete_history but for all athletes at once.
+    Uses a window function to limit to the most recent `limit_per_athlete` races per athlete.
+    """
+    if not athlete_ids:
+        return pd.DataFrame()
+
+    elite_filter = "AND e.prog_name IN ('Elite Men', 'Elite Women')" if elite_only else ""
+
+    query = text(f"""
+        WITH finisher_counts AS (
+            SELECT event_id, prog_id, COUNT(*) AS n_finishers
+            FROM race_results
+            WHERE finish_status = 'FINISH'
+            GROUP BY event_id, prog_id
+        ),
+        ranked AS (
+            SELECT
+                rr.event_id, rr.prog_id, rr.athlete_id, e.event_date, e.event_name,
+                rr.swimtime, rr.t1time, rr.biketime, rr.t2time, rr.runtime,
+                rr.total_time, rr.finish_status, rr.finish_position, rr.position_sort,
+                e.prog_name, e.prog_distance_category, e.event_country, e.event_venue, e.wetsuit,
+                fc.n_finishers,
+                ROW_NUMBER() OVER (PARTITION BY rr.athlete_id ORDER BY e.event_date DESC) AS rn
+            FROM race_results rr
+            JOIN events e ON rr.event_id = e.event_id AND rr.prog_id = e.prog_id
+            LEFT JOIN finisher_counts fc ON rr.event_id = fc.event_id AND rr.prog_id = fc.prog_id
+            WHERE rr.athlete_id = ANY(:athlete_ids)
+              AND e.event_date < :before_date
+              AND rr.finish_status = 'FINISH'
+              {elite_filter}
+        )
+        SELECT event_id, prog_id, athlete_id, event_date, event_name,
+               swimtime, t1time, biketime, t2time, runtime, total_time,
+               finish_status, finish_position, position_sort,
+               prog_name, prog_distance_category, event_country, event_venue, wetsuit,
+               n_finishers
+        FROM ranked
+        WHERE rn <= :limit_per_athlete
+        ORDER BY athlete_id, event_date DESC
+    """)
+
+    df = pd.read_sql(query, engine, params={
+        "athlete_ids": athlete_ids,
+        "before_date": before_date,
+        "limit_per_athlete": limit_per_athlete,
+    })
+    logger.debug(f"fetch_batch_athlete_history: {len(df)} rows for {len(athlete_ids)} athletes")
+    return df
+
+
+def fetch_batch_precomputed_race_metrics(
+    engine: Engine,
+    athlete_ids: list[int],
+    before_date: date,
+    limit_per_athlete: int = 50,
+) -> pd.DataFrame:
+    """
+    Fetch precomputed race metrics for multiple athletes in a single query.
+
+    Returns the same columns as fetch_precomputed_race_metrics but for all athletes at once.
+    """
+    if not athlete_ids:
+        return pd.DataFrame()
+
+    query = text("""
+        WITH athlete_events AS (
+            SELECT DISTINCT event_id, prog_id
+            FROM position_metrics
+            WHERE athlete_id = ANY(:athlete_ids)
+        ),
+        finisher_counts AS (
+            SELECT rr.event_id, rr.prog_id, COUNT(*) AS n_finishers
+            FROM race_results rr
+            JOIN athlete_events ae ON rr.event_id = ae.event_id AND rr.prog_id = ae.prog_id
+            WHERE rr.finish_status = 'FINISH'
+            GROUP BY rr.event_id, rr.prog_id
+        ),
+        ranked AS (
+            SELECT
+                pm.event_id, pm.prog_id, pm.athlete_id, e.event_date, e.event_name,
+                pm.swimrank, pm.bikerank, pm.runrank, pm.t1rank, pm.t2rank,
+                pm.swim_to_t1_pos_change, pm.t1_to_bike_pos_change,
+                pm.bike_to_t2_pos_change, pm.t2_to_run_pos_change,
+                COALESCE(pm.n_finishers, fc.n_finishers) AS n_finishers,
+                pm.median_total_sec, pm.elapsedrun, pm.behindswim,
+                ROW_NUMBER() OVER (PARTITION BY pm.athlete_id ORDER BY e.event_date DESC) AS rn
+            FROM position_metrics pm
+            JOIN events e ON pm.event_id = e.event_id AND pm.prog_id = e.prog_id
+            LEFT JOIN finisher_counts fc ON pm.event_id = fc.event_id AND pm.prog_id = fc.prog_id
+            WHERE pm.athlete_id = ANY(:athlete_ids)
+              AND e.event_date < :before_date
+              AND COALESCE(pm.n_finishers, fc.n_finishers) IS NOT NULL
+              AND pm.elapsedrun > 0
+        )
+        SELECT event_id, prog_id, athlete_id, event_date, event_name,
+               swimrank, bikerank, runrank, t1rank, t2rank,
+               swim_to_t1_pos_change, t1_to_bike_pos_change,
+               bike_to_t2_pos_change, t2_to_run_pos_change,
+               n_finishers, median_total_sec, elapsedrun, behindswim
+        FROM ranked
+        WHERE rn <= :limit_per_athlete
+        ORDER BY athlete_id, event_date DESC
+    """)
+
+    df = pd.read_sql(query, engine, params={
+        "athlete_ids": athlete_ids,
+        "before_date": before_date,
+        "limit_per_athlete": limit_per_athlete,
+    })
+    logger.debug(f"fetch_batch_precomputed_race_metrics: {len(df)} rows for {len(athlete_ids)} athletes")
+    return df
+
+
+def fetch_batch_pack_history(
+    engine: Engine,
+    athlete_ids: list[int],
+    before_date: date,
+    limit_per_athlete: int = 100,
+    distance_category: str | None = None,
+) -> pd.DataFrame:
+    """
+    Fetch pack membership history for multiple athletes in a single query.
+
+    Returns the same columns as fetch_pack_history but for all athletes at once.
+    """
+    if not athlete_ids:
+        return pd.DataFrame()
+
+    dist_filter = "AND e.prog_distance_category = :distance_category" if distance_category else ""
+    params: dict = {
+        "athlete_ids": athlete_ids,
+        "before_date": before_date,
+        "limit_per_athlete": limit_per_athlete,
+    }
+    if distance_category:
+        params["distance_category"] = distance_category
+
+    query = text(f"""
+        WITH ranked AS (
+            SELECT
+                pm.event_id, pm.prog_id, pm.athlete_id, e.event_date,
+                pm.checkpoint, pm.pack_id, pm.pack_size,
+                pm.gap_to_leader_sec, pm.gap_to_prev_sec, pm.pos_at_checkpoint,
+                ROW_NUMBER() OVER (
+                    PARTITION BY pm.athlete_id, pm.checkpoint
+                    ORDER BY e.event_date DESC
+                ) AS rn
+            FROM wtcs_pack_membership pm
+            JOIN events e ON pm.event_id = e.event_id AND pm.prog_id = e.prog_id
+            WHERE pm.athlete_id = ANY(:athlete_ids)
+              AND e.event_date < :before_date
+              {dist_filter}
+        )
+        SELECT event_id, prog_id, athlete_id, event_date,
+               checkpoint, pack_id, pack_size,
+               gap_to_leader_sec, gap_to_prev_sec, pos_at_checkpoint
+        FROM ranked
+        WHERE rn <= :limit_per_athlete
+        ORDER BY athlete_id, event_date DESC, checkpoint
+    """)
+
+    df = pd.read_sql(query, engine, params=params)
+    logger.debug(f"fetch_batch_pack_history: {len(df)} rows for {len(athlete_ids)} athletes, distance={distance_category}")
+    return df
+
+
 def fetch_precomputed_race_metrics(
     engine: Engine,
     athlete_id: int,

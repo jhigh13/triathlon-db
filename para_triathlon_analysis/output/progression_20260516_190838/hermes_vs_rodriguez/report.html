@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>McClain Hermes — PTVI Progression</title>
+<style>
+  body { font-family: Arial, sans-serif; max-width: 1100px; margin: 24px auto; color: #222; }
+  h1 { color: #002868; border-bottom: 3px solid #C8102E; padding-bottom: 8px; }
+  h2 { color: #002868; margin-top: 28px; }
+  .kpi { display: inline-block; padding: 10px 18px; margin: 6px 8px 6px 0;
+          background: #f4f4f4; border-left: 4px solid #C8102E; }
+  .kpi b { font-size: 1.4em; color: #C8102E; }
+  table { border-collapse: collapse; margin: 12px 0; font-size: 0.92em; }
+  td, th { border: 1px solid #ccc; padding: 6px 10px; }
+  th { background: #002868; color: white; }
+  img { max-width: 100%; margin: 12px 0; border: 1px solid #ddd; }
+  .note { background: #fff8e1; border-left: 4px solid #B8860B; padding: 10px 14px; margin: 12px 0; }
+  .caveat { background: #ffebee; border-left: 4px solid #C8102E; padding: 10px 14px; margin: 12px 0; font-size: 0.9em; }
+</style></head><body>
+<h1>McClain Hermes — PTVI Progression</h1>
+
+<h2>Story</h2>
+<p><b>McClain Hermes is one of the fastest swimmers in PTVI women and made a step-change in run pace in 2025.</b>
+Across her 17 PTVI race finishes, her swim pace has been ahead of the podium average every year,
+the bike gap has narrowed from +4.8 sec/km behind to +3.1,
+and her run pace went from <b>+24 sec/km off podium in 2023</b>
+to <b>-5.8 sec/km in 2025</b> — faster than the average podium athlete.</p>
+
+<div class="kpi"><b>-14.8</b><br>2025 swim vs podium (sec/100m)</div>
+<div class="kpi"><b>+3.1</b><br>2025 bike vs podium (sec/km)</div>
+<div class="kpi"><b>-5.8</b><br>2025 run vs podium (sec/km)</div>
+<div class="kpi"><b>3.5 &rarr; 2.2</b><br>Avg finish position</div>
+
+<h2>Pace Trend — All PTVI Races (17 race finishes since 2022)</h2>
+<img src="fig1_pace_trend.png">
+<p style="font-size:0.9em;color:#555">
+  Hermes (red), podium average excluding herself (grey), Rodriguez B1 (navy diamonds) and Tarantello B3 (gold triangles)
+  highlighted at the races they attended. Lower = faster. Pace normalization puts sprint and standard distance on one chart.
+</p>
+
+<h2>Yearly Pace Summary (All Races)</h2>
+<img src="fig2_yearly_pace.png">
+
+<h2>World Championships Only — Deep-Field Benchmark</h2>
+<img src="fig3_worlds_only.png">
+<p style="font-size:0.9em;color:#555">
+  One Worlds per year (Pontevedra '23, Torremolinos '24, Wollongong '25).
+  Removes small-field bias from the "all races" yearly average.
+</p>
+<table border="1" class="dataframe">
+  <thead>
+    <tr style="text-align: right;">
+      <th></th>
+      <th>Swim Δ (sec/100m)</th>
+      <th>Bike Δ (sec/km)</th>
+      <th>Run Δ (sec/km)</th>
+      <th>Pos</th>
+      <th>Field size</th>
+      <th>Venue</th>
+    </tr>
+    <tr>
+      <th>year</th>
+      <th></th>
+      <th></th>
+      <th></th>
+      <th></th>
+      <th></th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th>2023</th>
+      <td>7.02</td>
+      <td>9.27</td>
+      <td>51.47</td>
+      <td>8.0</td>
+      <td>11.0</td>
+      <td>Pontevedra</td>
+    </tr>
+    <tr>
+      <th>2024</th>
+      <td>10.98</td>
+      <td>4.80</td>
+      <td>59.27</td>
+      <td>11.0</td>
+      <td>12.0</td>
+      <td>Torremolinos-Andalucia</td>
+    </tr>
+    <tr>
+      <th>2025</th>
+      <td>3.02</td>
+      <td>7.98</td>
+      <td>17.73</td>
+      <td>4.0</td>
+      <td>11.0</td>
+      <td>Wollongong</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Head-to-Head vs Susana Rodriguez B1 (5 overlap races)</h2>
+<img src="fig4_rodriguez_direct.png">
+
+<h2>Head-to-Head vs Francesca Tarantello B3 (3 overlap races)</h2>
+<img src="fig5_tarantello_direct.png">
+<p style="font-size:0.9em;color:#555">
+  Tarantello is in the B3 sub-class. Times are official (factor-adjusted) so the deficit shown is the gap on the final classification.
+</p>
+
+<h2>Yearly Pace Detail (vs Podium Avg)</h2>
+<table border="1" class="dataframe">
+  <thead>
+    <tr style="text-align: right;">
+      <th></th>
+      <th>n races</th>
+      <th>Swim Δ (sec/100m)</th>
+      <th>Bike Δ (sec/km)</th>
+      <th>Run Δ (sec/km)</th>
+      <th>Avg pos</th>
+    </tr>
+    <tr>
+      <th>year</th>
+      <th></th>
+      <th></th>
+      <th></th>
+      <th></th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th>2023</th>
+      <td>6</td>
+      <td>-2.50</td>
+      <td>4.77</td>
+      <td>23.89</td>
+      <td>3.50</td>
+    </tr>
+    <tr>
+      <th>2024</th>
+      <td>6</td>
+      <td>-6.49</td>
+      <td>2.98</td>
+      <td>40.14</td>
+      <td>4.67</td>
+    </tr>
+    <tr>
+      <th>2025</th>
+      <td>4</td>
+      <td>-14.76</td>
+      <td>3.06</td>
+      <td>-5.82</td>
+      <td>2.25</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Yearly Total Deficit — Direct Peers (overlap races only)</h2>
+<h3>vs Rodriguez (B1)</h3>
+<table border="1" class="dataframe">
+  <thead>
+    <tr style="text-align: right;">
+      <th></th>
+      <th>n</th>
+      <th>total</th>
+      <th>swim</th>
+      <th>bike</th>
+      <th>run</th>
+    </tr>
+    <tr>
+      <th>year</th>
+      <th></th>
+      <th></th>
+      <th></th>
+      <th></th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th>2023</th>
+      <td>3</td>
+      <td>458.0</td>
+      <td>-3.0</td>
+      <td>149.0</td>
+      <td>292.0</td>
+    </tr>
+    <tr>
+      <th>2024</th>
+      <td>1</td>
+      <td>513.0</td>
+      <td>50.0</td>
+      <td>144.0</td>
+      <td>290.0</td>
+    </tr>
+    <tr>
+      <th>2025</th>
+      <td>1</td>
+      <td>260.0</td>
+      <td>4.0</td>
+      <td>176.0</td>
+      <td>74.0</td>
+    </tr>
+  </tbody>
+</table>
+<h3>vs Tarantello (B3)</h3>
+<table border="1" class="dataframe">
+  <thead>
+    <tr style="text-align: right;">
+      <th></th>
+      <th>n</th>
+      <th>total</th>
+      <th>swim</th>
+      <th>bike</th>
+      <th>run</th>
+    </tr>
+    <tr>
+      <th>year</th>
+      <th></th>
+      <th></th>
+      <th></th>
+      <th></th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th>2023</th>
+      <td>1</td>
+      <td>535.0</td>
+      <td>164.0</td>
+      <td>215.0</td>
+      <td>303.0</td>
+    </tr>
+    <tr>
+      <th>2024</th>
+      <td>1</td>
+      <td>409.0</td>
+      <td>127.0</td>
+      <td>87.0</td>
+      <td>327.0</td>
+    </tr>
+    <tr>
+      <th>2025</th>
+      <td>1</td>
+      <td>125.0</td>
+      <td>68.0</td>
+      <td>140.0</td>
+      <td>103.0</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="caveat"><b>Caveats:</b>
+<ul>
+<li>Direct overlap with each peer is thin: 5 races vs Rodriguez, 3 vs Tarantello. Yearly averaging head-to-head is unreliable; the per-race charts are the honest view.</li>
+<li>Some races (2025 Calima, 2025 Tata) had only 3 finishers, so the "podium average" reduces to the rest of the field. The 2025 yearly average is favorably skewed by those small-field events.</li>
+<li>Hermes and Rodriguez are both B1; Tarantello is B3. Cross-subclass comparison uses the official factor-adjusted finish times that determined actual placing.</li>
+</ul>
+</div>
+
+<p style="color:#888;font-size:0.85em;margin-top:40px">
+  Generated 2026-05-16 19:08 — Source: World Triathlon API (race_results, events tables).
+</p>
+</body></html>
