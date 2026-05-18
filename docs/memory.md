@@ -12,6 +12,14 @@
 
 ## Recent File Changes (March 2026)
 
+### Weekly Race Sync Orchestration (2026-05-17)
+
+#### `scripts/sync_weekly_race_flow.ps1` (NEW)
+- **Purpose**: Orchestrate the weekly race data flow from local triathlon-db build to triathlon-db Supabase and then into the PodiumDashboard cache
+- **Key Change**: Added a reusable PowerShell wrapper that runs the local `build_database.py`, mirrors the local database into the triathlon-db Supabase target with `pg_dump`/`pg_restore`, and then runs the PodiumDashboard `sync-races --mapped-only` command
+- **Reason**: The manual multi-repo flow was error-prone and slow to re-enter each week, especially when the Supabase publish step needed to follow the local build consistently
+- **Effect**: The whole publish path can now be triggered from one command and later attached to a Windows scheduled task for Monday automation
+
 ### Mixed Relay Selection Reporting (2026-03-14)
 
 #### `scripts/analyze_mixed_relay_selection.py` (NEW)

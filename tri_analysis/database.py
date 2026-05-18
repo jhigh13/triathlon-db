@@ -100,6 +100,8 @@ def initialize_database():
         Column('wind',              String),
         Column('weather',           String),
         Column('wetsuit',           String),
+        Column('technical_delegates', String),
+        Column('drafting',          String),
         # Open-Meteo enriched weather columns
         Column('wind_speed_kmh',    Float),
         Column('wind_gust_kmh',     Float),

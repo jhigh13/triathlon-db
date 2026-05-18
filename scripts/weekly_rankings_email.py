@@ -2,7 +2,7 @@
 Weekly US athlete rankings email.
 
 Usage:
-    # Refresh rankings from API and send email
+    # Full run: refresh → preview to you → sync Supabase → send to all after 1 hour
     python scripts/weekly_rankings_email.py
 
     # Skip API refresh, just query DB and send
@@ -522,11 +522,13 @@ def build_html(by_cat: dict[int, list[dict]], at_risk: dict[tuple, dict] | None 
     """
 
 
-def send_email(subject: str, html_body: str) -> None:
+def send_email(subject: str, html_body: str, recipients: list[str] | None = None) -> None:
     smtp_user = os.getenv("SMTP_USER", "")
     smtp_pass = os.getenv("SMTP_PASSWORD", "")
-    recipients_raw = os.getenv("RANKINGS_EMAIL_RECIPIENTS", "")
-    recipients = [r.strip() for r in recipients_raw.split(",") if r.strip()]
+
+    if recipients is None:
+        recipients_raw = os.getenv("RANKINGS_EMAIL_RECIPIENTS", "")
+        recipients = [r.strip() for r in recipients_raw.split(",") if r.strip()]
 
     if not smtp_user or not smtp_pass:
         print("[Email] SMTP_USER or SMTP_PASSWORD not set — printing email to stdout instead.")
@@ -535,7 +537,7 @@ def send_email(subject: str, html_body: str) -> None:
         return
 
     if not recipients:
-        print("[Email] RANKINGS_EMAIL_RECIPIENTS not set — no recipients to send to.")
+        print("[Email] No recipients — skipping send.")
         return
 
     msg = MIMEMultipart("alternative")
@@ -549,11 +551,239 @@ def send_email(subject: str, html_body: str) -> None:
         server.login(smtp_user, smtp_pass)
         server.sendmail(smtp_user, recipients, msg.as_string())
 
-    print(f"[Email] Sent successfully via Outlook SMTP → {recipients}")
+    print(f"[Email] Sent to {recipients}")
 
 
-def main(refresh: bool = True, dry_run: bool = False, all_breakdowns: bool = False) -> None:
-    # Step 1: refresh rankings from API
+def _insert_batches(supa_engine, insert_sql: str, rows: list, table: str, batch_size: int = 500) -> None:
+    """Insert rows in batches with retry. No conflict handling — caller ensures no duplicates."""
+    import time as _time
+    for i in range(0, len(rows), batch_size):
+        batch = rows[i:i + batch_size]
+        for attempt in range(1, 4):
+            try:
+                with supa_engine.begin() as conn:
+                    conn.execute(text(insert_sql), [dict(r._mapping) for r in batch])
+                break
+            except Exception as e:
+                if attempt == 3:
+                    print(f"[Supabase] {table} batch {i//batch_size} failed: {e}")
+                    raise
+                _time.sleep(2 ** attempt)
+
+
+def sync_to_supabase(local_engine) -> None:
+    """Append new retrieved_at snapshots from local DB → Supabase (athlete_rankings + breakdown)."""
+    supa_url = os.getenv("TRIATHLON_DATABASE_URL", "")
+    if not supa_url:
+        print("[Supabase] TRIATHLON_DATABASE_URL not set — skipping sync.")
+        return
+
+    from sqlalchemy import create_engine as _create_engine
+    supa = _create_engine(supa_url, pool_pre_ping=True, pool_size=1, max_overflow=0)
+
+    # --- athlete_rankings ---
+    print("[Supabase] Syncing athlete_rankings...")
+    with supa.begin() as conn:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS athlete_rankings (
+                athlete_id            INTEGER,
+                athlete_name          TEXT,
+                ranking_cat_name      TEXT,
+                ranking_cat_id        INTEGER,
+                rank_position         INTEGER,
+                total_points          DOUBLE PRECISION,
+                year                  INTEGER,
+                retrieved_at          TIMESTAMP,
+                events_current_period INTEGER,
+                events_previous_period INTEGER
+            )
+        """))
+
+    # Find dates already on Supabase — only upload snapshots not yet there
+    with supa.connect() as conn:
+        existing_dates = {
+            r[0] for r in conn.execute(text(
+                "SELECT DISTINCT retrieved_at::date FROM athlete_rankings"
+            )).fetchall()
+        }
+
+    with local_engine.connect() as conn:
+        local_dates = {
+            r[0] for r in conn.execute(text(
+                "SELECT DISTINCT retrieved_at::date FROM athlete_rankings"
+            )).fetchall()
+        }
+
+    new_dates = local_dates - existing_dates
+    if not new_dates:
+        print("[Supabase] athlete_rankings: already up to date.")
+    else:
+        date_list = ", ".join(f"'{d}'" for d in sorted(new_dates))
+        with local_engine.connect() as conn:
+            rows = conn.execute(text(f"""
+                SELECT athlete_id, athlete_name, ranking_cat_name, ranking_cat_id,
+                       rank_position, total_points, year, retrieved_at,
+                       events_current_period, events_previous_period
+                FROM athlete_rankings
+                WHERE retrieved_at::date IN ({date_list})
+            """)).fetchall()
+        _insert_batches(supa, """
+            INSERT INTO athlete_rankings
+                (athlete_id, athlete_name, ranking_cat_name, ranking_cat_id,
+                 rank_position, total_points, year, retrieved_at,
+                 events_current_period, events_previous_period)
+            VALUES
+                (:athlete_id, :athlete_name, :ranking_cat_name, :ranking_cat_id,
+                 :rank_position, :total_points, :year, :retrieved_at,
+                 :events_current_period, :events_previous_period)
+        """, rows, "athlete_rankings")
+        print(f"[Supabase] athlete_rankings: {len(rows):,} rows added ({len(new_dates)} new date(s)).")
+
+    # --- athlete_ranking_breakdown ---
+    print("[Supabase] Syncing athlete_ranking_breakdown...")
+    with supa.begin() as conn:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS athlete_ranking_breakdown (
+                athlete_id        INTEGER,
+                ranking_cat_id    INTEGER,
+                event_id          INTEGER,
+                event_title       TEXT,
+                event_finish_date DATE,
+                points            DOUBLE PRECISION,
+                period            INTEGER,
+                position          INTEGER,
+                retrieved_at      TIMESTAMP,
+                included          BOOLEAN
+            )
+        """))
+
+    with supa.connect() as conn:
+        existing_dates2 = {
+            r[0] for r in conn.execute(text(
+                "SELECT DISTINCT retrieved_at::date FROM athlete_ranking_breakdown"
+            )).fetchall()
+        }
+
+    with local_engine.connect() as conn:
+        local_dates2 = {
+            r[0] for r in conn.execute(text(
+                "SELECT DISTINCT retrieved_at::date FROM athlete_ranking_breakdown"
+            )).fetchall()
+        }
+
+    new_dates2 = local_dates2 - existing_dates2
+    if not new_dates2:
+        print("[Supabase] athlete_ranking_breakdown: already up to date.")
+    else:
+        date_list2 = ", ".join(f"'{d}'" for d in sorted(new_dates2))
+        with local_engine.connect() as conn:
+            rows2 = conn.execute(text(f"""
+                SELECT athlete_id, ranking_cat_id, event_id, event_title,
+                       event_finish_date, points, period, position, retrieved_at, included
+                FROM athlete_ranking_breakdown
+                WHERE retrieved_at::date IN ({date_list2})
+            """)).fetchall()
+        _insert_batches(supa, """
+            INSERT INTO athlete_ranking_breakdown
+                (athlete_id, ranking_cat_id, event_id, event_title,
+                 event_finish_date, points, period, position, retrieved_at, included)
+            VALUES
+                (:athlete_id, :ranking_cat_id, :event_id, :event_title,
+                 :event_finish_date, :points, :period, :position, :retrieved_at, :included)
+        """, rows2, "athlete_ranking_breakdown")
+        print(f"[Supabase] athlete_ranking_breakdown: {len(rows2):,} rows added ({len(new_dates2)} new date(s)).")
+
+
+def update_computed_rankings(local_engine) -> None:
+    """Compute this week's rankings snapshot and sync to Supabase (no full recompute)."""
+    from datetime import date as _date, timedelta as _timedelta
+    import time as _time
+    from tri_analysis.ranking_points import simulate_weekly_rankings
+
+    # Find the most recent Sunday
+    today = _date.today()
+    days_since_sunday = today.isoweekday() % 7  # Mon=1..Sun=0 → Sun gives 0
+    last_sunday = today - _timedelta(days=days_since_sunday)
+
+    print(f"[Rankings] Computing snapshot for {last_sunday}...")
+    n = simulate_weekly_rankings(local_engine, last_sunday, last_sunday)
+    print(f"[Rankings] {n:,} rows written locally.")
+
+    supa_url = os.getenv("TRIATHLON_DATABASE_URL", "")
+    if not supa_url:
+        print("[Supabase] TRIATHLON_DATABASE_URL not set — skipping sync.")
+        return
+
+    from sqlalchemy import create_engine as _create_engine
+    supa = _create_engine(supa_url, pool_pre_ping=True, pool_size=1, max_overflow=0)
+
+    with local_engine.connect() as conn:
+        rows = conn.execute(text("""
+            SELECT ranking_date, ranking_cat_id, athlete_id, rank_position,
+                   total_points, events_current, events_previous
+            FROM computed_weekly_rankings
+            WHERE ranking_date = :d
+            ORDER BY ranking_cat_id, rank_position
+        """), {"d": last_sunday}).fetchall()
+
+    if not rows:
+        print("[Supabase] No rows to sync.")
+        return
+
+    print(f"[Supabase] Uploading {len(rows):,} rows for {last_sunday}...")
+    BATCH = 500
+    inserted = 0
+    for i in range(0, len(rows), BATCH):
+        batch = rows[i:i + BATCH]
+        for attempt in range(1, 4):
+            try:
+                with supa.begin() as conn:
+                    conn.execute(text("""
+                        INSERT INTO computed_weekly_rankings
+                            (ranking_date, ranking_cat_id, athlete_id, rank_position,
+                             total_points, events_current, events_previous)
+                        VALUES
+                            (:ranking_date, :ranking_cat_id, :athlete_id, :rank_position,
+                             :total_points, :events_current, :events_previous)
+                        ON CONFLICT (ranking_date, ranking_cat_id, athlete_id) DO UPDATE SET
+                            rank_position   = EXCLUDED.rank_position,
+                            total_points    = EXCLUDED.total_points,
+                            events_current  = EXCLUDED.events_current,
+                            events_previous = EXCLUDED.events_previous
+                    """), [
+                        {"ranking_date": r[0], "ranking_cat_id": r[1], "athlete_id": r[2],
+                         "rank_position": r[3], "total_points": r[4], "events_current": r[5],
+                         "events_previous": r[6]}
+                        for r in batch
+                    ])
+                break
+            except Exception as e:
+                if attempt == 3:
+                    print(f"[Supabase] computed_weekly_rankings batch failed: {e}")
+                    raise
+                _time.sleep(2 ** attempt)
+        inserted += len(batch)
+
+    print(f"[Supabase] computed_weekly_rankings: {inserted:,} rows synced.")
+
+
+def main(refresh: bool = True, dry_run: bool = False, all_breakdowns: bool = False,
+         preview_delay_minutes: int = 60, sync_only: bool = False) -> None:
+    import time as _time
+
+    # --sync-only: just push local data to Supabase, no email
+    if sync_only:
+        if refresh:
+            print("Fetching rankings from World Triathlon API...")
+            import_rankings(category_ids=list(EMAIL_CATEGORIES.keys()))
+        engine = get_engine()
+        sync_to_supabase(engine)
+        update_computed_rankings(engine)
+        return
+
+    start_time = _time.time()
+
+    # Step 1: refresh rankings from World Triathlon API
     if refresh:
         print("Fetching rankings from World Triathlon API...")
         import_rankings(category_ids=list(EMAIL_CATEGORIES.keys()))
@@ -592,12 +822,43 @@ def main(refresh: bool = True, dry_run: bool = False, all_breakdowns: bool = Fal
     subject = f"USA Triathlon Rankings — {snapshot_date.strftime('%B %d, %Y') if snapshot_date else 'Weekly Update'}"
     html_body = build_html(by_cat, at_risk)
 
-    # Step 5: send or print
     if dry_run:
         print(f"\nSubject: {subject}\n")
         print(html_body)
+        return
+
+    # Step 5: send preview to just yourself immediately
+    preview_addr = os.getenv("SMTP_USER", "")
+    if preview_addr:
+        print(f"\n[Email] Sending preview to {preview_addr}...")
+        send_email(f"[PREVIEW] {subject}", html_body, recipients=[preview_addr])
     else:
-        send_email(subject, html_body)
+        print("[Email] SMTP_USER not set — skipping preview send.")
+
+    # Step 6: sync local data to Supabase while we wait
+    print("\n[Supabase] Starting data sync...")
+    try:
+        sync_to_supabase(engine)
+    except Exception as e:
+        print(f"[Supabase] athlete_rankings sync failed (non-fatal): {e}")
+
+    try:
+        update_computed_rankings(engine)
+    except Exception as e:
+        print(f"[Supabase] computed_weekly_rankings sync failed (non-fatal): {e}")
+
+    # Step 7: wait until preview_delay_minutes has elapsed from start
+    elapsed = _time.time() - start_time
+    wait_secs = max(0, preview_delay_minutes * 60 - elapsed)
+    if wait_secs > 0:
+        mins = int(wait_secs // 60)
+        secs = int(wait_secs % 60)
+        print(f"\n[Email] Waiting {mins}m {secs}s before sending to all recipients...")
+        _time.sleep(wait_secs)
+
+    # Step 8: send to the full contact list
+    print("[Email] Sending to all recipients...")
+    send_email(subject, html_body)
 
 
 if __name__ == "__main__":
@@ -605,6 +866,10 @@ if __name__ == "__main__":
     parser.add_argument("--no-refresh", action="store_true", help="Skip API fetch, use existing DB data.")
     parser.add_argument("--dry-run", action="store_true", help="Print email to stdout instead of sending.")
     parser.add_argument("--all-breakdowns", action="store_true", help="Fetch breakdowns for ALL athletes (for dashboard). Takes ~15 min.")
+    parser.add_argument("--delay", type=int, default=60, metavar="MINUTES",
+                        help="Minutes to wait between preview and full send (default: 60).")
+    parser.add_argument("--sync-only", action="store_true", help="Push local data to Supabase without sending any email.")
     args = parser.parse_args()
 
-    main(refresh=not args.no_refresh, dry_run=args.dry_run, all_breakdowns=args.all_breakdowns)
+    main(refresh=not args.no_refresh, dry_run=args.dry_run, all_breakdowns=args.all_breakdowns,
+         preview_delay_minutes=args.delay, sync_only=args.sync_only)

@@ -101,6 +101,138 @@ def compute_mae(
     return np.abs(pred_sec[valid] - true_sec[valid]).mean()
 
 
+def ndcg_at_k(
+    pred_order: list[int] | pd.Series,
+    true_order: list[int] | pd.Series,
+    k: int,
+) -> float:
+    """
+    Normalised Discounted Cumulative Gain at K with graded relevance.
+
+    Each athlete's relevance is gain(actual_position) where:
+        gain(pos) = max(0, K - pos + 1)
+    so the actual winner contributes K, the actual K-th contributes 1, and
+    everyone outside the top K contributes 0. The DCG accumulator weights
+    earlier predicted positions much more heavily (1 / log2(i+1)).
+
+    Returns NDCG in [0, 1] where 1 = perfectly ordered top-K.
+    """
+    pred = list(pred_order)
+    true = list(true_order)
+    if not pred or not true:
+        return np.nan
+
+    # Map athlete -> actual position (1-indexed)
+    pos_of = {aid: i + 1 for i, aid in enumerate(true)}
+
+    def gain(athlete):
+        pos = pos_of.get(athlete, len(true) + 1)
+        return max(0.0, k - pos + 1)
+
+    # DCG of model's predicted top-K
+    dcg = 0.0
+    for i, aid in enumerate(pred[:k], start=1):
+        dcg += gain(aid) / np.log2(i + 1)
+
+    # IDCG: ideal would predict the actual top-K in order
+    idcg = 0.0
+    for i in range(1, k + 1):
+        idcg += max(0.0, k - i + 1) / np.log2(i + 1)
+
+    return float(dcg / idcg) if idcg > 0 else np.nan
+
+
+def spearman_within_top_k(
+    pred_rank: pd.Series,
+    true_rank: pd.Series,
+    k: int,
+) -> float:
+    """
+    Spearman rank correlation computed only on athletes whose ACTUAL finish
+    is in the top K. Measures how well the model orders the top group,
+    independent of whether it caught all of them.
+    """
+    common_idx = pred_rank.index.intersection(true_rank.index)
+    if len(common_idx) < 2:
+        return np.nan
+
+    p = pred_rank.loc[common_idx]
+    t = true_rank.loc[common_idx]
+
+    top_k_mask = t <= k
+    if top_k_mask.sum() < 2:
+        return np.nan
+
+    corr, _ = spearmanr(p[top_k_mask], t[top_k_mask])
+    return corr
+
+
+def miss_stats_at_k(
+    pred_order: list[int] | pd.Series,
+    true_order: list[int] | pd.Series,
+    k: int,
+) -> dict:
+    """
+    Diagnostics for the top-K boundary:
+      - mean_miss_rank: avg PREDICTED rank of athletes who actually finished
+        top-K but weren't predicted top-K. Low = "near misses", high = wild misses.
+      - mean_false_alarm_rank: avg ACTUAL rank of athletes the model predicted
+        top-K but who weren't actually top-K.
+      - top_k_displacement: avg |predicted_rank - actual_rank| across the union
+        of (predicted top-K) and (actual top-K). One number for total ordering
+        damage in the relevant region.
+      - miss_buckets: counts of misses by predicted-rank bucket.
+    """
+    pred = list(pred_order)
+    true = list(true_order)
+    pred_top_k = set(pred[:k])
+    true_top_k = set(true[:k])
+
+    pred_rank_of = {aid: i + 1 for i, aid in enumerate(pred)}
+    true_rank_of = {aid: i + 1 for i, aid in enumerate(true)}
+
+    misses = true_top_k - pred_top_k
+    false_alarms = pred_top_k - true_top_k
+
+    miss_pred_ranks = [pred_rank_of.get(aid) for aid in misses if aid in pred_rank_of]
+    fa_actual_ranks = [true_rank_of.get(aid) for aid in false_alarms if aid in true_rank_of]
+
+    mean_miss = float(np.mean(miss_pred_ranks)) if miss_pred_ranks else np.nan
+    mean_fa = float(np.mean(fa_actual_ranks)) if fa_actual_ranks else np.nan
+
+    # Bucket missed-athletes' predicted ranks
+    buckets = {"close": 0, "mid": 0, "far": 0}  # k+1..k+5, k+6..k+10, k+11..
+    for r in miss_pred_ranks:
+        if r is None:
+            continue
+        if r <= k + 5:
+            buckets["close"] += 1
+        elif r <= k + 10:
+            buckets["mid"] += 1
+        else:
+            buckets["far"] += 1
+
+    # Top-K displacement: sum |pred_rank - actual_rank| over the union
+    union = pred_top_k | true_top_k
+    diffs = []
+    for aid in union:
+        p = pred_rank_of.get(aid)
+        t = true_rank_of.get(aid)
+        if p is not None and t is not None:
+            diffs.append(abs(p - t))
+    displacement = float(np.mean(diffs)) if diffs else np.nan
+
+    return {
+        f"mean_miss_rank_at_{k}": mean_miss,
+        f"mean_false_alarm_rank_at_{k}": mean_fa,
+        f"top_k_displacement_at_{k}": displacement,
+        f"miss_close_at_{k}": buckets["close"],
+        f"miss_mid_at_{k}": buckets["mid"],
+        f"miss_far_at_{k}": buckets["far"],
+        f"n_misses_at_{k}": len(misses),
+    }
+
+
 def evaluate_program_predictions(
     pred_df: pd.DataFrame,
     results_df: pd.DataFrame
@@ -139,14 +271,44 @@ def evaluate_program_predictions(
         if k <= len(true_order):
             metrics[f"precision_at_{k}"] = precision_at_k(pred_order, true_order, k)
 
-    # Spearman correlation
+    # P@1 — winner accuracy
+    if true_order:
+        metrics["precision_at_1"] = float(pred_order[0] == true_order[0]) if pred_order else np.nan
+
+    # Exact podium — did we predict 1-2-3 in correct order?
+    if len(true_order) >= 3 and len(pred_order) >= 3:
+        metrics["exact_podium"] = float(pred_order[:3] == true_order[:3])
+
+    # NDCG@K — graded ordering quality (penalises misranking near top more)
+    for k in [3, 5, 10]:
+        if k <= len(true_order):
+            metrics[f"ndcg_at_{k}"] = ndcg_at_k(pred_order, true_order, k)
+
+    # Spearman correlation (overall)
     pred_rank = merged.set_index("athlete_id")["predicted_rank"]
     true_rank = merged.set_index("athlete_id")["finish_position"]
     metrics["spearman_corr"] = spearman_rank_corr(pred_rank, true_rank)
 
+    # Spearman within top-K — how well ordered the actual top group is
+    for k in [3, 5, 10]:
+        if k <= len(true_order):
+            metrics[f"spearman_within_top_{k}"] = spearman_within_top_k(pred_rank, true_rank, k)
+
+    # Miss-quality stats for the K boundaries we care about
+    for k in [3, 5, 10]:
+        if k <= len(true_order):
+            metrics.update(miss_stats_at_k(pred_order, true_order, k))
+
     # MAE for times
     if "pred_total_sec" in merged.columns and "total_sec" in merged.columns:
         metrics["mae_total_sec"] = compute_mae(merged["pred_total_sec"], merged["total_sec"])
+
+    # Weighted top-K composite — reflects user's stated priority (P@3 > P@5 > P@10)
+    p3 = metrics.get("precision_at_3")
+    p5 = metrics.get("precision_at_5")
+    p10 = metrics.get("precision_at_10")
+    if p3 is not None and p5 is not None and p10 is not None:
+        metrics["weighted_topk_score"] = 0.5 * p3 + 0.3 * p5 + 0.2 * p10
 
     metrics["n_evaluated"] = len(merged)
 

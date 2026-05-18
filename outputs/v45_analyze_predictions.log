@@ -1,0 +1,222 @@
+2026-04-24 13:17:11 | INFO | Loading predictions from: outputs\predictions_195144_678661.csv
+2026-04-24 13:17:11 | INFO | Loading model from: models/bundle_elite_v45.joblib
+2026-04-24 13:17:11 | INFO | Loaded model bundle from models/bundle_elite_v45.joblib (version: v1.0)
+2026-04-24 13:17:11 | INFO | Using distance-specific split models for 'standard' (splits: ['swim', 't1', 'bike', 't2', 'run', 'total'], features: 56/86)
+2026-04-24 13:17:13 | INFO | Using split sum as pred_total_sec (all 5 splits available)
+2026-04-24 13:17:13 | INFO | Using percentile model for ranking
+2026-04-24 13:17:13 | INFO | Split-total accounting: mean delta=0.0s, median=0.0s (total_model - sum_of_splits)
+2026-04-24 13:17:13 | INFO | Using ensemble ranking (ranker=50%, pct=50%)
+2026-04-24 13:17:13 | INFO | Generated predictions for 50 athletes
+2026-04-24 13:17:13 | INFO | Re-predicted using model: models/bundle_elite_v45.joblib
+2026-04-24 13:17:13 | INFO | Analyzing top 5 athletes by predicted rank
+
+================================================================================
+PREDICTION ANALYSIS
+================================================================================
+CSV:       outputs\predictions_195144_678661.csv
+Model:     models/bundle_elite_v45.joblib
+Distance:  standard
+Athletes:  50
+
+================================================================================
+MODEL FEATURE IMPORTANCE (Top 20)
+================================================================================
+  (Feature importance not available for this model type)
+
+================================================================================
+ATHLETE: Miguel Hidalgo (Brazil)
+================================================================================
+
+--- Predictions (from specified model) ---
+  Predicted Rank:  1
+  Pred Total:      1:42:30 (6151s)
+  Pred Swim:       18:05
+  Pred Bike:       52:47
+  Pred Run:        30:02
+
+--- Historical Context (from data) ---
+  EMA Total (5):   1:45:07 (6308s)
+  Pred vs EMA:     157s faster
+  EMA Swim (5):    17:31
+  Best Total 24m:  1:41:29
+
+--- Feature Contributions (vs Field Median) ---
+  Feature                          Impact      Athlete     Baseline
+  --------------------------------------------------------------
+  wt_rank_position             +      72s            2           46
+  ema_run_sec_5                +      47s        29:50        31:45
+  ema_finish_pct_5                  -46s         0.09         0.43
+  wt_total_points              +      29s       6378.2       2039.9
+  elo_peak                     +      20s       2327.8       1920.8
+  elo_rating                   +      12s       2327.8       1879.3
+  min_swim_gap_sec_24m         +      12s         0.0s         3.0s
+  ema_finish_pct_sprint        +      10s         0.10         0.26
+  bike_pack_rate               +      10s         0.48         0.33
+  ema_bike_split_pct_5         +       8s         0.24         0.45
+  races_tier1_24m              +       8s          8.0          3.5
+  elo_races                    +       8s           46           39
+  h2h_win_rate                 +       6s         0.88         0.50
+  h2h_avg_position_gap         +       6s         15.1         -0.5
+  seed_total_gap_to_best       +       4s          0.0          0.4
+
+  Model prediction: 6100s vs Field Median: 6212s
+  Difference: -112s
+
+================================================================================
+ATHLETE: David Cantero Del Campo (Spain)
+================================================================================
+
+--- Predictions (from specified model) ---
+  Predicted Rank:  2
+  Pred Total:      1:43:39 (6220s)
+  Pred Swim:       18:51
+  Pred Bike:       53:37
+  Pred Run:        29:36
+
+--- Historical Context (from data) ---
+  EMA Total (5):   1:43:34 (6214s)
+  Pred vs EMA:     5s slower
+  EMA Swim (5):    18:14
+  Best Total 24m:  1:41:10
+
+--- Feature Contributions (vs Field Median) ---
+  Feature                          Impact      Athlete     Baseline
+  --------------------------------------------------------------
+  wt_rank_position             +      42s            5           46
+  ema_finish_pct_5                  -40s         0.10         0.43
+  wt_total_points              +      27s       4818.4       2039.9
+  elo_races                    +      25s           24           39
+  ema_run_sec_5                +      25s        29:34        31:45
+  ema_t2_sec_5                 +      24s        21.0s        24.7s
+  elo_peak                     +      20s       2226.1       1920.8
+  elo_rating                   +      14s       2226.1       1879.3
+  avg_bike_gap_leader               -12s         67.8         49.3
+  min_swim_gap_sec_24m         +      12s         0.0s         3.0s
+  std_swim_pct_24m             +      10s         0.27         0.20
+  ema_finish_pct_sprint        +       9s         0.06         0.26
+  std_run_sec_24m                    -8s        31.8s        01:13
+  h2h_win_rate                 +       6s         0.85         0.50
+  ema_bike_to_t2_pos_change_5        -6s         -1.1          0.8
+
+  Model prediction: 6097s vs Field Median: 6212s
+  Difference: -115s
+
+================================================================================
+ATHLETE: Csongor Lehmann (Hungary)
+================================================================================
+
+--- Predictions (from specified model) ---
+  Predicted Rank:  3
+  Pred Total:      1:42:56 (6176s)
+  Pred Swim:       18:08
+  Pred Bike:       52:47
+  Pred Run:        30:28
+
+--- Historical Context (from data) ---
+  EMA Total (5):   1:45:50 (6350s)
+  Pred vs EMA:     174s faster
+  EMA Swim (5):    17:19
+  Best Total 24m:  1:40:18
+
+--- Feature Contributions (vs Field Median) ---
+  Feature                          Impact      Athlete     Baseline
+  --------------------------------------------------------------
+  wt_rank_position             +      90s            4           46
+  ema_run_sec_5                +      47s        30:38        31:45
+  ema_finish_pct_5                  -26s         0.19         0.43
+  wt_total_points              +      20s       4887.9       2039.9
+  elo_peak                     +      20s       2272.2       1920.8
+  ema_bike_to_t2_pos_change_5       -19s         -1.6          0.8
+  ema_t2_sec_5                 +      18s        21.5s        24.7s
+  elo_rating                   +      13s       2265.5       1879.3
+  h2h_win_rate                 +       6s         0.85         0.50
+  ema_bike_pos_pct_7                 -6s         0.19         0.34
+  h2h_avg_position_gap         +       6s         14.7         -0.5
+  ema_bike_split_pct_tier12_5  +       5s         0.32         0.46
+  std_run_sec_24m              +       3s        41.0s        01:13
+  ema_bike_sec_5                     -3s        56:49        55:08
+  seed_total_rank                    -2s            9           25
+
+  Model prediction: 6101s vs Field Median: 6212s
+  Difference: -111s
+
+================================================================================
+ATHLETE: Vasco Vilaca (Portugal)
+================================================================================
+
+--- Predictions (from specified model) ---
+  Predicted Rank:  4
+  Pred Total:      1:44:16 (6257s)
+  Pred Swim:       18:23
+  Pred Bike:       52:42
+  Pred Run:        31:37
+
+--- Historical Context (from data) ---
+  EMA Total (5):   1:45:41 (6342s)
+  Pred vs EMA:     85s faster
+  EMA Swim (5):    18:23
+  Best Total 24m:  1:41:14
+
+--- Feature Contributions (vs Field Median) ---
+  Feature                          Impact      Athlete     Baseline
+  --------------------------------------------------------------
+  wt_rank_position             +      94s            3           46
+  elo_peak                     +      22s       2230.3       1920.8
+  wt_total_points              +      20s       4889.0       2039.9
+  ema_finish_pct_5                  -16s         0.36         0.43
+  ema_run_sec_5                +      11s        31:26        31:45
+  ema_bike_split_pct_tier12_5  +      10s         0.27         0.46
+  std_run_pct_24m              +       7s         0.32         0.24
+  std_run_sec_24m              +       7s        02:29        01:13
+  h2h_win_rate                 +       6s         0.83         0.50
+  athlete_t1t2_rate            +       5s         0.94         0.67
+  ema_bike_to_t2_pos_change_5  +       4s          1.8          0.8
+  seed_total_gap_to_best             -4s          0.3          0.4
+  ema_finish_pct_3                   -3s         0.34         0.43
+  ema_swim_sec_5               +       3s        18:23        18:05
+  elo_rating                   +       3s       2230.3       1879.3
+
+  Model prediction: 6068s vs Field Median: 6212s
+  Difference: -144s
+
+================================================================================
+ATHLETE: Henry Graf (Germany)
+================================================================================
+
+--- Predictions (from specified model) ---
+  Predicted Rank:  5
+  Pred Total:      1:44:24 (6264s)
+  Pred Swim:       18:18
+  Pred Bike:       53:18
+  Pred Run:        31:11
+
+--- Historical Context (from data) ---
+  EMA Total (5):   1:43:34 (6215s)
+  Pred vs EMA:     49s slower
+  EMA Swim (5):    17:23
+  Best Total 24m:  1:40:27
+
+--- Feature Contributions (vs Field Median) ---
+  Feature                          Impact      Athlete     Baseline
+  --------------------------------------------------------------
+  wt_rank_position             +      32s            6           46
+  wt_total_points              +      30s       4804.3       2039.9
+  elo_races                    +      24s           21           39
+  ema_run_sec_5                +      23s        30:25        31:45
+  ema_finish_pct_5                  -19s         0.10         0.43
+  elo_rating                   +      17s       2205.1       1879.3
+  elo_peak                     +      16s       2205.1       1920.8
+  ema_finish_pct_12                 -16s         0.10         0.39
+  ema_finish_pct_3                  -15s         0.11         0.43
+  ema_finish_pct_tier34              -7s         0.12         0.22
+  h2h_win_rate                 +       6s         0.84         0.50
+  ema_bike_pos_pct_7                 -6s         0.07         0.34
+  ema_finish_pct_standard            -4s         0.10         0.43
+  ema_finish_pct_tier2               -4s         0.65         0.32
+  seed_total_gap_to_best             -4s          0.0          0.4
+
+  Model prediction: 6154s vs Field Median: 6212s
+  Difference: -58s
+
+================================================================================
+Analysis complete.

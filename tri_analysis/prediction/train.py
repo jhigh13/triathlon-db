@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 # Try to import LightGBM; fall back to sklearn if not available
 try:
-    from lightgbm import LGBMRegressor, LGBMRanker
+    from lightgbm import LGBMRegressor, LGBMRanker, LGBMClassifier
     USE_LIGHTGBM = True
     logger.info("Using LightGBM for regression models")
 except ImportError:
@@ -71,6 +71,29 @@ class ModelBundle:
     ranker_imputer: Optional[Any] = None  # Imputer for ranker (not in pipeline)
     model_xgb_ranker: Optional[Any] = None  # XGBRanker for ensemble diversity
     xgb_ranker_imputer: Optional[Any] = None  # Imputer for XGB ranker
+    # Cascade architecture (v58+):
+    #   Stage 1 = LGBMClassifier predicting P(top_K_threshold). Used as a coarse filter.
+    #   Stage 2 = LGBMRanker trained ONLY on actual top-K finishers. Final ordering for the kept candidates.
+    # When both are present, predict.py uses cascade_predict() which keeps the top
+    # `cascade_n_candidates` athletes by Stage 1 score and ranks them via Stage 2.
+    cascade_stage1: Optional[Any] = None
+    cascade_stage1_imputer: Optional[Any] = None
+    cascade_stage2: Optional[Any] = None
+    cascade_stage2_imputer: Optional[Any] = None
+    cascade_top_k_threshold: int = 15      # Stage 1 label cutoff during training
+    cascade_n_candidates: int = 20          # How many to keep after Stage 1 at inference
+    # Hierarchical ability + context architecture (v59+):
+    #   Stage 1 = LGBMRegressor predicting finish_pct from ATHLETE-LEVEL features only
+    #             (no field aggregates). Output = ability_score in [0, 1].
+    #   Stage 2 = LGBMRanker on the full v57 feature set PLUS 8 derived
+    #             field-ability features computed from Stage 1's per-field scores.
+    # Unlike the cascade, every athlete passes through both stages — no recall problem.
+    hierarchical_stage1: Optional[Any] = None
+    hierarchical_stage1_imputer: Optional[Any] = None
+    hierarchical_stage2: Optional[Any] = None
+    hierarchical_stage2_imputer: Optional[Any] = None
+    hierarchical_stage1_features: list[str] = field(default_factory=list)
+    hierarchical_stage2_features: list[str] = field(default_factory=list)
     distance_split_models: dict = field(default_factory=dict)
     # e.g., {"sprint": {"swim": model, "bike": model, "run": model},
     #        "standard": {"swim": model, "bike": model, "run": model}}
@@ -266,6 +289,8 @@ def create_regressor(params: dict | None = None) -> Pipeline:
             reg_lambda=p.get("reg_lambda", 0.0),
             random_state=42,
             verbose=-1,
+            deterministic=True,    # Reproducible across runs (eliminates ~1.5pp P@3 variance)
+            force_col_wise=True,   # Required for deterministic with multi-threaded training
         )
     else:
         model = HistGradientBoostingRegressor(
@@ -320,6 +345,8 @@ def train_baseline_models(
     use_sample_weights: bool = True,
     model_params: dict | None = None,
     time_decay_half_life: float = 365.0,
+    lambdarank_truncation_level: int = 10,
+    inverse_rank_weight: bool = False,
 ) -> ModelBundle:
     """
     Train baseline regression models for split and total time prediction.
@@ -488,10 +515,25 @@ def train_baseline_models(
                         else:
                             rank_weights = decay_w.values
 
+                    # Inverse-rank weighting: top finishers get more training weight
+                    # Weight = 1 / sqrt(finish_position). 1st = 1.0, 4th = 0.5, 16th = 0.25.
+                    # Square-root keeps the gradient meaningful for mid-pack athletes
+                    # rather than collapsing entirely to the top 3.
+                    if inverse_rank_weight:
+                        inv_w = 1.0 / np.sqrt(rank_df["finish_position"].clip(lower=1).values)
+                        if rank_weights is not None:
+                            rank_weights = rank_weights * inv_w
+                        else:
+                            rank_weights = inv_w
+                        logger.info(
+                            f"  ranker: inverse-rank weighting on (mean weight={inv_w.mean():.3f}, "
+                            f"top-3 weight={inv_w[rank_df['finish_position'].clip(lower=1).values <= 3].mean():.3f})"
+                        )
+
                     p = {**DEFAULT_PARAMS, **(model_params or {})}
                     model_ranker = LGBMRanker(
                         objective="lambdarank",
-                        lambdarank_truncation_level=10,  # Focus on top-10 ranking (NDCG@10)
+                        lambdarank_truncation_level=lambdarank_truncation_level,
                         n_estimators=300,  # More trees for ranking task
                         max_depth=p["max_depth"],
                         learning_rate=0.05,  # Slower LR with more trees
@@ -501,6 +543,8 @@ def train_baseline_models(
                         reg_lambda=p.get("reg_lambda", 0.0),
                         random_state=42,
                         verbose=-1,
+                        deterministic=True,
+                        force_col_wise=True,
                     )
 
                     fit_kwargs = {"group": group_sizes}
@@ -595,6 +639,501 @@ def train_baseline_models(
     )
 
     return bundle
+
+
+def train_cascade_models(
+    train_df: pd.DataFrame,
+    feature_cols: list[str],
+    top_k_threshold: int = 15,
+    n_candidates: int = 20,
+    use_sample_weights: bool = True,
+    time_decay_half_life: float = 365.0,
+    model_params: dict | None = None,
+) -> dict:
+    """
+    Train the cascade architecture: a binary "is top-K" classifier (Stage 1)
+    plus a focused ranker trained only on actual top-K finishers (Stage 2).
+
+    Stage 1's job is recall — keep ~95% of true top-10 athletes inside the
+    top-N candidates. Stage 2's job is precision ordering inside that group.
+
+    Args:
+        train_df: Training DataFrame with `finish_position`, `event_id`, `prog_id`,
+                  `event_tier`, `event_date`, and the feature columns.
+        feature_cols: Feature column names to use for both stages.
+        top_k_threshold: Cutoff for Stage 1 binary label and Stage 2 training subset.
+                         Default 15 — broader than the metric K=10 to give recall buffer.
+        n_candidates: How many to keep after Stage 1 at inference time. Default 20.
+        use_sample_weights: Apply tier × time-decay weighting to both stages.
+        time_decay_half_life: Days for time-decay weighting (0 to disable).
+        model_params: Hyperparameter overrides.
+
+    Returns:
+        Dict with keys:
+            stage1_model, stage1_imputer  — LGBMClassifier + imputer
+            stage2_model, stage2_imputer  — LGBMRanker + imputer
+            top_k_threshold, n_candidates  — params used (echoed for bundle metadata)
+            metrics                        — training-time stats per stage
+    """
+    from .features import TIER_SAMPLE_WEIGHTS
+    from sklearn.impute import SimpleImputer
+
+    out = {
+        "stage1_model": None,
+        "stage1_imputer": None,
+        "stage2_model": None,
+        "stage2_imputer": None,
+        "top_k_threshold": top_k_threshold,
+        "n_candidates": n_candidates,
+        "metrics": {},
+    }
+
+    if not USE_LIGHTGBM:
+        logger.warning("Cascade requires LightGBM; skipping")
+        return out
+
+    required = {"finish_position", "event_id", "prog_id"}
+    missing = required - set(train_df.columns)
+    if missing:
+        logger.warning(f"Cascade training skipped — missing columns: {missing}")
+        return out
+
+    df = train_df.copy()
+    df["_race_key"] = df["event_id"].astype(str) + "_" + df["prog_id"].astype(str)
+    df = df[df["finish_position"].notna()].copy()
+    if len(df) < 1000:
+        logger.warning(f"Cascade training skipped — only {len(df)} rows available")
+        return out
+
+    # ---- Sample weights (shared across stages) ----
+    base_weights = None
+    if use_sample_weights and "event_tier" in df.columns:
+        tier_w = df["event_tier"].map(TIER_SAMPLE_WEIGHTS).fillna(1.0)
+        race_sizes = df.groupby("_race_key")["finish_position"].transform("count")
+        field_w = np.where(race_sizes >= 50, 2.0,
+                  np.where(race_sizes >= 40, 1.5,
+                  np.where(race_sizes >= 30, 1.2, 1.0)))
+        base_weights = (tier_w * field_w).values
+    if time_decay_half_life > 0 and "event_date" in df.columns:
+        decay_w = _compute_time_decay_weights(df, time_decay_half_life)
+        if decay_w is not None:
+            base_weights = (
+                base_weights * decay_w.values if base_weights is not None
+                else decay_w.values
+            )
+
+    # ============================================================
+    # Stage 1: binary classifier — "is this athlete top-K?"
+    # ============================================================
+    p = {**DEFAULT_PARAMS, **(model_params or {})}
+    stage1_imputer = SimpleImputer(strategy="median")
+    X_full = df[feature_cols].copy()
+    X_full_imp = stage1_imputer.fit_transform(X_full)
+    y_binary = (df["finish_position"] <= top_k_threshold).astype(int).values
+
+    n_pos = int(y_binary.sum())
+    n_neg = len(y_binary) - n_pos
+    pos_weight = (n_neg / max(n_pos, 1))  # Class imbalance correction
+
+    # Apply class weight on top of base weights
+    s1_weights = base_weights.copy() if base_weights is not None else np.ones(len(df))
+    s1_weights = np.where(y_binary == 1, s1_weights * pos_weight, s1_weights)
+
+    stage1 = LGBMClassifier(
+        n_estimators=300,
+        max_depth=p["max_depth"],
+        learning_rate=0.05,
+        num_leaves=p.get("num_leaves", 31),
+        min_child_samples=p.get("min_child_samples", 20),
+        reg_alpha=p.get("reg_alpha", 0.0),
+        reg_lambda=p.get("reg_lambda", 0.0),
+        random_state=42,
+        verbose=-1,
+        deterministic=True,
+        force_col_wise=True,
+        objective="binary",
+    )
+    stage1.fit(X_full_imp, y_binary, sample_weight=s1_weights)
+
+    # Diagnostic: training accuracy at threshold 0.5 and recall on top-K
+    s1_proba = stage1.predict_proba(X_full_imp)[:, 1]
+    s1_pred = (s1_proba >= 0.5).astype(int)
+    s1_recall = float(((y_binary == 1) & (s1_pred == 1)).sum() / max(n_pos, 1))
+    logger.info(
+        f"  cascade Stage 1 (top-{top_k_threshold} classifier): "
+        f"trained on {len(df)} rows, {n_pos} positives ({100*n_pos/len(df):.1f}%), "
+        f"training-set recall@0.5={s1_recall:.3f}"
+    )
+
+    # ============================================================
+    # Stage 2: focused ranker on top-K finishers only
+    # ============================================================
+    top_k_mask = (df["finish_position"] <= top_k_threshold)
+    rank_df = df[top_k_mask].copy()
+    if len(rank_df) < 200:
+        logger.warning(f"Cascade Stage 2 skipped — only {len(rank_df)} top-{top_k_threshold} rows")
+        out["stage1_model"] = stage1
+        out["stage1_imputer"] = stage1_imputer
+        out["metrics"]["stage1_recall"] = s1_recall
+        return out
+
+    # Re-build group structure for the filtered subset.
+    # Drop races where the top-K subset has too few athletes (<3) to learn from.
+    rank_df = rank_df.sort_values("_race_key").reset_index(drop=True)
+    race_counts = rank_df.groupby("_race_key").size()
+    valid_races = race_counts[race_counts >= 3].index
+    rank_df = rank_df[rank_df["_race_key"].isin(valid_races)]
+    if len(rank_df) < 200:
+        logger.warning(f"Cascade Stage 2 skipped — too few races with ≥3 top-{top_k_threshold} finishers")
+        out["stage1_model"] = stage1
+        out["stage1_imputer"] = stage1_imputer
+        out["metrics"]["stage1_recall"] = s1_recall
+        return out
+
+    # Graded relevance within top-K: 1st place = top_k_threshold, K-th = 1
+    rank_df["_relevance"] = (top_k_threshold + 1 - rank_df["finish_position"]).clip(lower=0).astype(int)
+    group_sizes = rank_df.groupby("_race_key").size().values
+
+    stage2_imputer = SimpleImputer(strategy="median")
+    X_rank = rank_df[feature_cols].copy()
+    X_rank_imp = stage2_imputer.fit_transform(X_rank)
+
+    # Stage 2 sample weights: existing tier×field×decay PLUS inverse-rank weighting
+    # (top-3 finishers contribute more than 14th-place finisher).
+    s2_weights = None
+    if base_weights is not None:
+        # Restrict base_weights to the rank_df rows (preserve their original index)
+        base_w_filtered = base_weights[df.index.isin(rank_df.index)] \
+            if hasattr(base_weights, "__len__") else None
+        # Simpler: rebuild from rank_df for clarity
+        if "event_tier" in rank_df.columns:
+            tier_w = rank_df["event_tier"].map(TIER_SAMPLE_WEIGHTS).fillna(1.0).values
+        else:
+            tier_w = np.ones(len(rank_df))
+        inv_rank = 1.0 / np.sqrt(rank_df["finish_position"].clip(lower=1).values)
+        s2_weights = tier_w * inv_rank
+        if time_decay_half_life > 0 and "event_date" in rank_df.columns:
+            decay_w = _compute_time_decay_weights(rank_df, time_decay_half_life)
+            if decay_w is not None:
+                s2_weights = s2_weights * decay_w.values
+
+    stage2 = LGBMRanker(
+        objective="lambdarank",
+        lambdarank_truncation_level=10,
+        n_estimators=300,
+        max_depth=p["max_depth"],
+        learning_rate=0.05,
+        num_leaves=p.get("num_leaves", 31),
+        min_child_samples=p.get("min_child_samples", 20),
+        reg_alpha=p.get("reg_alpha", 0.0),
+        reg_lambda=p.get("reg_lambda", 0.0),
+        random_state=42,
+        verbose=-1,
+        deterministic=True,
+        force_col_wise=True,
+    )
+    fit_kwargs = {"group": group_sizes}
+    if s2_weights is not None:
+        fit_kwargs["sample_weight"] = s2_weights
+    stage2.fit(X_rank_imp, rank_df["_relevance"].values, **fit_kwargs)
+
+    logger.info(
+        f"  cascade Stage 2 (focused ranker): trained on {len(rank_df)} rows "
+        f"across {len(group_sizes)} races (top-{top_k_threshold} subset)"
+    )
+
+    out["stage1_model"] = stage1
+    out["stage1_imputer"] = stage1_imputer
+    out["stage2_model"] = stage2
+    out["stage2_imputer"] = stage2_imputer
+    out["metrics"] = {
+        "stage1_n_train": len(df),
+        "stage1_n_positives": n_pos,
+        "stage1_recall_at_0_5": s1_recall,
+        "stage2_n_train": len(rank_df),
+        "stage2_n_races": len(group_sizes),
+    }
+    return out
+
+
+def train_hierarchical_models(
+    train_df: pd.DataFrame,
+    feature_cols: list[str],
+    use_sample_weights: bool = True,
+    time_decay_half_life: float = 365.0,
+    model_params: dict | None = None,
+    n_folds: int = 5,
+) -> dict:
+    """
+    Train the hierarchical ability + context model.
+
+    Stage 1: LGBMRegressor predicting finish_pct from ATHLETE-LEVEL features only.
+             Output = ability_score in [0, 1] (lower = better predicted finish).
+    Stage 2: LGBMRanker on the full feature list PLUS 8 derived field-ability
+             features (computed from Stage 1 scores per race).
+
+    The Stage 2 training data uses LEAK-FREE Stage 1 predictions via K-fold CV:
+    for each fold k, Stage 1 is trained on the other k-1 folds and used to
+    predict on fold k. This avoids Stage 2 overfitting to in-sample Stage 1
+    predictions.
+
+    A FINAL Stage 1 model is then trained on ALL data and saved alongside Stage 2
+    for inference.
+
+    Args:
+        train_df: Training DataFrame with `finish_pct`, `event_id`, `prog_id`,
+                  `event_date`, `event_tier`, and the feature columns.
+        feature_cols: Full feature column list (used to derive Stage 1 subset and
+                      Stage 2 enhanced set).
+        use_sample_weights: Tier × time-decay weighting on both stages.
+        time_decay_half_life: Half-life in days. 0 disables.
+        model_params: Hyperparameter overrides.
+        n_folds: K for the leak-free CV. Default 5.
+
+    Returns:
+        Dict with: stage1_model, stage1_imputer, stage1_features (list[str]),
+        stage2_model, stage2_imputer, stage2_features (list[str]),
+        metrics (dict), n_folds.
+    """
+    from .features import (
+        TIER_SAMPLE_WEIGHTS, get_stage1_feature_columns,
+        get_stage2_feature_columns, compute_stage1_field_features,
+    )
+    from sklearn.impute import SimpleImputer
+    from sklearn.model_selection import KFold
+
+    out = {
+        "stage1_model": None,
+        "stage1_imputer": None,
+        "stage1_features": [],
+        "stage2_model": None,
+        "stage2_imputer": None,
+        "stage2_features": [],
+        "metrics": {},
+        "n_folds": n_folds,
+    }
+    if not USE_LIGHTGBM:
+        logger.warning("Hierarchical model requires LightGBM; skipping")
+        return out
+
+    required = {"finish_pct", "event_id", "prog_id"}
+    missing = required - set(train_df.columns)
+    if missing:
+        logger.warning(f"Hierarchical training skipped — missing columns: {missing}")
+        return out
+
+    df = train_df.copy().reset_index(drop=True)
+    df["_race_key"] = df["event_id"].astype(str) + "_" + df["prog_id"].astype(str)
+
+    # Filter to rows with valid target
+    valid_mask = df["finish_pct"].notna()
+    if valid_mask.sum() < 1000:
+        logger.warning(f"Hierarchical training skipped — only {valid_mask.sum()} valid rows")
+        return out
+    df = df[valid_mask].reset_index(drop=True)
+
+    # ---- Resolve feature lists ----
+    stage1_features_full = get_stage1_feature_columns()
+    stage1_features = [c for c in stage1_features_full if c in df.columns]
+    if len(stage1_features) < 10:
+        logger.warning(f"Stage 1 has only {len(stage1_features)} features; aborting hierarchical")
+        return out
+
+    # ---- Sample weights ----
+    base_weights = None
+    if use_sample_weights and "event_tier" in df.columns:
+        tier_w = df["event_tier"].map(TIER_SAMPLE_WEIGHTS).fillna(1.0).values
+        base_weights = tier_w
+    if time_decay_half_life > 0 and "event_date" in df.columns:
+        decay_w = _compute_time_decay_weights(df, time_decay_half_life)
+        if decay_w is not None:
+            base_weights = (
+                base_weights * decay_w.values if base_weights is not None
+                else decay_w.values
+            )
+
+    p = {**DEFAULT_PARAMS, **(model_params or {})}
+
+    def _make_stage1_model() -> Any:
+        return LGBMRegressor(
+            n_estimators=p["n_estimators"],
+            max_depth=p["max_depth"],
+            learning_rate=p["learning_rate"],
+            num_leaves=p.get("num_leaves", 31),
+            min_child_samples=p.get("min_child_samples", 20),
+            reg_alpha=p.get("reg_alpha", 0.1),
+            reg_lambda=p.get("reg_lambda", 1.0),
+            random_state=42,
+            verbose=-1,
+            deterministic=True,
+            force_col_wise=True,
+        )
+
+    # ============================================================
+    # OOF Stage 1 predictions for leak-free Stage 2 training
+    # ============================================================
+    logger.info(f"  hierarchical Stage 1: generating leak-free predictions via {n_folds}-fold CV…")
+    X_s1_full = df[stage1_features].copy()
+
+    # Race-level fold assignment so all athletes from a race land in the same fold.
+    # Otherwise an athlete could appear in train AND val for the same race.
+    race_keys_unique = df["_race_key"].drop_duplicates().sort_values().reset_index(drop=True)
+    kf = KFold(n_splits=n_folds, shuffle=True, random_state=42)
+    race_fold = pd.Series(index=race_keys_unique.values, dtype=int)
+    for fold_idx, (_, val_idx) in enumerate(kf.split(race_keys_unique)):
+        race_fold.iloc[val_idx] = fold_idx
+    df["_fold"] = df["_race_key"].map(race_fold)
+
+    oof_stage1 = np.full(len(df), np.nan)
+    for fold_idx in range(n_folds):
+        train_mask = (df["_fold"] != fold_idx).values
+        val_mask = (df["_fold"] == fold_idx).values
+
+        s1_imp = SimpleImputer(strategy="median")
+        X_train = s1_imp.fit_transform(X_s1_full.iloc[train_mask])
+        X_val = s1_imp.transform(X_s1_full.iloc[val_mask])
+
+        model_fold = _make_stage1_model()
+        fit_kwargs = {}
+        if base_weights is not None:
+            fit_kwargs["sample_weight"] = base_weights[train_mask]
+        model_fold.fit(X_train, df.loc[train_mask, "finish_pct"].values, **fit_kwargs)
+        oof_stage1[val_mask] = model_fold.predict(X_val)
+
+    df["_oof_stage1"] = oof_stage1
+    n_oof_filled = int((~np.isnan(oof_stage1)).sum())
+    s1_oof_mae = float(np.abs(df["_oof_stage1"] - df["finish_pct"]).mean())
+    logger.info(
+        f"  hierarchical Stage 1 OOF: filled {n_oof_filled} rows, "
+        f"OOF MAE on finish_pct = {s1_oof_mae:.4f}"
+    )
+
+    # ============================================================
+    # Build Stage 2 enhanced features per race using OOF Stage 1
+    # ============================================================
+    s2_derived_cols = [
+        "stage1_my_ability", "stage1_field_p10_ability", "stage1_field_p3_ability",
+        "stage1_field_median_ability", "stage1_my_gap_to_field_p10",
+        "stage1_my_gap_to_field_p3", "stage1_n_field_better_than_me",
+        "stage1_field_std_ability",
+    ]
+    field_blocks = []
+    for race_key, race_df in df.groupby("_race_key", sort=False):
+        feats = compute_stage1_field_features(race_df["_oof_stage1"].reset_index(drop=True))
+        feats.index = race_df.index
+        field_blocks.append(feats)
+    field_features_df = pd.concat(field_blocks).sort_index()
+    for col in s2_derived_cols:
+        df[col] = field_features_df[col]
+
+    # ============================================================
+    # Stage 2: LGBMRanker on enhanced feature set
+    # ============================================================
+    stage2_full = get_stage2_feature_columns()
+    stage2_features = [c for c in stage2_full if c in df.columns]
+    logger.info(
+        f"  hierarchical Stage 2: training LGBMRanker on {len(stage2_features)} features "
+        f"({len(s2_derived_cols)} derived from Stage 1)"
+    )
+
+    # Need finish_position for graded relevance and group structure
+    if "finish_position" not in df.columns:
+        logger.warning("Stage 2 needs finish_position; skipping")
+        out["stage1_features"] = stage1_features
+        return out
+
+    rank_df = df.dropna(subset=["finish_position"]).copy()
+    rank_df = rank_df.sort_values("_race_key").reset_index(drop=True)
+    race_counts = rank_df.groupby("_race_key").size()
+    valid_races = race_counts[race_counts >= 10].index
+    rank_df = rank_df[rank_df["_race_key"].isin(valid_races)]
+    if len(rank_df) < 1000:
+        logger.warning(f"Stage 2 too few rows after filter ({len(rank_df)}); skipping")
+        out["stage1_features"] = stage1_features
+        return out
+
+    MAX_RELEVANCE = 30
+    race_sizes = rank_df.groupby("_race_key")["finish_position"].transform("count")
+    raw_relevance = (race_sizes - rank_df["finish_position"]).clip(lower=0)
+    rank_df["_relevance"] = raw_relevance.clip(upper=MAX_RELEVANCE).astype(int)
+    group_sizes = rank_df.groupby("_race_key").size().values
+
+    s2_imp = SimpleImputer(strategy="median")
+    X_s2 = rank_df[stage2_features].copy()
+    X_s2_imp = s2_imp.fit_transform(X_s2)
+
+    # Stage 2 sample weights: tier × field-size × time-decay (matching the v57 ranker)
+    s2_weights = None
+    if "event_tier" in rank_df.columns:
+        tier_w2 = rank_df["event_tier"].map(TIER_SAMPLE_WEIGHTS).fillna(1.0).values
+        rs2 = rank_df.groupby("_race_key")["finish_position"].transform("count").values
+        field_w2 = np.where(rs2 >= 50, 2.0,
+                  np.where(rs2 >= 40, 1.5,
+                  np.where(rs2 >= 30, 1.2, 1.0)))
+        s2_weights = tier_w2 * field_w2
+    if time_decay_half_life > 0 and "event_date" in rank_df.columns:
+        decay_w2 = _compute_time_decay_weights(rank_df, time_decay_half_life)
+        if decay_w2 is not None:
+            s2_weights = (s2_weights * decay_w2.values) if s2_weights is not None else decay_w2.values
+
+    stage2_model = LGBMRanker(
+        objective="lambdarank",
+        lambdarank_truncation_level=10,
+        n_estimators=300,
+        max_depth=p["max_depth"],
+        learning_rate=0.05,
+        num_leaves=p.get("num_leaves", 31),
+        min_child_samples=p.get("min_child_samples", 20),
+        reg_alpha=p.get("reg_alpha", 0.0),
+        reg_lambda=p.get("reg_lambda", 0.0),
+        random_state=42,
+        verbose=-1,
+        deterministic=True,
+        force_col_wise=True,
+    )
+    fit_kwargs2 = {"group": group_sizes}
+    if s2_weights is not None:
+        fit_kwargs2["sample_weight"] = s2_weights
+    stage2_model.fit(X_s2_imp, rank_df["_relevance"].values, **fit_kwargs2)
+    logger.info(
+        f"  hierarchical Stage 2: trained on {len(rank_df)} rows across "
+        f"{len(group_sizes)} races (LGBMRanker lambdarank, OOF Stage 1 inputs)"
+    )
+
+    # ============================================================
+    # Final Stage 1 trained on all data — this is what's used at inference
+    # ============================================================
+    final_s1_imp = SimpleImputer(strategy="median")
+    X_s1_all = final_s1_imp.fit_transform(X_s1_full)
+    final_stage1 = _make_stage1_model()
+    fit_kwargs_s1 = {}
+    if base_weights is not None:
+        fit_kwargs_s1["sample_weight"] = base_weights
+    final_stage1.fit(X_s1_all, df["finish_pct"].values, **fit_kwargs_s1)
+    s1_in_sample_mae = float(
+        np.abs(final_stage1.predict(X_s1_all) - df["finish_pct"].values).mean()
+    )
+    logger.info(
+        f"  hierarchical Stage 1 (final, all data): in-sample MAE = {s1_in_sample_mae:.4f}"
+    )
+
+    out["stage1_model"] = final_stage1
+    out["stage1_imputer"] = final_s1_imp
+    out["stage1_features"] = stage1_features
+    out["stage2_model"] = stage2_model
+    out["stage2_imputer"] = s2_imp
+    out["stage2_features"] = stage2_features
+    out["metrics"] = {
+        "stage1_n_features": len(stage1_features),
+        "stage1_n_train": len(df),
+        "stage1_oof_mae": s1_oof_mae,
+        "stage1_final_in_sample_mae": s1_in_sample_mae,
+        "stage2_n_features": len(stage2_features),
+        "stage2_n_train": len(rank_df),
+        "stage2_n_races": len(group_sizes),
+        "n_folds": n_folds,
+    }
+    return out
 
 
 def train_distance_split_models(
@@ -1157,6 +1696,8 @@ def optimize_ensemble_weight(
             reg_lambda=p.get("reg_lambda", 0.0),
             random_state=42,
             verbose=-1,
+            deterministic=True,
+            force_col_wise=True,
         )
 
         fit_kwargs = {"group": group_sizes}

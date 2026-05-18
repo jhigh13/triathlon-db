@@ -1,0 +1,54 @@
+Sweeping ensemble weights against 90 H2 2025 events…
+C:\Users\jhigh\Projects\triathlon-db\tri_analysis\prediction\features.py:2034: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[col] = defaults.get(col, 0)
+  w=0.30: P@3=54.8%  P@5=63.3%  P@10=73.9%  rho=0.806
+C:\Users\jhigh\Projects\triathlon-db\tri_analysis\prediction\features.py:2034: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[col] = defaults.get(col, 0)
+  w=0.35: P@3=55.9%  P@5=63.8%  P@10=74.2%  rho=0.807
+C:\Users\jhigh\Projects\triathlon-db\tri_analysis\prediction\features.py:2034: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[col] = defaults.get(col, 0)
+  w=0.40: P@3=55.9%  P@5=63.6%  P@10=74.3%  rho=0.807
+C:\Users\jhigh\Projects\triathlon-db\tri_analysis\prediction\features.py:2034: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[col] = defaults.get(col, 0)
+  w=0.45: P@3=55.9%  P@5=63.8%  P@10=74.3%  rho=0.805
+C:\Users\jhigh\Projects\triathlon-db\tri_analysis\prediction\features.py:2034: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[col] = defaults.get(col, 0)
+  w=0.50: P@3=55.9%  P@5=63.8%  P@10=74.3%  rho=0.805
+C:\Users\jhigh\Projects\triathlon-db\tri_analysis\prediction\features.py:2034: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[col] = defaults.get(col, 0)
+  w=0.55: P@3=55.9%  P@5=64.0%  P@10=74.2%  rho=0.802
+C:\Users\jhigh\Projects\triathlon-db\tri_analysis\prediction\features.py:2034: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[col] = defaults.get(col, 0)
+  w=0.60: P@3=56.3%  P@5=64.0%  P@10=74.0%  rho=0.800
+C:\Users\jhigh\Projects\triathlon-db\tri_analysis\prediction\features.py:2034: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[col] = defaults.get(col, 0)
+  w=0.65: P@3=56.3%  P@5=63.6%  P@10=73.9%  rho=0.798
+C:\Users\jhigh\Projects\triathlon-db\tri_analysis\prediction\features.py:2034: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[col] = defaults.get(col, 0)
+  w=0.70: P@3=55.9%  P@5=62.9%  P@10=74.0%  rho=0.795
+C:\Users\jhigh\Projects\triathlon-db\tri_analysis\prediction\features.py:2034: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[col] = defaults.get(col, 0)
+  w=0.75: P@3=55.9%  P@5=62.4%  P@10=74.0%  rho=0.793
+C:\Users\jhigh\Projects\triathlon-db\tri_analysis\prediction\features.py:2034: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[col] = defaults.get(col, 0)
+  w=0.80: P@3=57.4%  P@5=61.8%  P@10=74.1%  rho=0.790
+C:\Users\jhigh\Projects\triathlon-db\tri_analysis\prediction\features.py:2034: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[col] = defaults.get(col, 0)
+  w=0.85: P@3=57.4%  P@5=62.0%  P@10=74.0%  rho=0.787
+C:\Users\jhigh\Projects\triathlon-db\tri_analysis\prediction\features.py:2034: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[col] = defaults.get(col, 0)
+  w=0.90: P@3=57.4%  P@5=62.2%  P@10=73.8%  rho=0.785
+C:\Users\jhigh\Projects\triathlon-db\tri_analysis\prediction\features.py:2034: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[col] = defaults.get(col, 0)
+  w=0.95: P@3=57.4%  P@5=62.2%  P@10=73.5%  rho=0.783
+
+======================================================================
+RESULTS — best by each metric
+======================================================================
+  best P@3: w=0.80 -> 0.574
+  best P@5: w=0.55 -> 0.640
+  best P@10: w=0.40 -> 0.743
+  best Spearman: w=0.35 -> 0.807
+
+Saving v53 with ensemble_ranker_weight = 0.80 (P@3-optimal)
+Wrote models\bundle_elite_v53.joblib

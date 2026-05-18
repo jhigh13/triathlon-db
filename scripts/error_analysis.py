@@ -153,7 +153,7 @@ def analyze_errors(engine, event_prog_keys, bundle, feature_cols, test_events_df
 
 def main():
     parser = argparse.ArgumentParser(description="Detailed backtest error analysis")
-    parser.add_argument("--model", type=str, default="models/bundle_elite_v37.joblib")
+    parser.add_argument("--model", type=str, default="models/bundle_elite_v45.joblib")
     args = parser.parse_args()
 
     engine = get_engine()

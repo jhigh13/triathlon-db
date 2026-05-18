@@ -30,32 +30,46 @@ def find_chrome_or_edge():
 def convert_html_to_pdf(html_path: Path, pdf_path: Path, browser_exe: str) -> tuple[bool, str]:
     """Convert HTML file to PDF using Chrome/Edge headless. Returns (success, error_message)."""
     try:
-        # Delete existing PDF if present
-        if pdf_path.exists():
-            pdf_path.unlink()
-        
+        # Resolve to absolute paths — Chrome resolves --print-to-pdf relative to its
+        # own working directory, not the script's, so relative paths produce silent misses.
+        html_abs = html_path.resolve()
+        pdf_abs = pdf_path.resolve()
+
+        # Remove a stale/old PDF so we can detect fresh creation below.
+        if pdf_abs.exists():
+            pdf_abs.unlink()
+
         cmd = [
             browser_exe,
-            "--headless",
-            "--disable-gpu",
-            "--no-sandbox",
-            "--disable-dev-shm-usage",
-            "--disable-software-rasterizer",
-            "--no-pdf-header-footer",
-            f"--print-to-pdf={pdf_path}",
-            f"file:///{html_path.absolute().as_posix()}"
+            "--headless=new",
+            "--allow-file-access-from-files",
+            "--disable-web-security",
+            "--run-all-compositor-stages-before-draw",
+            "--virtual-time-budget=20000",
+            f"--print-to-pdf={pdf_abs}",
+            f"file:///{html_abs.as_posix()}"
         ]
-        
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-        
-        # Wait a moment for file to be written
-        time.sleep(0.5)
-        
-        # Verify PDF was actually created and has content
-        if pdf_path.exists() and pdf_path.stat().st_size > 0:
-            return True, ""
-        
-        error_msg = result.stderr if result.stderr else "PDF file not created or empty"
+
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+
+        # Chrome emits benign stderr (e.g. GCM registration errors) even on success.
+        # The only reliable success signal is whether the PDF file was written with content.
+        # Poll for up to 6 seconds to handle delayed flush on Windows.
+        for _ in range(12):
+            if pdf_abs.exists() and pdf_abs.stat().st_size > 0:
+                # Copy to the originally requested path if they differ.
+                if pdf_abs != pdf_path.resolve():
+                    pdf_abs.replace(pdf_path)
+                return True, ""
+            time.sleep(0.5)
+
+        # Nothing was written — capture a meaningful error if available.
+        # Filter out the common benign GCM noise so real errors are visible.
+        stderr_lines = [
+            ln for ln in (result.stderr or "").splitlines()
+            if "registration_request" not in ln and ln.strip()
+        ]
+        error_msg = "\n".join(stderr_lines[:5]) if stderr_lines else "PDF file not created or empty"
         return False, error_msg
     except Exception as e:
         return False, str(e)

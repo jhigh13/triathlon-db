@@ -1997,6 +1997,7 @@ def write_outputs(
     print(f"Wrote dataset: {outdir / 'dataset.csv'}")
 
     figures = []
+    plotly_js_included = False
 
     # Write a simple HTML report
     report_path = outdir / "report.html"
@@ -2071,7 +2072,9 @@ def write_outputs(
             extra_hover_cols=extra_hover,
         )
         if fig:
-            blocks.append(pio.to_html(fig, include_plotlyjs="cdn", full_html=False))
+            include_plotly_js = "inline" if not plotly_js_included else False
+            blocks.append(pio.to_html(fig, include_plotlyjs=include_plotly_js, full_html=False))
+            plotly_js_included = True
             figures.append((key, fig))
 
     # --- Raw split gap charts (seconds) + summaries -----------------------------------
@@ -2094,7 +2097,9 @@ def write_outputs(
             mmss=True,
         )
         if fig:
-            blocks.append(pio.to_html(fig, include_plotlyjs="cdn", full_html=False))
+            include_plotly_js = "inline" if not plotly_js_included else False
+            blocks.append(pio.to_html(fig, include_plotlyjs=include_plotly_js, full_html=False))
+            plotly_js_included = True
             figures.append((key, fig))
 
     # --- Transition/overall charts (raw seconds) + summaries ---------------------------
@@ -2115,7 +2120,9 @@ def write_outputs(
             y_label,
         )
         if fig:
-            blocks.append(pio.to_html(fig, include_plotlyjs="cdn", full_html=False))
+            include_plotly_js = "inline" if not plotly_js_included else False
+            blocks.append(pio.to_html(fig, include_plotlyjs=include_plotly_js, full_html=False))
+            plotly_js_included = True
             figures.append((key, fig))
 
     html = (

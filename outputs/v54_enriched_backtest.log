@@ -1,0 +1,193 @@
+
+=== Test Set: H2 2025 (all qualifying events) ===
+Total programs: 90
+  Men programs:    47
+  Women programs:  43
+  Tier 1a (WTCS/Finals ): 10
+  Tier 1b (T100        ): 12
+  Tier 2 (World Cup   ): 14
+  Tier 3 (Continental ): 38
+  Tier 4 (Other       ): 16
+
+--- Test Events by Tier ---
+
+Tier 1a (WTCS/Finals):
+  2025-07-12 [M] [sprint         ] 2025 World Triathlon Championship Series Hamburg
+  2025-07-12 [W] [sprint         ] 2025 World Triathlon Championship Series Hamburg
+  2025-08-31 [M] [sprint         ] 2025 World Triathlon Championship Series French Riviera
+  2025-08-31 [W] [sprint         ] 2025 World Triathlon Championship Series French Riviera
+  2025-09-14 [M] [standard       ] 2025 World Triathlon Championship Series Karlovy Vary
+  2025-09-14 [W] [standard       ] 2025 World Triathlon Championship Series Karlovy Vary
+  2025-09-26 [M] [standard       ] 2025 World Triathlon Championship Series Weihai
+  2025-09-26 [W] [standard       ] 2025 World Triathlon Championship Series Weihai
+  2025-10-15 [M] [standard       ] 2025 World Triathlon Championship Finals Wollongong
+  2025-10-15 [W] [standard       ] 2025 World Triathlon Championship Finals Wollongong
+
+Tier 1b (T100):
+  2025-08-09 [M] [middle_distance] 2025 T100 Triathlon World Tour London
+  2025-08-09 [W] [middle_distance] 2025 T100 Triathlon World Tour London
+  2025-08-30 [M] [middle_distance] 2025 T100 Triathlon World Tour French Riviera
+  2025-08-30 [W] [middle_distance] 2025 T100 Triathlon World Tour French Riviera
+  2025-09-20 [M] [middle_distance] 2025 T100 Triathlon World Tour Oropesa
+  2025-09-20 [W] [middle_distance] 2025 T100 Triathlon World Tour Oropesa
+  2025-10-18 [M] [middle_distance] 2025 T100 Triathlon World Tour Wollongong
+  2025-10-18 [W] [middle_distance] 2025 T100 Triathlon World Tour Wollongong
+  2025-11-15 [M] [middle_distance] 2025 T100 Triathlon World Tour Dubai
+  2025-11-15 [W] [middle_distance] 2025 T100 Triathlon World Tour Dubai
+  2025-12-11 [M] [middle_distance] 2025 T100 Triathlon World Championship Final Qatar
+  2025-12-11 [W] [middle_distance] 2025 T100 Triathlon World Championship Final Qatar
+
+Tier 2 (World Cup):
+  2025-07-05 [M] [sprint         ] 2025 World Triathlon Cup Tiszaujvaros
+  2025-07-05 [W] [sprint         ] 2025 World Triathlon Cup Tiszaujvaros
+  2025-10-04 [M] [sprint         ] 2025 World Triathlon Cup Rome
+  2025-10-04 [W] [sprint         ] 2025 World Triathlon Cup Rome
+  2025-11-02 [M] [sprint         ] 2025 World Triathlon Cup Vina del Mar
+  2025-11-02 [W] [sprint         ] 2025 World Triathlon Cup Vina del Mar
+  2025-11-09 [M] [sprint         ] 2025 World Triathlon Cup Miyazaki
+  2025-11-09 [M] [sprint         ] 2025 World Triathlon Cup San Pedro de la Paz
+  2025-11-09 [W] [sprint         ] 2025 World Triathlon Cup Miyazaki
+  2025-11-09 [W] [sprint         ] 2025 World Triathlon Cup San Pedro de la Paz
+  2025-11-15 [M] [sprint         ] 2025 World Triathlon Cup Tongyeong
+  2025-11-15 [M] [sprint         ] 2025 World Triathlon Cup Florianopolis
+  2025-11-15 [W] [sprint         ] 2025 World Triathlon Cup Tongyeong
+  2025-11-15 [W] [sprint         ] 2025 World Triathlon Cup Florianopolis
+
+Tier 3 (Continental):
+  2025-07-06 [M] [sprint         ] 2025 Africa Triathlon Premium Cup Larache
+  2025-07-06 [W] [sprint         ] 2025 Africa Triathlon Premium Cup Larache
+  2025-07-12 [M] [sprint         ] 2025 Americas Triathlon Cup Magog
+  2025-07-12 [W] [sprint         ] 2025 Americas Triathlon Cup Magog
+  2025-07-19 [M] [sprint         ] 2025 Americas Triathlon Cup Montreal
+  2025-07-19 [W] [sprint         ] 2025 Americas Triathlon Cup Montreal
+  2025-08-09 [M] [sprint         ] 2025 Americas Triathlon Cup Kelowna
+  2025-08-09 [W] [sprint         ] 2025 Americas Triathlon Cup Kelowna
+  2025-09-13 [M] [sprint         ] 2025 Africa Triathlon Cup Oran
+  2025-09-13 [W] [sprint         ] 2025 Africa Triathlon Cup Oran
+  2025-09-20 [M] [sprint         ] 2025 Asia Triathlon Cup Gamagori
+  2025-09-20 [W] [sprint         ] 2025 Asia Triathlon Cup Gamagori
+  2025-09-21 [M] [sprint         ] 2025 Africa Triathlon Cup Taghazout
+  2025-09-21 [W] [sprint         ] 2025 Africa Triathlon Cup Taghazout
+  2025-09-26 [M] [standard       ] 2025 Asia Triathlon Cup Turkestan
+  2025-09-26 [M] [sprint         ] 2025 Asia Triathlon Cup Yilan
+  2025-09-26 [W] [sprint         ] 2025 Asia Triathlon Cup Yilan
+  2025-10-03 [M] [sprint         ] 2025 Africa Triathlon Cup and Pan-Arab Championships Hurghada
+  2025-10-03 [W] [sprint         ] 2025 Africa Triathlon Cup and Pan-Arab Championships Hurghada
+  2025-10-05 [M] [sprint         ] 2025 Europe Triathlon Cup Ceuta
+  2025-10-05 [W] [sprint         ] 2025 Europe Triathlon Cup Ceuta
+  2025-10-12 [M] [sprint         ] 2025 Africa Triathlon Cup Kilifi
+  2025-10-12 [M] [sprint         ] 2025 Europe Triathlon Cup Tenerife - Santa Cruz
+  2025-10-12 [W] [sprint         ] 2025 Europe Triathlon Cup Tenerife - Santa Cruz
+  2025-10-18 [M] [standard       ] 2025 Asia Triathlon Cup Chongqing
+  2025-10-18 [W] [standard       ] 2025 Asia Triathlon Cup Chongqing
+  2025-10-23 [M] [sprint         ] 2025 Asia Triathlon Cup Kota Kinabalu
+  2025-10-23 [W] [sprint         ] 2025 Asia Triathlon Cup Kota Kinabalu
+  2025-10-25 [M] [sprint         ] 2025 Europe Triathlon Cup Alanya
+  2025-10-25 [M] [sprint         ] 2025 Americas Triathlon Cup Iquique
+  2025-10-25 [W] [sprint         ] 2025 Europe Triathlon Cup Alanya
+  2025-10-25 [W] [sprint         ] 2025 Americas Triathlon Cup Iquique
+  2025-11-02 [M] [sprint         ] 2025 Americas Triathlon Cup Vina del Mar
+  2025-11-02 [W] [sprint         ] 2025 Americas Triathlon Cup Vina del Mar
+  2025-11-23 [M] [sprint         ] 2025 Americas Triathlon Cup Manta
+  2025-11-23 [W] [sprint         ] 2025 Americas Triathlon Cup Manta
+  2025-12-06 [M] [sprint         ] 2025 Americas Triathlon Cup and Iberoamerican Championships Maldonado
+  2025-12-06 [W] [sprint         ] 2025 Americas Triathlon Cup and Iberoamerican Championships Maldonado
+
+Tier 4 (Other):
+  2025-07-19 [M] [sprint         ] 2025 Europe Triathlon Sprint and Relay Championships Melilla
+  2025-07-19 [W] [sprint         ] 2025 Europe Triathlon Sprint and Relay Championships Melilla
+  2025-07-27 [M] [sprint         ] 2025 Europe Triathlon Baltic Championships Otep‰‰
+  2025-07-27 [W] [sprint         ] 2025 Europe Triathlon Baltic Championships Otep‰‰
+  2025-08-20 [M] [sprint         ] 2025 Asuncion Junior Pan-American Games
+  2025-08-20 [W] [sprint         ] 2025 Asuncion Junior Pan-American Games
+  2025-08-23 [M] [sprint         ] 2025 Americas Triathlon CARIFTA  Championships Tobago
+  2025-08-23 [W] [sprint         ] 2025 Americas Triathlon CARIFTA  Championships Tobago
+  2025-08-30 [M] [standard       ] 2025 Europe Triathlon Championships Istanbul
+  2025-08-30 [M] [standard       ] 2025 Asia Triathlon Championships Istanbul
+  2025-08-30 [W] [standard       ] 2025 Europe Triathlon Championships Istanbul
+  2025-08-30 [W] [standard       ] 2025 Asia Triathlon Championships Istanbul
+  2025-09-26 [M] [sprint         ] 2025 Africa Triathlon Sprint Championships El Galala
+  2025-09-28 [M] [sprint         ] 2025 Europe Triathlon Balkan Championships Mudanya-Bursa
+  2025-12-07 [W] [sprint         ] 2025 World Triathlon Womenís Cup Dubai
+  2025-12-13 [M] [sprint         ] 2025 Asia Triathlon West Asian Championship Fujairah
+
+NOTE: Model should be trained through 2025-06-30 to avoid data leakage.
+Command: python scripts/train_models.py --start_date 2018-01-01 --end_date 2025-06-30 --output models/bundle_elite_v6.joblib
+
+
+Using model: models/bundle_elite_v54.joblib
+
+C:\Users\jhigh\Projects\triathlon-db\tri_analysis\prediction\features.py:2159: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[col] = defaults.get(col, 0)
+C:\Users\jhigh\Projects\triathlon-db\tri_analysis\prediction\features.py:2159: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[col] = defaults.get(col, 0)
+C:\Users\jhigh\Projects\triathlon-db\tri_analysis\prediction\features.py:2159: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[col] = defaults.get(col, 0)
+C:\Users\jhigh\Projects\triathlon-db\tri_analysis\prediction\evaluate.py:166: ConstantInputWarning: An input array is constant; the correlation coefficient is not defined.
+  corr, _ = spearmanr(p[top_k_mask], t[top_k_mask])
+C:\Users\jhigh\Projects\triathlon-db\tri_analysis\prediction\evaluate.py:166: ConstantInputWarning: An input array is constant; the correlation coefficient is not defined.
+  corr, _ = spearmanr(p[top_k_mask], t[top_k_mask])
+C:\Users\jhigh\Projects\triathlon-db\tri_analysis\prediction\features.py:2159: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[col] = defaults.get(col, 0)
+C:\Users\jhigh\Projects\triathlon-db\tri_analysis\prediction\features.py:2159: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[col] = defaults.get(col, 0)
+C:\Users\jhigh\Projects\triathlon-db\tri_analysis\prediction\features.py:2159: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df[col] = defaults.get(col, 0)
+
+=== Backtest Results ===
+Events evaluated: 90
+
+--- Top-K Headline ---
+  P@1 (winner):     50.00%
+  P@3:              55.56%
+  P@5:              61.56%
+  P@10:             75.00%
+  Exact podium:     5.56%
+  Weighted top-K:   0.6099   (0.5*P@3 + 0.3*P@5 + 0.2*P@10)
+
+--- Ordering Quality ---
+  Spearman (all):       0.807
+  Spearman within top-3: 0.298    NDCG@3: 0.625
+  Spearman within top-5: 0.487    NDCG@5: 0.700
+  Spearman within top-10: 0.550    NDCG@10: 0.810
+
+--- Miss Quality (lower mean_miss_rank = closer misses) ---
+  K  | mean_miss_rank | mean_FA_rank | top_K_displacement | misses (close/mid/far)
+   3 |       7.11     |      8.70    |        3.45        | 91/21/8 of 120 (76% close)
+   5 |       9.52     |     10.19    |        3.98        | 120/33/20 of 173 (69% close)
+  10 |      14.82     |     15.69    |        4.71        | 139/62/19 of 220 (63% close)
+  (close = within K+5 ranks, mid = K+6..K+10, far = K+11+)
+
+--- Times ---
+  MAE total:    323.8 sec
+
+--- Results by Tier ---
+  Tier 1a (WTCS/Finals ): P@3=53.3%, P@5=62.0%, P@10=78.0%, weighted=0.609, miss_rank@10=16.2, Spearman=0.792, MAE=211s, n=10
+  Tier 1b (T100        ): P@3=66.7%, P@5=66.7%, P@10=82.5%, weighted=0.698, miss_rank@10=13.0, Spearman=0.740, MAE=927s, n=12
+  Tier 2 (World Cup   ): P@3=42.9%, P@5=50.0%, P@10=66.4%, weighted=0.497, miss_rank@10=16.3, Spearman=0.784, MAE=178s, n=14
+  Tier 3 (Continental ): P@3=53.5%, P@5=62.1%, P@10=73.2%, weighted=0.602, miss_rank@10=14.8, Spearman=0.836, MAE=230s, n=38
+  Tier 4 (Other       ): P@3=64.6%, P@5=66.3%, P@10=79.3%, weighted=0.666, miss_rank@10=14.0, Spearman=0.816, MAE=294s, n=16
+
+=== Start Number Baseline (Bib = World Ranking Proxy) ===
+Events with start_num data: 90
+Precision@3:  46.30%
+Precision@5:  52.89%
+Precision@10: 65.34%
+Spearman:     0.631
+
+--- Head-to-Head (90 common events) ---
+Metric               Model   StartNum      Delta     Winner
+-----------------------------------------------------------
+P@3                  55.6%      46.3%      +9.3%      Model
+P@5                  61.6%      52.9%      +8.7%      Model
+P@10                 75.0%      65.3%      +9.7%      Model
+Spearman             0.807      0.631     +0.176      Model
+
+--- Start Number Baseline by Tier ---
+  Tier 1a (WTCS/Finals ): P@3=43.3%, P@10=66.0%, Spearman=0.608, n=10
+  Tier 1b (T100        ): P@3=66.7%, P@10=77.5%, Spearman=0.673, n=12
+  Tier 2 (World Cup   ): P@3=38.1%, P@10=53.6%, Spearman=0.568, n=14
+  Tier 3 (Continental ): P@3=40.4%, P@10=64.3%, Spearman=0.666, n=38
+  Tier 4 (Other       ): P@3=54.2%, P@10=68.7%, Spearman=0.584, n=16
+
+MLflow: backtest metrics logged to experiment 'triathlon-prediction'

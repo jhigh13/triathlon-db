@@ -155,7 +155,7 @@ def analyze_event(engine, event_id, prog_id, bundle, feature_cols):
 
 def main():
     parser = argparse.ArgumentParser(description="Residual analysis: field size vs P@10")
-    parser.add_argument("--model", type=str, default="models/bundle_elite_v40.joblib")
+    parser.add_argument("--model", type=str, default="models/bundle_elite_v45.joblib")
     args = parser.parse_args()
 
     engine = get_engine()

@@ -1001,10 +1001,98 @@ def compute_field_context_features(
     return features
 
 
+def compute_field_boundary_features_batch(
+    athlete_features_df: pd.DataFrame,
+) -> pd.DataFrame:
+    """
+    Compute boundary/density features for every athlete in a single field, in
+    one pass. Returns a DataFrame indexed by athlete_id with the new columns.
+
+    These features answer two questions per athlete:
+      1. "How far am I from the top-K cutoff in this field?"  (gap features)
+      2. "How crowded is my neighborhood?"                    (density features)
+
+    They differ from the previously-tried `elo_rank_in_field` (regressed in
+    v40b due to multicollinearity with seed_total_rank) by encoding MAGNITUDE
+    instead of rank — a 50-elo gap to the top-10 cutline is a different
+    signal from "you're 12th-best in elo".
+
+    Returns columns:
+      field_elo_gap_to_top10   — my elo - the field's 10th-highest elo
+      field_elo_gap_to_top3    — my elo - the field's 3rd-highest elo
+      field_finish_pct_gap_to_top10  — my finish_pct - field's 10th-best (lower = better)
+      field_perf_ratio_gap_to_top10  — my perf_ratio - field's 10th-best
+      n_athletes_within_50_elo   — count of competitors within ±50 elo of me
+      n_athletes_within_100_elo  — count of competitors within ±100 elo of me
+    """
+    out_cols = [
+        "field_elo_gap_to_top10",
+        "field_elo_gap_to_top3",
+        "field_finish_pct_gap_to_top10",
+        "field_perf_ratio_gap_to_top10",
+        "n_athletes_within_50_elo",
+        "n_athletes_within_100_elo",
+    ]
+    if athlete_features_df.empty or "athlete_id" not in athlete_features_df.columns:
+        return pd.DataFrame(columns=["athlete_id"] + out_cols)
+
+    df = athlete_features_df[["athlete_id"]].copy().reset_index(drop=True)
+
+    # ---- Cutoff thresholds (computed once for the whole field) ----
+    def _kth_best(series: pd.Series, k: int, ascending: bool) -> float:
+        """k-th best value (1-indexed). ascending=True means lower is better."""
+        s = pd.to_numeric(series, errors="coerce").dropna()
+        if len(s) == 0:
+            return np.nan
+        idx = min(k, len(s)) - 1
+        sorted_s = s.sort_values(ascending=ascending).reset_index(drop=True)
+        return float(sorted_s.iloc[idx])
+
+    elo = pd.to_numeric(athlete_features_df.get("elo_rating"), errors="coerce") \
+        if "elo_rating" in athlete_features_df.columns else pd.Series(dtype=float)
+    fpct = pd.to_numeric(athlete_features_df.get("ema_finish_pct_5"), errors="coerce") \
+        if "ema_finish_pct_5" in athlete_features_df.columns else pd.Series(dtype=float)
+    pratio = pd.to_numeric(athlete_features_df.get("ema_perf_ratio_5"), errors="coerce") \
+        if "ema_perf_ratio_5" in athlete_features_df.columns else pd.Series(dtype=float)
+
+    elo_top10 = _kth_best(elo, 10, ascending=False) if not elo.empty else np.nan
+    elo_top3 = _kth_best(elo, 3, ascending=False) if not elo.empty else np.nan
+    fpct_top10 = _kth_best(fpct, 10, ascending=True) if not fpct.empty else np.nan
+    pratio_top10 = _kth_best(pratio, 10, ascending=True) if not pratio.empty else np.nan
+
+    # ---- Per-athlete gaps and density ----
+    df["field_elo_gap_to_top10"] = (elo - elo_top10).reset_index(drop=True) if not elo.empty else np.nan
+    df["field_elo_gap_to_top3"] = (elo - elo_top3).reset_index(drop=True) if not elo.empty else np.nan
+    df["field_finish_pct_gap_to_top10"] = (fpct - fpct_top10).reset_index(drop=True) if not fpct.empty else np.nan
+    df["field_perf_ratio_gap_to_top10"] = (pratio - pratio_top10).reset_index(drop=True) if not pratio.empty else np.nan
+
+    # Density: count of athletes within ±50 / ±100 elo points of me (excluding self).
+    # Vectorised via broadcasting: |elo[i] - elo[j]| matrix.
+    if not elo.empty and elo.notna().any():
+        elo_arr = elo.to_numpy()
+        # |elo_i - elo_j| for all pairs; nan-safe via where
+        diffs = np.abs(elo_arr[:, None] - elo_arr[None, :])
+        within_50 = (diffs < 50) & ~np.isnan(diffs)
+        within_100 = (diffs < 100) & ~np.isnan(diffs)
+        # Subtract 1 so self doesn't count
+        df["n_athletes_within_50_elo"] = (within_50.sum(axis=1) - 1).clip(min=0)
+        df["n_athletes_within_100_elo"] = (within_100.sum(axis=1) - 1).clip(min=0)
+        # Athletes whose own elo is NaN get NaN (not zero — distinguish "no data" from "alone")
+        nan_mask = np.isnan(elo_arr)
+        df.loc[nan_mask, "n_athletes_within_50_elo"] = np.nan
+        df.loc[nan_mask, "n_athletes_within_100_elo"] = np.nan
+    else:
+        df["n_athletes_within_50_elo"] = np.nan
+        df["n_athletes_within_100_elo"] = np.nan
+
+    return df
+
+
 def compute_head_to_head_features(
     h2h_df: pd.DataFrame,
     athlete_ids: list[int],
     event_date=None,
+    top_field_athletes: set[int] | None = None,
 ) -> dict[int, dict]:
     """
     Compute recency-weighted head-to-head features for each athlete in the field.
@@ -1013,27 +1101,48 @@ def compute_head_to_head_features(
     with exponential decay weighting (half-life = 365 days) so recent races
     count more than old ones.
 
-    Features:
-    - h2h_win_rate: weighted fraction of matchups won against field opponents
-    - h2h_avg_position_gap: weighted mean(opponent_pos - athlete_pos)
-    - h2h_n_shared_races: number of shared races with any field opponent
-    - h2h_n_opponents_faced: how many field opponents they've raced against
+    Existing features:
+    - h2h_win_rate, h2h_avg_position_gap, h2h_n_shared_races, h2h_n_opponents_faced
+      (aggregated across ALL field opponents with 365-day half-life)
+
+    New features (Phase 2, v56):
+    - h2h_win_rate_vs_field_top10: h2h win rate restricted to opponents in
+      `top_field_athletes` (the field's top-10 by elo). Targets top-3
+      discrimination — "have you beaten the actual contenders?"
+    - h2h_avg_position_gap_vs_field_top10: same lens for decisiveness
+    - h2h_n_shared_races_vs_field_top10: confidence count for the above
+    - h2h_win_rate_recent_180d: hard 6-month cutoff (sharper than 365-day decay)
+    - h2h_n_unknown_field_athletes: count of field-mates with ZERO shared
+      history. Cold-start signal specific to this field.
+    - h2h_dominance_count: number of opponents the athlete has beaten in
+      ≥3 of their last 5 matchups. Decisive-edge signal.
 
     Args:
         h2h_df: DataFrame from fetch_head_to_head_results with columns:
                 event_id, prog_id, event_date, athlete_id, finish_position
         athlete_ids: List of athlete IDs in the current field
         event_date: Target event date for recency weighting
+        top_field_athletes: Optional set of athlete_ids representing the
+                            field's top-N (by elo) for the vs_top10 features.
+                            If None, vs_top10 features default to neutral.
 
     Returns:
         Dict mapping athlete_id -> dict of h2h features
     """
     field_set = set(athlete_ids)
+    top_set = set(top_field_athletes) if top_field_athletes else set()
+
     defaults = {
         "h2h_win_rate": 0.5,
         "h2h_avg_position_gap": 0.0,
         "h2h_n_shared_races": 0,
         "h2h_n_opponents_faced": 0,
+        "h2h_win_rate_vs_field_top10": 0.5,
+        "h2h_avg_position_gap_vs_field_top10": 0.0,
+        "h2h_n_shared_races_vs_field_top10": 0,
+        "h2h_win_rate_recent_180d": 0.5,
+        "h2h_n_unknown_field_athletes": max(0, len(field_set) - 1),  # All unknown if no h2h
+        "h2h_dominance_count": 0,
     }
 
     if h2h_df.empty:
@@ -1041,20 +1150,22 @@ def compute_head_to_head_features(
 
     results = {}
 
-    # Compute recency weights per race (half-life = 365 days)
+    # Compute recency weights and days-ago per race
     HALF_LIFE_DAYS = 365.0
+    RECENT_CUTOFF_DAYS = 180
     race_weights = {}
+    race_days_ago = {}
     if event_date is not None and "event_date" in h2h_df.columns:
         ref_date = pd.to_datetime(event_date)
         for (eid, pid), grp in h2h_df.groupby(["event_id", "prog_id"]):
             race_date = pd.to_datetime(grp["event_date"].iloc[0])
             days_ago = max(0, (ref_date - race_date).days)
             race_weights[(eid, pid)] = float(2.0 ** (-days_ago / HALF_LIFE_DAYS))
+            race_days_ago[(eid, pid)] = days_ago
 
-    # Group by race (event_id, prog_id)
     race_groups = h2h_df.groupby(["event_id", "prog_id"])
 
-    # Build pairwise records: athlete -> opponent -> [(my_pos, opp_pos, weight)]
+    # Build pairwise records: athlete -> opponent -> [(my_pos, opp_pos, weight, days_ago)]
     matchup_records = {aid: {} for aid in athlete_ids}
 
     for (eid, pid), race_df in race_groups:
@@ -1063,6 +1174,7 @@ def compute_head_to_head_features(
             continue
 
         w = race_weights.get((eid, pid), 1.0)
+        days_ago = race_days_ago.get((eid, pid), 99999)
 
         positions = dict(zip(race_athletes["athlete_id"], race_athletes["finish_position"]))
         athletes_in_race = list(positions.keys())
@@ -1071,14 +1183,17 @@ def compute_head_to_head_features(
             for a2 in athletes_in_race[i + 1:]:
                 p1, p2 = positions[a1], positions[a2]
                 if a1 in matchup_records:
-                    matchup_records[a1].setdefault(a2, []).append((p1, p2, w))
+                    matchup_records[a1].setdefault(a2, []).append((p1, p2, w, days_ago))
                 if a2 in matchup_records:
-                    matchup_records[a2].setdefault(a1, []).append((p2, p1, w))
+                    matchup_records[a2].setdefault(a1, []).append((p2, p1, w, days_ago))
 
     for aid in athlete_ids:
         records = matchup_records.get(aid, {})
         if not records:
-            results[aid] = defaults.copy()
+            r = defaults.copy()
+            # Even with no matchups, n_unknown is well-defined (everyone in field except self)
+            r["h2h_n_unknown_field_athletes"] = max(0, len(field_set - {aid}))
+            results[aid] = r
             continue
 
         total_weighted_wins = 0.0
@@ -1086,24 +1201,87 @@ def compute_head_to_head_features(
         total_weighted_gap = 0.0
         n_opponents = len(records)
 
-        for _, matchups in records.items():
-            for my_pos, opp_pos, w in matchups:
-                total_weight += w
+        # vs_field_top10 accumulators (exclude self if athlete is in top-10)
+        top_set_excl_self = top_set - {aid}
+        top_weighted_wins = 0.0
+        top_weight = 0.0
+        top_weighted_gap = 0.0
+        top_shared_races = set()  # count distinct shared races against top opponents
+
+        # recent_180d accumulators
+        recent_wins = 0.0
+        recent_weight = 0.0
+
+        # dominance: per-opponent, win count in last 5 matchups
+        dominance_count = 0
+
+        for opp, matchups in records.items():
+            opp_in_top = opp in top_set_excl_self
+
+            # Sort matchups by days_ago ascending (most recent first) for dominance check
+            recent_first = sorted(matchups, key=lambda m: m[3])
+            wins_in_last5 = 0
+            for my_pos, opp_pos, w, days_ago in recent_first[:5]:
                 if my_pos < opp_pos:
-                    total_weighted_wins += w
+                    wins_in_last5 += 1
                 elif my_pos == opp_pos:
-                    total_weighted_wins += 0.5 * w
+                    wins_in_last5 += 0.5
+            if wins_in_last5 >= 3:
+                dominance_count += 1
+
+            for my_pos, opp_pos, w, days_ago in matchups:
+                # Win contribution
+                if my_pos < opp_pos:
+                    win_share = 1.0
+                elif my_pos == opp_pos:
+                    win_share = 0.5
+                else:
+                    win_share = 0.0
+
+                # Existing aggregates (all opponents, decay-weighted)
+                total_weight += w
+                total_weighted_wins += win_share * w
                 total_weighted_gap += (opp_pos - my_pos) * w
 
-        # Count unique shared races
+                # vs top10 subset
+                if opp_in_top:
+                    top_weight += w
+                    top_weighted_wins += win_share * w
+                    top_weighted_gap += (opp_pos - my_pos) * w
+
+                # recent 180d (unweighted — hard cutoff)
+                if days_ago <= RECENT_CUTOFF_DAYS:
+                    recent_weight += 1.0
+                    recent_wins += win_share
+
+        # Count distinct shared races (against any field opponent)
         athlete_races = h2h_df[h2h_df["athlete_id"] == aid][["event_id", "prog_id"]].drop_duplicates()
         n_shared_races = len(athlete_races)
 
+        # Distinct races shared with top-10 opponents
+        if top_set_excl_self:
+            top_h2h = h2h_df[h2h_df["athlete_id"].isin(top_set_excl_self | {aid})]
+            for (eid, pid), grp in top_h2h.groupby(["event_id", "prog_id"]):
+                aids_in_race = set(grp["athlete_id"])
+                if aid in aids_in_race and (aids_in_race & top_set_excl_self):
+                    top_shared_races.add((eid, pid))
+
+        # Unknown field athletes: in field but never raced
+        n_unknown = max(0, len(field_set - {aid} - set(records.keys())))
+
         results[aid] = {
+            # Existing
             "h2h_win_rate": total_weighted_wins / total_weight if total_weight > 0 else 0.5,
             "h2h_avg_position_gap": total_weighted_gap / total_weight if total_weight > 0 else 0.0,
             "h2h_n_shared_races": n_shared_races,
             "h2h_n_opponents_faced": n_opponents,
+            # New (v56, Phase 2)
+            "h2h_win_rate_vs_field_top10": (top_weighted_wins / top_weight) if top_weight > 0 else 0.5,
+            "h2h_avg_position_gap_vs_field_top10": (top_weighted_gap / top_weight) if top_weight > 0 else 0.0,
+            "h2h_n_shared_races_vs_field_top10": len(top_shared_races),
+            "h2h_win_rate_recent_180d": (recent_wins / recent_weight) if recent_weight > 0 else 0.5,
+            "h2h_n_unknown_field_athletes": n_unknown,
+            "h2h_dominance_count": dominance_count,
         }
 
     return results
@@ -1554,17 +1732,47 @@ def build_features_for_program(
     # Compute pairwise win rates against the specific field of competitors.
     # This is a field-level feature (like seed_total_rank) — captures "how does
     # this athlete historically perform against THESE specific opponents?"
+    # Also compute the v56 vs-field-top-10 / recent / dominance / unknown variants.
     all_athlete_ids = features_df["athlete_id"].dropna().astype(int).tolist()
+
+    # Build top-10-by-elo subset for vs_top10 features. Falls back to None if
+    # elo isn't available, in which case those features default to neutral.
+    top_field_athletes = None
+    if "elo_rating" in features_df.columns:
+        elo_series = pd.to_numeric(features_df["elo_rating"], errors="coerce")
+        top10 = (
+            features_df.assign(_elo=elo_series)
+            .dropna(subset=["_elo"])
+            .nlargest(10, "_elo")
+            ["athlete_id"].astype(int).tolist()
+        )
+        if top10:
+            top_field_athletes = set(top10)
+
     try:
         h2h_df = fetch_head_to_head_results(engine, all_athlete_ids, event_date)
-        h2h_features = compute_head_to_head_features(h2h_df, all_athlete_ids, event_date=event_date)
+        h2h_features = compute_head_to_head_features(
+            h2h_df, all_athlete_ids,
+            event_date=event_date,
+            top_field_athletes=top_field_athletes,
+        )
         h2h_rows = [h2h_features.get(int(aid), {}) for aid in features_df["athlete_id"]]
         h2h_features_df = pd.DataFrame(h2h_rows)
         features_df = pd.concat([features_df.reset_index(drop=True), h2h_features_df], axis=1)
     except Exception as e:
         logger.warning(f"Could not compute h2h features: {e}")
-        for col in ["h2h_win_rate", "h2h_avg_position_gap", "h2h_n_shared_races", "h2h_n_opponents_faced"]:
-            features_df[col] = 0.5 if col == "h2h_win_rate" else 0
+        h2h_defaults = {
+            "h2h_win_rate": 0.5, "h2h_avg_position_gap": 0.0,
+            "h2h_n_shared_races": 0, "h2h_n_opponents_faced": 0,
+            "h2h_win_rate_vs_field_top10": 0.5,
+            "h2h_avg_position_gap_vs_field_top10": 0.0,
+            "h2h_n_shared_races_vs_field_top10": 0,
+            "h2h_win_rate_recent_180d": 0.5,
+            "h2h_n_unknown_field_athletes": 0,
+            "h2h_dominance_count": 0,
+        }
+        for col, val in h2h_defaults.items():
+            features_df[col] = val
 
     # ---- Field-Relative Features ----
     # Encode where each athlete sits relative to THIS specific field.
@@ -1587,6 +1795,23 @@ def build_features_for_program(
     else:
         features_df["wt_rank_in_field"] = None
         features_df["wt_rank_pct_in_field"] = None
+
+    # ---- Field-Boundary Features (Phase 1: gap-to-cutoff + density) ----
+    # Magnitude-based field-context features that target the rank 11-15 boundary
+    # problem identified by the residual analysis. Distinct from the rank-based
+    # features above (which were tested in v40b and regressed).
+    try:
+        boundary_df = compute_field_boundary_features_batch(features_df)
+        if not boundary_df.empty:
+            features_df = features_df.merge(boundary_df, on="athlete_id", how="left")
+    except Exception as e:
+        logger.warning(f"Could not compute field-boundary features: {e}")
+        for col in [
+            "field_elo_gap_to_top10", "field_elo_gap_to_top3",
+            "field_finish_pct_gap_to_top10", "field_perf_ratio_gap_to_top10",
+            "n_athletes_within_50_elo", "n_athletes_within_100_elo",
+        ]:
+            features_df[col] = np.nan
 
     logger.info(f"Built features for {len(features_df)} athletes in {key}")
     return features_df
@@ -1876,12 +2101,154 @@ def get_feature_columns() -> list[str]:
         "h2h_avg_position_gap",       # Mean(opponent_pos - athlete_pos); positive = beats opponents
         "h2h_n_shared_races",         # Number of shared races with any field opponent
         "h2h_n_opponents_faced",      # How many field opponents they've raced against
-        # NOTE: field-relative features (elo_rank_in_field etc.) tested in v40b
-        # but regressed P@10 from 74.2% to 72.6% — multicollinear with seed_total_rank
+        # H2H against field subsets (v56, Phase 2): orthogonal to existing h2h
+        # which aggregates over ALL field opponents with 365-day decay.
+        "h2h_win_rate_vs_field_top10",         # h2h restricted to field's top-10 by elo
+        "h2h_avg_position_gap_vs_field_top10", # decisiveness against contenders
+        "h2h_n_shared_races_vs_field_top10",   # confidence count for the above
+        "h2h_win_rate_recent_180d",            # hard 6-month cutoff (sharper than 365d decay)
+        "h2h_n_unknown_field_athletes",        # cold-start: field-mates never raced
+        "h2h_dominance_count",                 # opponents beaten in ≥3 of last 5 matchups
+        # Field-boundary features (v54, Phase 1): magnitude-based field context.
+        # Targets the rank 11-15 boundary problem (residual analysis showed 51%
+        # of P@10 misses sit there). Encodes distance from top-K cutoff and
+        # neighborhood density. Distinct from rank-based v40b attempts.
+        "field_elo_gap_to_top10",     # my elo - the field's 10th-best elo (positive = above cutline)
+        "field_elo_gap_to_top3",      # my elo - the field's 3rd-best elo
+        "field_finish_pct_gap_to_top10",   # my finish_pct - field's 10th-best (negative = better)
+        "field_perf_ratio_gap_to_top10",   # my perf_ratio - field's 10th-best
+        "n_athletes_within_50_elo",   # competitors within ±50 elo (high = crowded → harder boundary)
+        "n_athletes_within_100_elo",  # competitors within ±100 elo
+        # NOTE: field-relative RANK features (elo_rank_in_field etc.) tested in v40b
+        # but regressed P@10 from 74.2% to 72.6% — multicollinear with seed_total_rank.
+        # The v54 features above use MAGNITUDES (elo gaps) not ranks, so they're
+        # orthogonal to seed_total_rank.
         # NOTE: venue features (has_raced_venue, n_venue_races, venue_finish_pct_mean,
         # venue_delta), races_30d/60d, and days_since_2nd_last tested in v44/v44b
         # but regressed P@10 by -0.8 to -0.9%. All removed.
     ]
+
+
+def get_stage1_feature_columns() -> list[str]:
+    """
+    Athlete-level feature subset for the hierarchical model's Stage 1 ability
+    predictor. Returns the full feature list MINUS features that aggregate
+    over the field (rank-in-field, gap-to-cutoff, density, vs-top10 h2h, etc.).
+
+    Stage 1's job is to compress per-athlete signals (elo, EMAs, h2h vs all
+    field opponents, WT rank, etc.) into one ability scalar. Stage 2 then
+    introduces the field-context lens. By keeping Stage 1's feature set free
+    of field aggregates, the hierarchical model strictly separates "how good
+    is this athlete" from "how does this field interact".
+    """
+    field_aggregate_cols = {
+        # Field-summary features
+        "seed_total_rank",
+        "seed_total_gap_to_best",
+        "field_depth_top10_mean",
+        "n_entrants",
+        # v54 field-boundary features (computed against this specific field)
+        "field_elo_gap_to_top10",
+        "field_elo_gap_to_top3",
+        "field_finish_pct_gap_to_top10",
+        "field_perf_ratio_gap_to_top10",
+        "n_athletes_within_50_elo",
+        "n_athletes_within_100_elo",
+        # v56 h2h-vs-field features (depend on which top-10 are in the field)
+        "h2h_win_rate_vs_field_top10",
+        "h2h_avg_position_gap_vs_field_top10",
+        "h2h_n_shared_races_vs_field_top10",
+        "h2h_n_unknown_field_athletes",
+    }
+    return [c for c in get_feature_columns() if c not in field_aggregate_cols]
+
+
+def get_stage2_feature_columns() -> list[str]:
+    """
+    Stage 2 feature set for the hierarchical model = full v57 feature list
+    PLUS 8 derived field-ability features (computed from Stage 1's per-athlete
+    ability scores). Defined as a function so the bundle can store the exact
+    column order used at training time.
+    """
+    stage1_derived = [
+        "stage1_my_ability",
+        "stage1_field_p10_ability",
+        "stage1_field_p3_ability",
+        "stage1_field_median_ability",
+        "stage1_my_gap_to_field_p10",
+        "stage1_my_gap_to_field_p3",
+        "stage1_n_field_better_than_me",
+        "stage1_field_std_ability",
+    ]
+    return get_feature_columns() + stage1_derived
+
+
+def compute_stage1_field_features(
+    stage1_scores: pd.Series,
+    athlete_ids: pd.Series | None = None,
+) -> pd.DataFrame:
+    """
+    Given a Series of Stage 1 ability scores for every athlete in a SINGLE
+    field, compute 8 derived field-ability features per athlete.
+
+    Args:
+        stage1_scores: Series of Stage 1 ability scores (one per athlete).
+                       Lower = better predicted finish_pct.
+        athlete_ids: Optional aligned Series of athlete_ids for the index.
+
+    Returns:
+        DataFrame with one row per athlete (same order as input) with columns:
+            stage1_my_ability
+            stage1_field_p10_ability        (10th-percentile cutline in score space)
+            stage1_field_p3_ability         (3rd-percentile / podium cutline)
+            stage1_field_median_ability
+            stage1_my_gap_to_field_p10      (my score - p10. negative = better than cutoff)
+            stage1_my_gap_to_field_p3       (my score - p3)
+            stage1_n_field_better_than_me   (count with strictly better Stage 1 score)
+            stage1_field_std_ability        (spread of Stage 1 scores in field)
+    """
+    s = pd.to_numeric(stage1_scores, errors="coerce").reset_index(drop=True)
+    n = len(s)
+
+    if n == 0:
+        cols = [
+            "stage1_my_ability", "stage1_field_p10_ability", "stage1_field_p3_ability",
+            "stage1_field_median_ability", "stage1_my_gap_to_field_p10",
+            "stage1_my_gap_to_field_p3", "stage1_n_field_better_than_me",
+            "stage1_field_std_ability",
+        ]
+        return pd.DataFrame(columns=cols)
+
+    sorted_s = s.sort_values(ascending=True).reset_index(drop=True)
+
+    # k-th best (1-indexed). Lower score = better.
+    def kth_best(k: int) -> float:
+        idx = min(k, n) - 1
+        return float(sorted_s.iloc[idx])
+
+    p10 = kth_best(10)
+    p3 = kth_best(3)
+    median = float(s.median()) if s.notna().any() else np.nan
+    std = float(s.std(ddof=0)) if s.notna().sum() >= 2 else 0.0
+
+    # n_field_better_than_me: athletes with strictly better (lower) score than me
+    arr = s.to_numpy()
+    n_better = np.array([
+        int((arr < x).sum()) if pd.notna(x) else np.nan
+        for x in arr
+    ])
+
+    out = pd.DataFrame({
+        "stage1_my_ability": s,
+        "stage1_field_p10_ability": p10,
+        "stage1_field_p3_ability": p3,
+        "stage1_field_median_ability": median,
+        "stage1_my_gap_to_field_p10": s - p10,
+        "stage1_my_gap_to_field_p3": s - p3,
+        "stage1_n_field_better_than_me": n_better,
+        "stage1_field_std_ability": std,
+    })
+    return out
 
 
 def fill_missing_features(df: pd.DataFrame, feature_cols: list[str]) -> pd.DataFrame:
@@ -2030,6 +2397,34 @@ def fill_missing_features(df: pd.DataFrame, feature_cols: list[str]) -> pd.DataF
         "h2h_avg_position_gap": 0.0,       # No gap info
         "h2h_n_shared_races": 0,           # No shared history
         "h2h_n_opponents_faced": 0,        # Haven't faced any opponents
+        # H2H vs field subsets (v56, Phase 2)
+        "h2h_win_rate_vs_field_top10": 0.5,         # Neutral: no top-10 history
+        "h2h_avg_position_gap_vs_field_top10": 0.0, # No top-10 gap info
+        "h2h_n_shared_races_vs_field_top10": 0,     # No top-10 races
+        "h2h_win_rate_recent_180d": 0.5,            # No recent matchups
+        "h2h_n_unknown_field_athletes": 0,          # Filled per-field by compute fn
+        "h2h_dominance_count": 0,                   # No dominant edges
+        # Hierarchical model — Stage 1 ability scores and derived field stats (v59)
+        # When the hierarchical predict path runs, these get filled per-field.
+        # When it doesn't (training of non-hierarchical models, fallback paths)
+        # we want sane defaults that don't pollute other models.
+        "stage1_my_ability": 0.65,            # Conservative below-mid ability score
+        "stage1_field_p10_ability": 0.20,     # Top-10 cutline (lower = better)
+        "stage1_field_p3_ability": 0.10,      # Podium cutline
+        "stage1_field_median_ability": 0.50,  # Mid-field ability
+        "stage1_my_gap_to_field_p10": 0.45,   # I'm 0.45 points worse than the cutline
+        "stage1_my_gap_to_field_p3": 0.55,    # I'm 0.55 worse than the podium cutline
+        "stage1_n_field_better_than_me": 30,  # Most of the field is better than me
+        "stage1_field_std_ability": 0.15,     # Moderate ability spread default
+        # Field-boundary features (v54, Phase 1)
+        # Athletes missing elo will have NaN for these — default to "below cutline"
+        # (negative gaps = below the top-K, density = small).
+        "field_elo_gap_to_top10": -100.0,  # 100 elo points below the top-10 line
+        "field_elo_gap_to_top3": -200.0,   # 200 below the podium line
+        "field_finish_pct_gap_to_top10": 0.30,  # 30 percentile points worse than cutoff
+        "field_perf_ratio_gap_to_top10": 0.05,  # 5% slower than cutoff perf ratio
+        "n_athletes_within_50_elo": 0,     # No close-elo competitors (loner default)
+        "n_athletes_within_100_elo": 0,
         # Venue history features (Phase 10B-5)
     }
 

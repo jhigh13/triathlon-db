@@ -1,18 +1,19 @@
 # Triathlon Race Prediction Model - Improvement Brainstorm
 
-## Status Summary (as of v45, March 2026)
+## Status Summary (as of v59, April 2026)
 
 | Category | Status | Notes |
 |----------|--------|-------|
 | 1: Distance-Agnostic Features | DONE | Finish percentile EMA, gap-to-median, per-split percentiles, cross-distance all implemented |
-| 2: Tier-Aware Modeling | PARTIAL | Tier-conditioned features done (v36). Tier-specific sim params done. Hierarchical model NOT done |
+| 2: Tier-Aware Modeling | PARTIAL | Tier-conditioned features done (v36). Tier-specific sim params done. Hierarchical model done in v59 |
 | 3: Target Variable Strategy | DONE | Finish percentile as target implemented in v37+ |
 | 4: MC Simulation Improvements | DONE | Learned pack effects, causal chain, distance-specific uncertainty, MVN covariance |
-| 5: Training Pipeline | DONE | Hyperparameter tuning, time-based CV, gender models all implemented |
-| 6: Tier-Stratified Modeling | PARTIAL | Option A (conditioned features) DONE. Option B (tier sim params) DONE. Option D (hierarchical) TODO |
-| 7: Group-First Bike Model | TODO | Largest architectural change, most principled approach |
-| 8: Feature Coverage & Data Quality | PARTIAL | Cold-start handling planned (Bayesian shrinkage), data quality filters done |
-| 9: New Signal Sources | PARTIAL | H2H/Elo partially done (v37). Form trajectory, course clustering, season phase TODO |
+| 5: Training Pipeline | DONE | Hyperparameter tuning, time-based CV, gender models all implemented. `deterministic=True` added v58 to remove ±1.5pp training variance |
+| 6: Tier-Stratified Modeling | TESTED | Option A (conditioned features) DONE. Option B (tier sim params) DONE. Option D (hierarchical ability+context) tested in v59 — REJECT (P@3 -2.3pp, P@1 -10pp). Mechanism failure: mis-ordering inside top-3 (boundary metrics tied with v57). |
+| 7: Group-First Bike Model | TODO | Largest architectural change, most principled approach for MC sim |
+| 8: Feature Coverage & Data Quality | PARTIAL | Cold-start handling planned (Bayesian shrinkage tested in v43, neutral). Field-boundary v54 features partially address it. |
+| 9: New Signal Sources | PARTIAL | H2H/Elo partially done (v37). v54 added field-boundary magnitudes. v56 h2h-vs-field-top10 didn't help. Form trajectory done (v52). Course clustering, season phase TODO |
+| 10: Architectural alternatives to additive features | EXHAUSTED | Cascade (v58, REJECT — recall-limited). Hierarchical (v59, REJECT — top-3 ordering noise). Conclusion: 74-75% P@10 / ~58% P@3 is the ceiling for this LGBMRanker family on H2 2025. Next axes: different ML library (CatBoost YetiRank), Optuna sweep on v57, group-first bike for MC sim probabilities, more training data. |
 
 ---
 
