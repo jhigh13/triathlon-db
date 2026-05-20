@@ -690,8 +690,16 @@ def sync_to_supabase(local_engine) -> None:
             VALUES
                 (:athlete_id, :ranking_cat_id, :event_id, :event_title,
                  :event_finish_date, :points, :period, :position, :retrieved_at, :included)
+            ON CONFLICT (athlete_id, ranking_cat_id, event_id) DO UPDATE SET
+                event_title       = EXCLUDED.event_title,
+                event_finish_date = EXCLUDED.event_finish_date,
+                points            = EXCLUDED.points,
+                period            = EXCLUDED.period,
+                position          = EXCLUDED.position,
+                included          = EXCLUDED.included,
+                retrieved_at      = EXCLUDED.retrieved_at
         """, rows2, "athlete_ranking_breakdown")
-        print(f"[Supabase] athlete_ranking_breakdown: {len(rows2):,} rows added ({len(new_dates2)} new date(s)).")
+        print(f"[Supabase] athlete_ranking_breakdown: {len(rows2):,} rows added or updated ({len(new_dates2)} new date(s)).")
 
 
 def update_computed_rankings(local_engine) -> None:

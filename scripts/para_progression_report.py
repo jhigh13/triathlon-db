@@ -265,25 +265,49 @@ def chart_perry_position(df: pd.DataFrame, out: Path):
 
 
 def chart_perry_per_race(df: pd.DataFrame, out: Path):
-    """Per-race deficit timeline — every overlap race as a dot."""
-    fig, axes = plt.subplots(1, 3, figsize=(14, 4.5), sharey=False)
+    """Per-race deficit timeline — every overlap race as a dot, with rolling-3 + linear trendlines."""
+    from matplotlib.lines import Line2D
+    fig, axes = plt.subplots(1, 3, figsize=(14, 4.8), sharey=False)
     segs = [("d_swim","Swim deficit (s)"),("d_bike","Bike deficit (s)"),("d_run","Run deficit (s)")]
     df = df.sort_values("event_date").reset_index(drop=True)
+    # x as days-since-first for linear fit
+    x_days = (df["event_date"] - df["event_date"].iloc[0]).dt.days.values.astype(float)
+
     for ax, (col, label) in zip(axes, segs):
         is_worlds = df["event_name"].str.contains("Championships", case=False, na=False)
         colors = [USAT_GOLD if w else USAT_RED for w in is_worlds]
-        ax.plot(df["event_date"], df[col], color=GREY_LIGHT, linewidth=1.5, zorder=1)
-        ax.scatter(df["event_date"], df[col], c=colors, s=90, edgecolor="black", linewidth=0.6, zorder=2)
+        y = df[col].values.astype(float)
+
+        # 3-race rolling average (centered, min 2)
+        roll = df[col].rolling(window=3, min_periods=2, center=True).mean()
+        ax.plot(df["event_date"], roll, color=USAT_NAVY, linewidth=2.2, zorder=2,
+                label="3-race rolling avg")
+
+        # Linear regression line
+        m, b = np.polyfit(x_days, y, 1)
+        x_line = np.array([x_days.min(), x_days.max()])
+        y_line = m * x_line + b
+        ax.plot([df["event_date"].iloc[0], df["event_date"].iloc[-1]], y_line,
+                color=GREY_DARK, linewidth=1.4, linestyle="--", zorder=2,
+                label=f"Linear ({m*365:+.0f}s/yr)")
+
+        # Race dots
+        ax.scatter(df["event_date"], y, c=colors, s=110, edgecolor="black",
+                   linewidth=0.7, zorder=3)
         ax.axhline(0, color="black", linewidth=0.8)
         ax.set_title(label)
         ax.grid(axis="y", linestyle=":", alpha=0.4)
         ax.set_xlabel("")
-        for d, v in zip(df["event_date"], df[col]):
-            ax.annotate(f"{int(v):+d}", xy=(d, v), xytext=(0,8 if v>=0 else -14),
-                        textcoords="offset points", ha="center", fontsize=8)
+        for d, v in zip(df["event_date"], y):
+            ax.annotate(f"{int(v):+d}", xy=(d, v), xytext=(0,9 if v>=0 else -15),
+                        textcoords="offset points", ha="center", fontsize=8, color=GREY_DARK)
+        ax.legend(frameon=False, loc="upper right", fontsize=8)
+
+    # Race-type legend separately at bottom
     legend = [Patch(facecolor=USAT_RED, edgecolor="black", label="Series / Cup / Paralympics"),
               Patch(facecolor=USAT_GOLD, edgecolor="black", label="World Championships")]
-    axes[-1].legend(handles=legend, frameon=False, loc="upper right", fontsize=8)
+    fig.legend(handles=legend, frameon=False, loc="lower center", ncol=2, fontsize=9,
+               bbox_to_anchor=(0.5, -0.04))
     fig.suptitle("Perry vs Parker — Per-Race Segment Deficit (every overlap race)",
                  fontsize=14, fontweight="bold", y=1.02)
     for ax in axes:
@@ -916,6 +940,245 @@ def build_pptx_hermes(outdir: Path, stats: dict) -> Path:
     return pptx_path
 
 
+# ---------- Standalone 2026 update slides (single PPTX, copy/paste into existing deck) ----------
+def _seconds_to_mmss(sec):
+    if sec is None or pd.isna(sec):
+        return "—"
+    sec = int(round(sec))
+    h, rem = divmod(sec, 3600)
+    m, s = divmod(rem, 60)
+    return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
+
+
+def build_perry_2026_slide(engine, outdir: Path) -> Path:
+    """Single slide: Perry 2026 season update (Yokohama WPS vs Parker)."""
+    from pptx import Presentation
+    from pptx.util import Inches, Pt
+    from pptx.dml.color import RGBColor
+    from pptx.enum.text import PP_ALIGN
+    from pptx.enum.shapes import MSO_SHAPE
+
+    df = pull_overlap(engine, PERRY, PARKER)
+    df["year"] = df["event_date"].dt.year
+    races_2026 = df[df["year"] == 2026].sort_values("event_date")
+    if races_2026.empty:
+        print("[Perry 2026] no 2026 races, skipping")
+        return None
+    race = races_2026.iloc[-1]  # most recent
+    yearly_2025 = df[df["year"] == 2025].agg(
+        {"d_swim":"mean","d_bike":"mean","d_run":"mean","d_total":"mean"})
+
+    prs = Presentation()
+    prs.slide_width = Inches(13.333); prs.slide_height = Inches(7.5)
+    NAVY = RGBColor(0x00,0x28,0x68); RED = RGBColor(0xC8,0x10,0x2E)
+    GREY = RGBColor(0x55,0x55,0x55); LIGHT = RGBColor(0xF4,0xF4,0xF4)
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+
+    # Title
+    tb = slide.shapes.add_textbox(Inches(0.4), Inches(0.2), Inches(12.5), Inches(0.9))
+    tf = tb.text_frame; tf.word_wrap = True
+    p = tf.paragraphs[0]; p.text = "2026 Season Update — Emelia Perry vs Lauren Parker"
+    p.runs[0].font.size = Pt(28); p.runs[0].font.bold = True; p.runs[0].font.color.rgb = NAVY
+    p2 = tf.add_paragraph()
+    p2.text = f"{race['event_name']} · {race['event_date'].strftime('%B %d, %Y')} · finished {int(race['a_pos'])}{ordinal(int(race['a_pos']))}"
+    p2.runs[0].font.size = Pt(14); p2.runs[0].font.color.rgb = GREY
+
+    # KPI row
+    kpis = [
+        (f"{int(race['a_pos'])}{ordinal(int(race['a_pos']))}", "Yokohama WPS finish", "vs Parker (gold)"),
+        (f"{int(race['d_total']):+d}s", "Total deficit",         f"2025 avg was {int(yearly_2025['d_total']):+d}s"),
+        (f"{int(race['d_bike']):+d}s",  "Bike deficit",          f"2025 avg was {int(yearly_2025['d_bike']):+d}s"),
+        (f"{int(race['d_run']):+d}s",   "Run deficit",           "Perry faster on run again"),
+    ]
+    for i, (big, mid, sub) in enumerate(kpis):
+        x = Inches(0.5 + i*3.15)
+        bg = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, x, Inches(1.5), Inches(2.95), Inches(1.9))
+        bg.fill.solid(); bg.fill.fore_color.rgb = LIGHT
+        bg.line.color.rgb = LIGHT
+        box = slide.shapes.add_textbox(x, Inches(1.55), Inches(2.95), Inches(1.85))
+        tf = box.text_frame; tf.word_wrap = True
+        p = tf.paragraphs[0]; p.text = big
+        p.runs[0].font.size = Pt(40); p.runs[0].font.bold = True; p.runs[0].font.color.rgb = RED
+        p.alignment = PP_ALIGN.CENTER
+        p2 = tf.add_paragraph(); p2.text = mid
+        p2.runs[0].font.size = Pt(14); p2.runs[0].font.bold = True; p2.runs[0].font.color.rgb = NAVY
+        p2.alignment = PP_ALIGN.CENTER
+        p3 = tf.add_paragraph(); p3.text = sub
+        p3.runs[0].font.size = Pt(11); p3.runs[0].font.color.rgb = GREY
+        p3.alignment = PP_ALIGN.CENTER
+
+    # Race-detail table
+    tb = slide.shapes.add_textbox(Inches(0.5), Inches(3.7), Inches(8.0), Inches(0.4))
+    tf = tb.text_frame
+    p = tf.paragraphs[0]; p.text = "Race splits"
+    p.runs[0].font.size = Pt(16); p.runs[0].font.bold = True; p.runs[0].font.color.rgb = NAVY
+
+    rows = [
+        ("Segment", "Perry", "Parker", "Δ"),
+        ("Swim",  _seconds_to_mmss(race['a_swim_s']), _seconds_to_mmss(race['b_swim_s']), f"{int(race['d_swim']):+d}s"),
+        ("T1",    _seconds_to_mmss(race['a_t1_s']),   _seconds_to_mmss(race['b_t1_s']),   f"{int(race['d_t1']):+d}s"),
+        ("Bike",  _seconds_to_mmss(race['a_bike_s']), _seconds_to_mmss(race['b_bike_s']), f"{int(race['d_bike']):+d}s"),
+        ("T2",    _seconds_to_mmss(race['a_t2_s']),   _seconds_to_mmss(race['b_t2_s']),   f"{int(race['d_t2']):+d}s"),
+        ("Run",   _seconds_to_mmss(race['a_run_s']),  _seconds_to_mmss(race['b_run_s']),  f"{int(race['d_run']):+d}s"),
+        ("Total", _seconds_to_mmss(race['a_total_s']), _seconds_to_mmss(race['b_total_s']),f"{int(race['d_total']):+d}s"),
+    ]
+    table = slide.shapes.add_table(len(rows), 4, Inches(0.5), Inches(4.15), Inches(7.5), Inches(2.85)).table
+    for r, row_vals in enumerate(rows):
+        for c, val in enumerate(row_vals):
+            cell = table.cell(r, c); cell.text = ""
+            tf = cell.text_frame; p = tf.paragraphs[0]; p.text = val
+            p.runs[0].font.size = Pt(13)
+            if r == 0:
+                p.runs[0].font.bold = True; p.runs[0].font.color.rgb = RGBColor(0xFF,0xFF,0xFF)
+                cell.fill.solid(); cell.fill.fore_color.rgb = NAVY
+            else:
+                if c == 3 and val.startswith("-"):
+                    p.runs[0].font.bold = True; p.runs[0].font.color.rgb = NAVY
+                elif c == 3:
+                    p.runs[0].font.color.rgb = RED
+                cell.fill.solid()
+                cell.fill.fore_color.rgb = RGBColor(0xFF,0xFF,0xFF) if r % 2 == 0 else RGBColor(0xF8,0xF8,0xF8)
+
+    # Story callout
+    tb = slide.shapes.add_textbox(Inches(8.4), Inches(3.7), Inches(4.6), Inches(3.3))
+    tf = tb.text_frame; tf.word_wrap = True
+    p = tf.paragraphs[0]; p.text = "What this race confirms"
+    p.runs[0].font.size = Pt(16); p.runs[0].font.bold = True; p.runs[0].font.color.rgb = NAVY
+    for line in [
+        f"• Bike gap fell to {int(race['d_bike'])}s — the smallest single-race bike deficit in her career vs Parker.",
+        f"• Perry beat Parker on the run by {abs(int(race['d_run']))}s, her 4th consecutive race ahead.",
+        f"• Total of {int(race['d_total'])}s is consistent with the 2025 trajectory — the gains held into 2026.",
+        "• Open question: swim deficit (+1:45) is the remaining headline gap. Coaching focus for the next block.",
+    ]:
+        p = tf.add_paragraph(); p.text = line
+        p.runs[0].font.size = Pt(12); p.runs[0].font.color.rgb = GREY
+
+    out = outdir / "Perry_2026_Update_SLIDE.pptx"
+    prs.save(str(out))
+    return out
+
+
+def build_hermes_2026_slide(engine, outdir: Path) -> Path:
+    """Single slide: Hermes 2026 season update (Samarkand + Yokohama wins)."""
+    from pptx import Presentation
+    from pptx.util import Inches, Pt
+    from pptx.dml.color import RGBColor
+    from pptx.enum.text import PP_ALIGN
+    from pptx.enum.shapes import MSO_SHAPE
+
+    full = pull_full_history(engine, HERMES, peer_ids={"rod": RODRIGUEZ.aid, "tar": TARANTELLO.aid})
+    full["year"] = full["event_date"].dt.year
+    races_2026 = full[full["year"] == 2026].sort_values("event_date")
+    if races_2026.empty:
+        print("[Hermes 2026] no 2026 races, skipping")
+        return None
+
+    prs = Presentation()
+    prs.slide_width = Inches(13.333); prs.slide_height = Inches(7.5)
+    NAVY = RGBColor(0x00,0x28,0x68); RED = RGBColor(0xC8,0x10,0x2E)
+    GREY = RGBColor(0x55,0x55,0x55); LIGHT = RGBColor(0xF4,0xF4,0xF4)
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+
+    # Title
+    tb = slide.shapes.add_textbox(Inches(0.4), Inches(0.2), Inches(12.5), Inches(0.9))
+    tf = tb.text_frame; tf.word_wrap = True
+    p = tf.paragraphs[0]; p.text = "2026 Season Update — McClain Hermes"
+    p.runs[0].font.size = Pt(28); p.runs[0].font.bold = True; p.runs[0].font.color.rgb = NAVY
+    p2 = tf.add_paragraph()
+    p2.text = f"{len(races_2026)} starts · {(races_2026['h_pos']==1).sum()} wins · first WPS Series victory"
+    p2.runs[0].font.size = Pt(14); p2.runs[0].font.color.rgb = GREY
+
+    # KPI row
+    win_count = int((races_2026["h_pos"]==1).sum())
+    yokohama = races_2026[races_2026["event_name"].str.contains("Yokohama")].iloc[0] if not races_2026[races_2026["event_name"].str.contains("Yokohama")].empty else races_2026.iloc[-1]
+    samarkand = races_2026[races_2026["event_name"].str.contains("Samarkand")].iloc[0] if not races_2026[races_2026["event_name"].str.contains("Samarkand")].empty else None
+    kpis = [
+        (f"{win_count} / {len(races_2026)}", "Wins / Starts",      "Undefeated through May"),
+        ("1st",                              "Samarkand Para Cup", "Apr 26 · 4 finishers"),
+        ("1st",                              "Yokohama WPS",       "May 16 · 8 finishers · first WPS win"),
+        (_seconds_to_mmss(yokohama['h_total']) if pd.notna(yokohama['h_total']) else "—", "Yokohama total time", "Career-best sprint result"),
+    ]
+    for i, (big, mid, sub) in enumerate(kpis):
+        x = Inches(0.5 + i*3.15)
+        bg = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, x, Inches(1.5), Inches(2.95), Inches(1.9))
+        bg.fill.solid(); bg.fill.fore_color.rgb = LIGHT
+        bg.line.color.rgb = LIGHT
+        box = slide.shapes.add_textbox(x, Inches(1.55), Inches(2.95), Inches(1.85))
+        tf = box.text_frame; tf.word_wrap = True
+        p = tf.paragraphs[0]; p.text = big
+        p.runs[0].font.size = Pt(36); p.runs[0].font.bold = True; p.runs[0].font.color.rgb = RED
+        p.alignment = PP_ALIGN.CENTER
+        p2 = tf.add_paragraph(); p2.text = mid
+        p2.runs[0].font.size = Pt(13); p2.runs[0].font.bold = True; p2.runs[0].font.color.rgb = NAVY
+        p2.alignment = PP_ALIGN.CENTER
+        p3 = tf.add_paragraph(); p3.text = sub
+        p3.runs[0].font.size = Pt(11); p3.runs[0].font.color.rgb = GREY
+        p3.alignment = PP_ALIGN.CENTER
+
+    # Yokohama detail table
+    tb = slide.shapes.add_textbox(Inches(0.5), Inches(3.7), Inches(8.0), Inches(0.4))
+    tf = tb.text_frame
+    p = tf.paragraphs[0]; p.text = "Yokohama WPS — winning margin"
+    p.runs[0].font.size = Pt(16); p.runs[0].font.bold = True; p.runs[0].font.color.rgb = NAVY
+
+    # Need 2nd & 3rd at Yokohama — pull from race_results
+    yoko_field_q = text("""
+        SELECT athlete_full_name, finish_position, total_time, swimtime, biketime, runtime
+        FROM race_results r JOIN events e ON e.event_id=r.event_id AND e.prog_id=r.prog_id
+        WHERE e.event_name ILIKE '%Yokohama%' AND e.event_date='2026-05-16' AND e.prog_name='PTVI Women'
+          AND r.finish_position IN (1,2,3) ORDER BY finish_position
+    """)
+    with engine.begin() as c:
+        field = pd.read_sql(yoko_field_q, c)
+    for col in ["total_time","swimtime","biketime","runtime"]:
+        field[col + "_s"] = field[col].apply(to_sec)
+
+    rows = [("Pos","Athlete","Swim","Bike","Run","Total")]
+    for _, r in field.iterrows():
+        rows.append((
+            f"{int(r['finish_position'])}",
+            r["athlete_full_name"][:22],
+            _seconds_to_mmss(r["swimtime_s"]),
+            _seconds_to_mmss(r["biketime_s"]),
+            _seconds_to_mmss(r["runtime_s"]),
+            _seconds_to_mmss(r["total_time_s"]),
+        ))
+    table = slide.shapes.add_table(len(rows), 6, Inches(0.5), Inches(4.15), Inches(7.5), Inches(2.0)).table
+    for r, row_vals in enumerate(rows):
+        for c, val in enumerate(row_vals):
+            cell = table.cell(r, c); cell.text = ""
+            tf = cell.text_frame; p = tf.paragraphs[0]; p.text = val
+            p.runs[0].font.size = Pt(11)
+            if r == 0:
+                p.runs[0].font.bold = True; p.runs[0].font.color.rgb = RGBColor(0xFF,0xFF,0xFF)
+                cell.fill.solid(); cell.fill.fore_color.rgb = NAVY
+            else:
+                cell.fill.solid()
+                if r == 1:
+                    cell.fill.fore_color.rgb = RGBColor(0xFF,0xEE,0xEE)
+                    p.runs[0].font.bold = True
+                else:
+                    cell.fill.fore_color.rgb = RGBColor(0xFF,0xFF,0xFF) if r % 2 == 0 else RGBColor(0xF8,0xF8,0xF8)
+
+    # Story callout
+    tb = slide.shapes.add_textbox(Inches(8.4), Inches(3.7), Inches(4.6), Inches(3.3))
+    tf = tb.text_frame; tf.word_wrap = True
+    p = tf.paragraphs[0]; p.text = "What this start confirms"
+    p.runs[0].font.size = Pt(16); p.runs[0].font.bold = True; p.runs[0].font.color.rgb = NAVY
+    for line in [
+        "• 2 wins from 2 starts — first WPS Series victory of her career.",
+        "• Won Yokohama by 2:55 over 2nd place in an 8-deep field — biggest margin she has put on a deep PTVI field.",
+        "• Bike was the race-fastest split.",
+        "• Open question: neither Rodriguez (B1, defending Paralympic champ) nor Tarantello (B3, recent Worlds medallist) raced. True championship-field gap is still TBD until they meet at Worlds.",
+    ]:
+        p = tf.add_paragraph(); p.text = line
+        p.runs[0].font.size = Pt(12); p.runs[0].font.color.rgb = GREY
+
+    out = outdir / "Hermes_2026_Update_SLIDE.pptx"
+    prs.save(str(out))
+    return out
+
+
 def ordinal(n: int) -> str:
     if 10 <= n % 100 <= 20:
         return "th"
@@ -936,6 +1199,12 @@ def main():
     hermes_pptx = build_pptx_hermes(hermes_out, hermes_stats)
     print(f"[Perry]  PPTX: {perry_pptx}")
     print(f"[Hermes] PPTX: {hermes_pptx}")
+
+    # Standalone single-slide 2026 updates (drop into existing decks)
+    perry_2026 = build_perry_2026_slide(engine, perry_out)
+    hermes_2026 = build_hermes_2026_slide(engine, hermes_out)
+    if perry_2026:  print(f"[Perry]  2026 single-slide: {perry_2026}")
+    if hermes_2026: print(f"[Hermes] 2026 single-slide: {hermes_2026}")
 
     print(f"\nAll outputs in: {base}")
 

@@ -134,8 +134,8 @@ def main():
     initialize_database()
 
     # Allow overriding the date window via environment variables for backfills (e.g., para-only last 4 years)
-    start_date = os.environ.get("START_DATE") or datetime.date(2026, 1, 1).strftime("%Y-%m-%d")
-    end_date = os.environ.get("END_DATE") or datetime.date(2026, 5, 31).strftime("%Y-%m-%d")
+    start_date = os.environ.get("START_DATE") or datetime.date(2026, 4, 1).strftime("%Y-%m-%d")
+    end_date = os.environ.get("END_DATE") or datetime.date(2026, 5, 20).strftime("%Y-%m-%d")
     relay_only = os.environ.get("RELAY_ONLY", "0").strip().lower() in {"1", "true", "yes", "y"}
 
     # Initialize as an empty list to collect DataFrames from each process_program_data call

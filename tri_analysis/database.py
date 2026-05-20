@@ -438,6 +438,8 @@ def initialize_database():
             ("wet_bulb_temp", "DOUBLE PRECISION"),
             ("weather_source", "VARCHAR"),
             ("weather_fetched_at", "VARCHAR"),
+            ("technical_delegates", "VARCHAR"),
+            ("drafting", "VARCHAR"),
         ]:
             conn.execute(text(f'ALTER TABLE "{EVENTS_TABLE_NAME}" ADD COLUMN IF NOT EXISTS {col} {col_type}'))
         # Add finish-related columns to race_results if missing (safe migrations)
