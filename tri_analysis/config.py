@@ -53,3 +53,16 @@ SPEC_IDS = os.getenv(
     "SPEC_IDS",
     "356|357"  # default specifications; extend/override via env for para
 )
+
+# ── INSCYD External API ──────────────────────────────────────────────
+# Metabolic test data (VO2/lactate/fat/carb polynomials + scalars).
+# Set INSCYD_API_KEY and INSCYD_HOST in .env. The host has no scheme,
+# e.g. INSCYD_HOST=app.inscyd.com  (base URL is derived from it).
+INSCYD_API_KEY = os.getenv("INSCYD_API_KEY")
+INSCYD_HOST = os.getenv("INSCYD_HOST")
+INSCYD_BASE_URL = os.getenv(
+    "INSCYD_BASE_URL",
+    f"https://{INSCYD_HOST}/api/external" if INSCYD_HOST else None,
+)
+# Default cycling sport id can be pinned once known (see API "sport_id").
+INSCYD_BIKE_SPORT_ID = os.getenv("INSCYD_BIKE_SPORT_ID")

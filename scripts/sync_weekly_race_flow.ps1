@@ -113,6 +113,24 @@ if (-not $SkipLocalBuild) {
     finally {
         Pop-Location
     }
+
+    # Recompute event points so computed_weekly_rankings reflects new race results.
+    Write-Host 'Recomputing event points from updated race results...'
+    Push-Location $triathlonRoot
+    try {
+        & .\.venv\Scripts\python.exe -c @'
+from dotenv import load_dotenv
+load_dotenv()
+from tri_analysis.ranking_points import compute_event_points_batch
+from tri_analysis.database import get_engine
+engine = get_engine()
+n = compute_event_points_batch(engine)
+print(f"compute_event_points_batch: {n:,} rows written.")
+'@
+    }
+    finally {
+        Pop-Location
+    }
 }
 
 if (-not $SkipRestore) {

@@ -1,0 +1,2758 @@
+Received: from MW3PR13MB3964.namprd13.prod.outlook.com (2603:10b6:303:5d::9)
+ by DM6PR13MB3708.namprd13.prod.outlook.com with HTTPS; Wed, 15 Apr 2026
+ 22:33:30 +0000
+ARC-Seal: i=2; a=rsa-sha256; s=arcselector10001; d=microsoft.com; cv=pass;
+ b=Gn+PBsaJwwCsh2/e0LIm/I3V3YDvEImTO8zUvj2XmUPI8fVoJ3CPJEhglMGVeV1lPLKI4WLQ54hH4ai9omghQ+/6IP7toyviQckWmTzhSEhkRc5/IrtqMQUa+UF6DK4DyEaFMmpjjN78t6c443Zf+R0wQ2MRsMMEjUgjU3l4BFmID9SVhMQ5fXEljgPbbZnlSoR5/2Tk0ialMKMuY0IPPRCLLdoMS40zPO4hOP3zxJpENXIT3XHU5UJdyIzyBBzXxKM3vQFg+lJ0dK1Zz3vgL3Zg4pdk4n5SDAN5N8rxvEMEyhersFTYimgPnr5NVjk0Err4ibbsTpw0F4PQCkCU9w==
+ARC-Message-Signature: i=2; a=rsa-sha256; c=relaxed/relaxed; d=microsoft.com;
+ s=arcselector10001;
+ h=From:Date:Subject:Message-ID:Content-Type:MIME-Version:X-MS-Exchange-AntiSpam-MessageData-ChunkCount:X-MS-Exchange-AntiSpam-MessageData-0:X-MS-Exchange-AntiSpam-MessageData-1;
+ bh=aI0+OxuIIfSRoiWN4PBwhhuGTGupZd18W8SakGpDT28=;
+ b=VnDziGJLKi7au2MpheNRa4X0/fAqhv7hLC6cJm+VCvdKfpgJxb2FZDVWaR3DamF5rFmwGntKRqH20GUISAzNmkLl399QvQFAhKj8QCogXBN8MNlmgtvEgUwhsV2+3iYxXb4K943EDHi7sS6joic9T+fs5NYw5udH6ESfuQ7oHoUKjt0jGAYIaF5WYStvrIIb8fe7XwUR82ci8v01jcUlLpGffi+yskHNAElxIGrTgEJyjfbGZvx5HJ3PcdVT5M09cudoZWVglvZ1cjD29+oHmgVvZ6FM++W1A/sgByrW081MNkr32duatNzZo/7P32JvBhl+M68GUiZu5wYPPwQh4g==
+ARC-Authentication-Results: i=2; mx.microsoft.com 1; spf=pass (sender ip is
+ 2607:f8b0:4864:20::1241) smtp.rcpttodomain=usatriathlon.org
+ smtp.mailfrom=inscyd.com; dmarc=pass (p=none sp=none pct=100) action=none
+ header.from=inscyd.com; dkim=pass (signature was verified)
+ header.d=inscyd-com.20251104.gappssmtp.com; arc=pass (0 oda=0 ltdi=1)
+Received: from BYAPR03CA0022.namprd03.prod.outlook.com (2603:10b6:a02:a8::35)
+ by MW3PR13MB3964.namprd13.prod.outlook.com (2603:10b6:303:5d::9) with
+ Microsoft SMTP Server (version=TLS1_2,
+ cipher=TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384) id 15.20.9818.21; Wed, 15 Apr
+ 2026 22:33:26 +0000
+Received: from MWH0EPF000C618E.namprd02.prod.outlook.com
+ (2603:10b6:a02:a8:cafe::67) by BYAPR03CA0022.outlook.office365.com
+ (2603:10b6:a02:a8::35) with Microsoft SMTP Server (version=TLS1_3,
+ cipher=TLS_AES_256_GCM_SHA384) id 15.20.9769.49 via Frontend Transport; Wed,
+ 15 Apr 2026 22:33:26 +0000
+Authentication-Results: spf=pass (sender IP is 2607:f8b0:4864:20::1241)
+ smtp.mailfrom=inscyd.com; dkim=pass (signature was verified)
+ header.d=inscyd-com.20251104.gappssmtp.com;dmarc=pass action=none
+ header.from=inscyd.com;compauth=pass reason=100
+Received-SPF: Pass (protection.outlook.com: domain of inscyd.com designates
+ 2607:f8b0:4864:20::1241 as permitted sender) receiver=protection.outlook.com;
+ client-ip=2607:f8b0:4864:20::1241; helo=mail-dl1-x1241.google.com; pr=C
+Received: from mail-dl1-x1241.google.com (2607:f8b0:4864:20::1241) by
+ MWH0EPF000C618E.mail.protection.outlook.com (2603:10b6:30f:fff5::474) with
+ Microsoft SMTP Server (version=TLS1_3, cipher=TLS_AES_256_GCM_SHA384) id
+ 15.20.9769.17 via Frontend Transport; Wed, 15 Apr 2026 22:33:24 +0000
+Received: by mail-dl1-x1241.google.com with SMTP id a92af1059eb24-12c637089ccso718147c88.1
+        for <john.high@usatriathlon.org>; Wed, 15 Apr 2026 15:33:24 -0700 (PDT)
+ARC-Seal: i=1; a=rsa-sha256; t=1776292404; cv=none;
+        d=google.com; s=arc-20240605;
+        b=aRT3CIBOFCEgBctzhOOY0C+CU0zX/J8AqbJ/4Ty8CGUGdUWTM5X67DRWZ9KNl6xSEU
+         f+yaIbeja6AreGWoGQVgI/7QSq967M/EnoEiHAcnqaWGvLRvfJmUBoG2YoR21HvE6R1E
+         OxW8w+x7q0U5DGT64hLUMBsEk4aW9lCIXUiliEDB82HG4ya5QnmeZEDsrEZ+opFvZ/m0
+         Po2wzhnVwE5eb844gw12uBwMKF8SEKQlLH7+7OOE2ETF/Xpr9g4uel0PV9vC2hm+sDqz
+         vhIBr4/nHCzPyVlJBLZTEz2yDUXNU/eu+bC0+/84fyZq6j1KyZfCwdYKHLQ5HxdXxrq0
+         bwzw==
+ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed; d=google.com; s=arc-20240605;
+        h=to:subject:message-id:date:from:mime-version:dkim-signature;
+        bh=aI0+OxuIIfSRoiWN4PBwhhuGTGupZd18W8SakGpDT28=;
+        fh=xAqt+mfZQEizyZaqIuXIXU2TOV4fgaVRoRuo7hNDoXQ=;
+        b=UzNw77l9wzmiUD0Dcg4ZhnWc+i61hUObMe9SSzYqEJ6mqD/03QzVS+4gBGPJTRL0RU
+         gfU1vfhnRYSjy39PKm+2GF3gKL44k1TiJuMUon7lpHRFPrppWrzGfEPRyAbM86kt/EOL
+         IffXsE5T1tK79F61oSkSmDXZlqVWRiE+CmpUllMYvXh9NWkbXoxpkmHkV1mlAV2s/bQ0
+         bYxpldOrxrMnvssYRRxK3dcZNoa36ADmUTFZfz7apiVZCK4mvzfw7i3Od0QWsC1FlOX4
+         9OnccPf3ar+PiupaQtYukhbN71F4yknmbJS7D7AB977QtIDk7kJjA9xh+AoDgNdf73gH
+         48yQ==;
+        darn=usatriathlon.org
+ARC-Authentication-Results: i=1; mx.google.com; arc=none
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed;
+        d=inscyd-com.20251104.gappssmtp.com; s=20251104; t=1776292404; x=1776897204; darn=usatriathlon.org;
+        h=to:subject:message-id:date:from:mime-version:from:to:cc:subject
+         :date:message-id:reply-to;
+        bh=aI0+OxuIIfSRoiWN4PBwhhuGTGupZd18W8SakGpDT28=;
+        b=jhREXyZUmwCJF2slCd8H4ZKcfs2Ptn1YJv7NeYXTMCPVlWDu3u23tG3PNDoPNhI0Y0
+         13Z1OLy+lIR2rn8Bo2nMCwTPJTXU61mo5/iO1o/F9Kjnto5hRiRJqO3Vc8iBckNmzF6+
+         gJwfKLDJhsVI5G8YVAAAhRMcy7WB6ph3V+NiRGNulu9/4zvgV1AA08RkI1dTxS4aJ7/u
+         ZeyRHNaFKLOdnJa70n4KnMUEBmr00YAdcpyNqiS8fzLMkqVYGIte9oPKCb2vT8MhZJB/
+         jb13iR7QLwUv/koGCD3by3RU+AziHC/C6qMaft1xRo7jgen/phHinOc/3bZESyb1buwv
+         CoNQ==
+X-Google-DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed;
+        d=1e100.net; s=20251104; t=1776292404; x=1776897204;
+        h=to:subject:message-id:date:from:mime-version:x-gm-gg
+         :x-gm-message-state:from:to:cc:subject:date:message-id:reply-to;
+        bh=aI0+OxuIIfSRoiWN4PBwhhuGTGupZd18W8SakGpDT28=;
+        b=SxKkgvATD4SZQfWzUmoMeH1gN/cSsSVDgRXZ73KQ0gjdgg55drQfw3DHgRfLvHBFJw
+         lMVmNPR1qR4J1tsURcOZpa02rT0y2ZZvarK8Uy/SiPRRBCkyTwX2AdTVvsdtO4gWPJzm
+         kniEDmS3Yccj4/B9iAiIEdgnsQI52hhnGLKe+zDf4BIfqRwJA5E4f+k5BRnncFemKae+
+         abFAeOHacVxtHkgoT3p1VRN1Vs4+MjSvlCKGFLax/enWvOAA8ioy1bDGN8KWTwHCMpjP
+         Sy9IpoDu7nqWD8m/S839DsciiG3RUErebDhWCgGLpSAZfJXiuM2n3dWxJbv8uX997Jdk
+         H72A==
+X-Gm-Message-State: AOJu0Ywt+Yu7RKUSTpyAQWn6N3Xqssk8/n7kiNXf0y+M/oIgkmzjxVmM
+	D6sF39nSCVcCZfOWNQKuj3cuWFCgNG0DEJ0wsi+ArL+MB/o54VkRd+r9xeR9Gffwvxuzi897Hgf
+	Ot3X5YNgfYo/hmjCXY3IeGj1H/vFmKP7X7GweRg+PJ02P8BFDH9wQTKl6ul6lIgkffA==
+X-Gm-Gg: AeBDietziWpVprNp0FIDcGW1IoCuCEdNaqSvw1WWnXbUj3unAlYloaJpiEpdzU8JamC
+	vOR+CLOGxLMzJ6H3pmviDjXXqPmfNerqcMFPAjVeHfdwkIcwV3uqwym86vVnTnfpQ74iheAr4Rp
+	p/w7MGeB2ysTBCBmkY6QjjAlawFISreHRUCEh88naOxk3/fH1cu7A3oiwGhoj+di3G8mxvMcDvs
+	HQFsDxa3Z79VGeEcEO0mNOkyqCiI8gh1Ja9RXXw6AjhZy2seD01NR8wBe1XvYep4R92ZlzL//Lo
+	v9b1erGOQm/jnudd7it9t/9fMtULB65n5i1NL3R9Jl6fYQFYWQ7+LK2/3KikMbmliM8V/YQRIUN
+	gh2/97P03MnA5ys7csA==
+X-Received: by 2002:a05:7022:699a:b0:12a:72af:83d1 with SMTP id
+ a92af1059eb24-12c34ea9cffmr13115678c88.11.1776292403364; Wed, 15 Apr 2026
+ 15:33:23 -0700 (PDT)
+From: Sebastian Weber <sebastian@inscyd.com>
+Date: Thu, 16 Apr 2026 00:32:46 +0200
+X-Gm-Features: AQROBzDAfORv5FKnVOkEmTghr9_ty-ArzMQf-j1BjyA7jOuRxUaHIgmSyV8lwFc
+Message-ID: <CAH4fbe8egqV=EnBuuiCk1S0QRUHc2W7Z+zaEQx=O=qpKHveNrA@mail.gmail.com>
+Subject: [EXTERNAL] - api docu
+To: John High <john.high@usatriathlon.org>
+Content-Type: multipart/alternative; boundary="000000000000b856e3064f874d21"
+Return-Path: sebastian@inscyd.com
+X-MS-Exchange-Organization-ExpirationStartTime: 15 Apr 2026 22:33:25.0348
+ (UTC)
+X-MS-Exchange-Organization-ExpirationStartTimeReason: OriginalSubmit
+X-MS-Exchange-Organization-ExpirationInterval: 1:00:00:00.0000000
+X-MS-Exchange-Organization-ExpirationIntervalReason: OriginalSubmit
+X-MS-Exchange-Organization-Network-Message-Id: f7704c40-183c-407d-fbd2-08de9b3f01e6
+X-EOPAttributedMessage: 0
+X-EOPTenantAttributedMessage: ec19ce1f-cf90-4c88-859e-a3a252e503bf:0
+X-MS-Exchange-Organization-MessageDirectionality: Incoming
+X-MS-PublicTrafficType: Email
+X-MS-TrafficTypeDiagnostic: MWH0EPF000C618E:EE_|MW3PR13MB3964:EE_|DM6PR13MB3708:EE_
+X-MS-Exchange-Organization-AuthSource: MWH0EPF000C618E.namprd02.prod.outlook.com
+X-MS-Exchange-Organization-AuthAs: Anonymous
+X-MS-Office365-Filtering-Correlation-Id: f7704c40-183c-407d-fbd2-08de9b3f01e6
+X-MS-Exchange-Organization-SCL: 1
+X-Microsoft-Antispam: BCL:0;ARA:13230040|704162011799003|43022699015|3109299003|13003099007|12006099003|8096899003|16102099003|18002099003|19002099003|57112099003;
+X-Forefront-Antispam-Report: CIP:2607:f8b0:4864:20::1241;CTRY:;LANG:en;SCL:1;SRV:;IPV:NLI;SFV:NSPM;H:mail-dl1-x1241.google.com;PTR:mail-dl1-x1241.google.com;CAT:NONE;SFS:(13230040)(704162011799003)(43022699015)(3109299003)(13003099007)(12006099003)(8096899003)(16102099003)(18002099003)(19002099003)(57112099003);DIR:INB;
+X-MS-Exchange-CrossTenant-OriginalArrivalTime: 15 Apr 2026 22:33:24.8007
+ (UTC)
+X-MS-Exchange-CrossTenant-Network-Message-Id: f7704c40-183c-407d-fbd2-08de9b3f01e6
+X-MS-Exchange-CrossTenant-Id: ec19ce1f-cf90-4c88-859e-a3a252e503bf
+X-MS-Exchange-CrossTenant-AuthSource: MWH0EPF000C618E.namprd02.prod.outlook.com
+X-MS-Exchange-CrossTenant-AuthAs: Anonymous
+X-MS-Exchange-CrossTenant-FromEntityHeader: Internet
+X-MS-Exchange-Transport-CrossTenantHeadersStamped: MW3PR13MB3964
+X-MS-Exchange-Transport-EndToEndLatency: 00:00:05.4642790
+X-MS-Exchange-Processed-By-BccFoldering: 15.20.9769.018
+X-Microsoft-Antispam-Mailbox-Delivery:
+	ucf:0;jmr:0;auth:0;dest:I;ENG:(910005)(944506478)(944626604)(920097)(930201)(20251009189)(140003);
+X-Microsoft-Antispam-Message-Info:
+	=?utf-8?B?b2RWMWMzV0ZXMnVtV3JUdEpHTWIvc1JmMGlDdzdTdmc0Uk9xdkQzWW11WTMv?=
+ =?utf-8?B?REwzZjV2aU5kRUtaUFV3VUlkK0U5ZVRiSWV1T1paVW9KR1FGQlBlQ0ZwZTdu?=
+ =?utf-8?B?SWpIeHVkbk5rZm9VNU1DZW02SEFjeUNIU1FIdlBMc0l2S0JaUlpidjhaZTBB?=
+ =?utf-8?B?VkE5Vm1vSWYwUGx3QWg2UFMyWkVKWFVIdHViMlIxQ2VuQkY2SEpKVW9FRlc5?=
+ =?utf-8?B?dWk3UExZNk9FR3p4cGpWVVlVNXNkQjFrVXFvamZHMjFuNUhYQmFja3VuZXFL?=
+ =?utf-8?B?RUhKL2Y0aXp4WUtocnZOMzh4Tmh2aGlKK1hNblN0OFYzcENIOE0xZjZyUlox?=
+ =?utf-8?B?b1pwYjJGSjNxUmdRKzRCVVdlSzhON2lzcmJZU1VzNXhJWjAzQys4RVc0WUI3?=
+ =?utf-8?B?UHRqK3Z2aktuZUlhSHAzclQxWVU2QnRaUzdGSThMWnhFWldKNzFjSTczTU14?=
+ =?utf-8?B?K3FrUmdFY2RWa2Z4aHQ4U2txMFB6OTlGakF2Yk91YVM2TXB1R1NOWDY4Wnd2?=
+ =?utf-8?B?S3lzdXdSVWxVWHZnZnE0OGNEeWw0Z1FzN0dZMStTLzFocHQ2NmpROFRYQ0Jy?=
+ =?utf-8?B?Umo3N2RzTWMrVDRNOXpCWUpKQlNMSjJZOGNqQlNrNWtPKzFoVmRucng3ekcw?=
+ =?utf-8?B?MXJLNDZocFB4MW9lTmtXS2hHV1Jkc2ZTdUpWYnhzZDV0bFpwYlU4MzlNMklM?=
+ =?utf-8?B?eFVhNHlmbVdoSWdjQW9TZDhLWGpJUndFZFpiQVAvc3FwVnFhWG1zaTBDLy80?=
+ =?utf-8?B?MzdwQXFWeVR0SldTVnVQNFNTVTB1VHM5NkF6bm9BNFliMFRVRWlzMUhKNXow?=
+ =?utf-8?B?OWVhcU9kYnFHeFA0UmFlY2tGMXpDUytXRi90QnoxZGlrVHhGaVpHd2dTOEtz?=
+ =?utf-8?B?bUJsSTB2emdFWThSc2lyRE9GMjh2U205UnBNSDdhamg1bUhnMlFoUXdEdHFl?=
+ =?utf-8?B?SkdMUFZ5Z1ltaFRjd3JZbmN5ZldvSlg1L1NhUEc0NldoWW1Eb1hOTU0ySHFQ?=
+ =?utf-8?B?dVZPN2JBZjFFU0d0QW0zWi9HMS9DYmJNNWZqWTZqd1pDWForbEdqNXFITFU3?=
+ =?utf-8?B?YjNKd2dCREwyd0hia3Uwb3hQYVl3dDFTME1hR2N6aVcyKzhGUDA3dzZ3Q3ph?=
+ =?utf-8?B?eEZrWUFoUXJYRmdnVEVjR011bElhL3RVR2x4Vk9lOHZXN3kza0RkWlZTbnR3?=
+ =?utf-8?B?UmszcUVIRE9QWnZkYk9pbnV0amErKzVZeVF2UmUzN0huV1VuVW5vejZ6T0VM?=
+ =?utf-8?B?VW1SRjBQS1VTUTV0aUMrcjZwb3dOUVhRbWpLNmFNNUlqRUVuUjRMUDlUdG5w?=
+ =?utf-8?B?cTNuOUt0Znp3STdpSWoxY092MERxdW1JM3VDVFJXWFdqUS8yQXNGakhxbGJy?=
+ =?utf-8?B?TVBCUE1QYU5EOFZUYTZvSVpqTm9BZWVUSzZMeEVCdFJsU3FWU1pUWFUybmN0?=
+ =?utf-8?B?TGppbUIzbGZBai80UlJNeCszSGZIQXFQRkU4Uis1bzFVOElHVnNlMGhTR1RU?=
+ =?utf-8?B?UmxxSktKWEZnVG96cHQ0dWp5cFRIRWZJQTV6THZ5N3VzMlU2b0dQT2NuTHRp?=
+ =?utf-8?B?S2FtVkZ0Y2FqN29hR1luNlZxSlRESUxMYy83Wm5jR2ZTQnhjTzNURGVHRTlR?=
+ =?utf-8?B?M3NDV2lHRTMzSCtEYllCZ3ZpM0x5UkpmNDVlLzlRWUhWVHJXRmM3MStBRWxz?=
+ =?utf-8?B?UUZKbERTWFdOQXgzUGRYWWlDOFRqUmhwYi9qZlBtcm0zcEpUSkNFSXRzc2dz?=
+ =?utf-8?B?NW5BZnVLRW9BaHJ2eWttdU1ndUprWFo3MkR3WW81cG16WHNEZnJSSkJZYnhK?=
+ =?utf-8?B?WnFkVkI1VXF4ZXFrQU0xYnV0eHhQSHk1TDdjWUxqK05mS3VzdCsrMkJmVUl0?=
+ =?utf-8?B?bmxVQjFHSTZrN1A4OUpxaWY2UkhmTjl5eGtORkFBUnU5V2dxanVXbDY4SW1P?=
+ =?utf-8?B?MlgxS2F0TG5uRjVaVjVNYjI1YUJwSGtKM2JBRzlPSUVPNWV5UTVoU091SCtl?=
+ =?utf-8?B?T0oxM2ZJSTRPNzVwUW5zc2dEdFFRaGhtUmgzSzBaV3lBR3F3dGpjWitRRWl0?=
+ =?utf-8?B?OHhOUzQyanJISUs1aWduTnpjQjhhRjN0VUpocjI3cDBJRzdmTlBRd0lqMXpW?=
+ =?utf-8?B?L1NyNXBiSEpYSFoxZ0p3aHBBTTQyNUhCMCtDYUJtZWlWcGdwc3M1Rm52N1RH?=
+ =?utf-8?B?eFN5QkVVd2QrNytORmRhbUVMTDhWTUVZQVB3MWhkemw0NG42SThTRGNnZ2M4?=
+ =?utf-8?B?TzBheWp6WEM3dmoyNC93cFdVMkp2Z214eWJHeDVxdjd0U2FJdUFnVCtvNzFO?=
+ =?utf-8?B?VDhZM1ZoQ2hqV2ZIY0xCaWZ2YzZrTi8xUWszSnF5L01ZVFc0TDZHbCt6dDAw?=
+ =?utf-8?B?UENYb2NQVWY2T0FheHdQSllxSk1kY2E5T0tTVzdDcG9sb3NZZEhRYnVHZ1Jt?=
+ =?utf-8?B?Vk1tbnE3Z2srUUdmeTdCNjBRME1SUHcwSzl1Sk1na3VnVmF4QVdycHB6Smsv?=
+ =?utf-8?B?OEtoUzBENGxsRDlwTjVoQk1SQ0l1WTJHenhvMmdNdjUyeTlGa0lQOElrbGZy?=
+ =?utf-8?B?K0k3STZONDJZUXFyRXg3YlA2RDcrd2Nza0pkNFU4N2U5VXBaU1o4bTdXRSs4?=
+ =?utf-8?B?UUNBWHI5ODNyVnN0b1VrclZReGg0b2poWWtEeWFxRDVyNHNWek55OHFQampr?=
+ =?utf-8?B?YndQOHYrMnJXLzBTVFJNRHYzY2pxZjVjVU5xZ0dPOWFDaFNNVmM0WXN0ek5o?=
+ =?utf-8?B?SWRKMExkWU95cG4yY2NJQmdnNnZ4VlR2VU5aWTdENHh2OUdoc3pZUEpjN0RL?=
+ =?utf-8?B?NnFzVVpFSjRPakVQNU1BMVJ5Ujk0YzlSK1RoQ1FyMkV4NTBldldRMkVZSVYr?=
+ =?utf-8?B?QVVPRlY4TGhIZHk4NjF0Vm9uVENiZVArN053cjloeTJyeU9RbHV0Y1A0dG1L?=
+ =?utf-8?B?UDR3c29xc2pscFBTa1ZBcnpRekNwOXZtams2UDhZNXpNZ1pNRDZIdG5oNkF5?=
+ =?utf-8?B?NE9uTk5nYUVtYnh4N1FWaFBIaUxSS1NjYjNYTUxvKzJNcVd5cFVJM3RsZGh1?=
+ =?utf-8?B?VGZ3eTR5TGFIbFZLZTR3WEpyNlVmcGZoNFh5dkpNV24zajcwWVhKdFcwNEU1?=
+ =?utf-8?B?Tm5GM0gyNUpnVmtZRlhtUUY0bkVpYU1XMlYzYWF6Qk9Pbll1MlFoaVhkaEE4?=
+ =?utf-8?B?a2ZjMGFmQk44QW9Td2o4YVlPdHkyN1IvdlRoUTVTVHZRTU5lemZJcnlhUHh5?=
+ =?utf-8?B?c3RMK0tQMDM4aUwzYkpURHZWQXNWZFpCazBtc0dzN0J3TXZjUmFjV2RqSnRt?=
+ =?utf-8?B?RENqRFpJZDJXNnlraXlBZ2lHZXpsdGt3SU1GOEFRbkRUaXNOcFhkUnR1UHlB?=
+ =?utf-8?Q?=3D?=
+MIME-Version: 1.0
+
+--000000000000b856e3064f874d21
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: quoted-printable
+
+-- External Sender --
+
+ Share Athletes Data
+
+Description:
+
+The API endpoint allows to get athletes' test information. It is possible t=
+o use different filters in request parameters, like a user ID or email addr=
+ess, athlete ID, sport ID, and start/end dates.
+
+URL: https://{{inscyd_host}}/api/external/athlete/all_data/
+
+Method: GET
+
+DATA / PARAMS
+
+Header:
+
+X-Api-Key: String
+
+Request parameters:
+
+user_id: <<number>>  // integer
+user_email: <<user email>>  // string
+sport_id: <<number>>  // integer
+athlete_display_id: <<number>>  // integer
+start_date: <<iso date, for instance: 2025-01-01T00:00:00>>  // string; onl=
+y return results from this date forwards
+end_date: <<iso date, for instance: 2025-01-31T00:00:00>>  // string; only =
+return results up to this date
+id: <<number>>  // integer; Athlete ID (deprecated parameter)
+email: <<athlete email>>  // string; (deprecated parameter)
+
+Response body parameters:
+
+  *   Structure
+
+{
+  "count": "<integer>",
+  "next": "<uri>",
+  "previous": "<uri>",
+  "page_size": "<integer>",
+  "total_pages": "<integer>",
+  "results": [
+    {
+      "athlete_display_id": "<integer>",
+      "first_name": "<string>",
+      "id": "<integer>",
+      "last_name": "<string>",
+      "sport_id": "<integer>",
+      "created_at": "<dateTime>",
+      "vo2max": "<double>",
+      "vlamax": "<double>",
+      "anaerobic_threshold": "<double>",
+      "anaerobic_threshold_absolute": "<double>",
+      "fatmax": "<double>",
+      "fatmax_power": "<double>",
+      "carb_max": "<double>",
+      "oxygen_demand": {
+        "sse": "<double>"
+        "function": "A + B * x + C * x**2 + D * x**3 + ...",
+        "parameters": ["<double>", "<double>", ...]
+      },
+      "oxygen_uptake": {
+        "sse": "<double>"
+        "function": "A + B * x + C * x**2 + D * x**3 + ...",
+        "parameters": ["<double>", "<double>", ...]
+      },
+      "lactate_production": {
+        "sse": "<double>"
+        "function": "A + B * x + C * x**2 + D * x**3 + ...",
+        "parameters": ["<double>", "<double>", ...]
+      },
+      "max_aerobic": {
+        "sse": "<double>"
+        "function": "A + B * x + C * x**2 + D * x**3 + ...",
+        "parameters": ["<double>", "<double>", ...]
+      },
+      "lackof_pyruvate": {
+        "sse": "<double>"
+        "function": "A + B * x + C * x**2 + D * x**3 + ...",
+        "parameters": ["<double>", "<double>", ...]
+      },
+      "lactate_accumulation": {
+        "sse": "<double>"
+        "function": "A + B * x + C * x**2 + D * x**3 + ...",
+        "parameters": ["<double>", "<double>", ...]
+      },
+      "fat": {
+        "sse": "<double>"
+        "function": "A + B * x + C * x**2 + D * x**3 + ...",
+        "parameters": ["<double>", "<double>", ...]
+      },
+      "carbohydrate": {
+        "sse": "<double>"
+        "function": "A + B * x + C * x**2 + D * x**3 + ...",
+        "parameters": ["<double>", "<double>", ...]
+      },
+      "tau_value": "<double>",
+      "training_zones": [
+        {
+          "id": "<integer>",
+          "name": "<string>",
+          "is_default": "<boolean>",
+          "zones": {}
+        },
+        ...
+      ],
+      "at_percent_vo2max": "<double>"
+    },
+    ...
+  ]
+}
+
+  *   Example
+
+{
+    "count": 9,
+    "next": "http://127.0.0.1:8000/api/external/athlete/all_data/?athlete_d=
+isplay_id=3D154662600022&page=3D2&sport_id=3D61&user_email=3Dcontact%40insc=
+yd.com&user_id=3D192",
+    "previous": null,
+    "page_size": 5,
+    "total_pages": 2,
+    "results": [
+        {
+            "id": 169996740170,
+            "sport_id": 61,
+            "athlete_display_id": 154662600022,
+            "first_name": "Test",
+            "last_name": "Athlet",
+            "created_at": "2023-11-14T13:10:08.590286Z",
+            "vo2max": "80.00",
+            "vlamax": "0.70",
+            "anaerobic_threshold": 0.0,
+            "anaerobic_threshold_absolute": 0.0,
+            "fatmax": 0.0,
+            "fatmax_power": 0.0,
+            "carb_max": 0.0,
+            "oxygen_demand": {
+                "sse": 2.8208424326745623,
+                "function": "A + B * x",
+                "parameters": [
+                    1.0245463830136188,
+                    0.1822562213342966
+                ]
+            },
+            "oxygen_uptake": {
+                "sse": 1.0119550717029657,
+                "function": "A + B * x + C * x**2 + D * x**3 + E * x**4 + F=
+ * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9",
+                "parameters": [
+                    -8.255460908655058,
+                    0.4305433314537527,
+                    -0.002634046315718288,
+                    1.3890398973926871e-05,
+                    -4.0021506769060574e-08,
+                    6.162693020746604e-11,
+                    -4.8033759868634915e-14,
+                    1.2450149199487972e-17,
+                    5.229910655004115e-21,
+                    -2.850839298029528e-24
+                ]
+            },
+            "lactate_production": {
+                "sse": 0.3869957127996308,
+                "function": "A + B * x + C * x**2 + D * x**3 + E * x**4 + F=
+ * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9",
+                "parameters": [
+                    3.6345202133238494,
+                    -0.09531905602143509,
+                    0.0010071324052093294,
+                    -5.310383594618248e-06,
+                    1.5300973967422687e-08,
+                    -2.3558124486573916e-11,
+                    1.835586840813138e-14,
+                    -4.749749830077604e-18,
+                    -2.005509394145104e-21,
+                    1.0913353044584269e-24
+                ]
+            },
+            "max_aerobic": {
+                "sse": 0.033462717561826116,
+                "function": "A + B * x + C * x**2 + D * x**3 + E * x**4 + F=
+ * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9",
+                "parameters": [
+                    -0.2729983630182699,
+                    0.014237277454499667,
+                    -8.710485962307351e-05,
+                    4.593429157873729e-07,
+                    -1.3234942045333923e-09,
+                    2.038042551726061e-12,
+                    -1.5886397786262466e-15,
+                    4.1194604321489463e-19,
+                    1.728174501357802e-22,
+                    -9.424472428820457e-26
+                ]
+            },
+            "lackof_pyruvate": {
+                "sse": 6.873222691142174e-06,
+                "function": "A + B * x + C * x**2 + D * x**3 + E * x**4 + F=
+ * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9",
+                "parameters": [
+                    -0.01702556469025551,
+                    0.005409934919033881,
+                    3.0186813113966185e-07,
+                    -5.167875374588354e-08,
+                    1.4065271503970717e-10,
+                    4.005059149114358e-13,
+                    -8.078249720477936e-15,
+                    3.606664938632266e-17,
+                    -7.910823007631093e-20,
+                    6.785887829713938e-23
+                ]
+            },
+            "lactate_accumulation": {
+                "sse": 0.015625071358079303,
+                "function": "A + B * x + C * x**2 + D * x**3 + E * x**4 + F=
+ * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9",
+                "parameters": [
+                    -182.27912174772754,
+                    2.683070437526925,
+                    -0.016798561438065296,
+                    5.831020228376042e-05,
+                    -1.242110249563642e-07,
+                    1.7032645564153008e-10,
+                    -1.5103031399537098e-13,
+                    8.359153607396884e-17,
+                    -2.616828575412082e-20,
+                    3.516466462257574e-24
+                ]
+            },
+            "fat": {
+                "sse": 0.008442828488308952,
+                "function": "A + B * x + C * x**2 + D * x**3 + E * x**4 + F=
+ * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9",
+                "parameters": [
+                    0.853175956058325,
+                    3.463714009133593,
+                    0.014974041961404621,
+                    -0.0002204199865509695,
+                    1.5037182957297757e-06,
+                    -6.734629967483838e-09,
+                    1.7030637641587104e-11,
+                    -2.0673469194174624e-14,
+                    -3.039861722710429e-18,
+                    2.202146157849974e-20
+                ]
+            },
+            "carbohydrate": {
+                "sse": 296.8953513204866,
+                "function": "A + B * x + C * x**2 + D * x**3 + E * x**4 + F=
+ * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9",
+                "parameters": [
+                    2788.844929883559,
+                    -73.14153049717608,
+                    0.7728220878559313,
+                    -0.004075080384327446,
+                    1.1742525685303034e-05,
+                    -1.808233600675072e-08,
+                    1.4095194872313078e-11,
+                    -3.65518431100171e-15,
+                    -1.533146732861634e-18,
+                    8.361359316945806e-22
+                ]
+            },
+            "tau_value": 32.0,
+            "training_zones": [],
+            "at_percent_vo2max": 78.3
+        },
+        {
+            "id": 169996956085,
+            "sport_id": 61,
+            "athlete_display_id": 154662600022,
+            "first_name": "Test",
+            "last_name": "Athlet",
+            "created_at": "2023-11-14T13:46:07.730961Z",
+            "vo2max": "80.00",
+            "vlamax": "0.70",
+            "anaerobic_threshold": 0.0,
+            "anaerobic_threshold_absolute": 0.0,
+            "fatmax": 0.0,
+            "fatmax_power": 0.0,
+            "carb_max": 0.0,
+            "oxygen_demand": {
+                "sse": 3.0598418166223635,
+                "function": "A + B * x",
+                "parameters": [
+                    1.0101114611850226,
+                    0.18230822606826919
+                ]
+            },
+            "oxygen_uptake": {
+                "sse": 1.0137281876125006,
+                "function": "A + B * x + C * x**2 + D * x**3 + E * x**4 + F=
+ * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9",
+                "parameters": [
+                    -9.716749875732182,
+                    0.4737192609336261,
+                    -0.00316279996547512,
+                    1.7375374021778706e-05,
+                    -5.371221701328189e-08,
+                    9.479576891331773e-11,
+                    -9.781331609248705e-14,
+                    5.741995118378284e-17,
+                    -1.7137095727446894e-20,
+                    1.8494921642743255e-24
+                ]
+            },
+            "lactate_production": {
+                "sse": 0.3692998855953012,
+                "function": "A + B * x + C * x**2 + D * x**3 + E * x**4 + F=
+ * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9",
+                "parameters": [
+                    3.995434957021036,
+                    -0.10655320935112585,
+                    0.0011522812743832815,
+                    -6.32983003313068e-06,
+                    1.956892183765546e-08,
+                    -3.453758890786637e-11,
+                    3.563828671272735e-14,
+                    -2.0922261432335565e-17,
+                    6.245015815708837e-21,
+                    -6.741654840948545e-25
+                ]
+            },
+            "max_aerobic": {
+                "sse": 0.031932437851576144,
+                "function": "A + B * x + C * x**2 + D * x**3 + E * x**4 + F=
+ * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9",
+                "parameters": [
+                    -0.30610553251271655,
+                    0.014922869690461018,
+                    -9.963562261513411e-05,
+                    5.473659761370535e-07,
+                    -1.6920751507738609e-09,
+                    2.9863623028157526e-12,
+                    -3.0815118127617298e-15,
+                    1.8090468033044188e-18,
+                    -5.399625310864768e-22,
+                    5.828681054907454e-26
+                ]
+            },
+            "lackof_pyruvate": {
+                "sse": 4.622520495136788e-06,
+                "function": "A + B * x + C * x**2 + D * x**3 + E * x**4 + F=
+ * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9",
+                "parameters": [
+                    -0.015143159263925577,
+                    0.004927662618526752,
+                    4.841335979525887e-06,
+                    -1.1154309263711028e-07,
+                    6.456534036576674e-10,
+                    -2.4173603860163614e-12,
+                    2.352627755201326e-15,
+                    1.1431225957362275e-17,
+                    -4.542012704319876e-20,
+                    4.788122124386385e-23
+                ]
+            },
+            "lactate_accumulation": {
+                "sse": 0.015870438908463423,
+                "function": "A + B * x + C * x**2 + D * x**3 + E * x**4 + F=
+ * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9",
+                "parameters": [
+                    -151.8145938794031,
+                    2.239302678388872,
+                    -0.01403089399669497,
+                    4.863474291122253e-05,
+                    -1.0326526499929017e-07,
+                    1.4112203275810742e-10,
+                    -1.2482845744747008e-13,
+                    6.906663288690917e-17,
+                    -2.169277662657456e-20,
+                    2.942117617581073e-24
+                ]
+            },
+            "fat": {
+                "sse": 0.006523366293214185,
+                "function": "A + B * x + C * x**2 + D * x**3 + E * x**4 + F=
+ * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9",
+                "parameters": [
+                    -4.1521913561427075,
+                    3.565156159333444,
+                    0.012705382643916331,
+                    -0.00019971652504998963,
+                    1.383837884932939e-06,
+                    -6.386039389389292e-09,
+                    1.6814948280391375e-11,
+                    -2.244187535110003e-14,
+                    1.8917931535303883e-18,
+                    1.8126645769071317e-20
+                ]
+            },
+            "carbohydrate": {
+                "sse": 297.41704349708743,
+                "function": "A + B * x + C * x**2 + D * x**3 + E * x**4 + F=
+ * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9",
+                "parameters": [
+                    3218.1748812680544,
+                    -85.8246709186819,
+                    0.9281200694767616,
+                    -0.00509848294385727,
+                    1.576242415975932e-05,
+                    -2.7820380565261848e-08,
+                    2.870869118447393e-11,
+                    -1.6855763195731533e-14,
+                    5.032147772448397e-18,
+                    -5.434643891198236e-22
+                ]
+            },
+            "tau_value": 32.0,
+            "training_zones": [],
+            "at_percent_vo2max": 77.4
+        },
+        {
+            "id": 170076154672,
+            "sport_id": 61,
+            "athlete_display_id": 154662600022,
+            "first_name": "Test",
+            "last_name": "Athlet",
+            "created_at": "2023-11-23T17:45:49.895776Z",
+            "vo2max": "80.00",
+            "vlamax": "0.70",
+            "anaerobic_threshold": 0.0,
+            "anaerobic_threshold_absolute": 0.0,
+            "fatmax": 0.0,
+            "fatmax_power": 0.0,
+            "carb_max": 0.0,
+            "oxygen_demand": {
+                "sse": 106.34936049439591,
+                "function": "A + B * x",
+                "parameters": [
+                    -10.41268858798901,
+                    0.2368118835081573
+                ]
+            },
+            "oxygen_uptake": {
+                "sse": 0.5043227704469543,
+                "function": "A + B * x + C * x**2 + D * x**3 + E * x**4 + F=
+ * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9",
+                "parameters": [
+                    16.73359140184894,
+                    -0.41293488418568913,
+                    0.008755700236256624,
+                    -6.987063589799913e-05,
+                    3.326811665319258e-07,
+                    -9.755247041547547e-10,
+                    1.760040068172215e-12,
+                    -1.9018005542722673e-15,
+                    1.1292407663874086e-18,
+                    -2.8345908104412495e-22
+                ]
+            },
+            "lactate_production": {
+                "sse": 0.18372416456069005,
+                "function": "A + B * x + C * x**2 + D * x**3 + E * x**4 + F=
+ * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9",
+                "parameters": [
+                    -6.098549936498158,
+                    0.2177634409886854,
+                    -0.003190703639841899,
+                    2.5497585868874376e-05,
+                    -1.212260216090439e-07,
+                    3.5546545573877815e-10,
+                    -6.413229124967266e-13,
+                    6.929739230127119e-16,
+                    -4.1146984918808803e-19,
+                    1.0328628099049922e-22
+                ]
+            },
+            "max_aerobic": {
+                "sse": 0.0158861729848784,
+                "function": "A + B * x + C * x**2 + D * x**3 + E * x**4 + F=
+ * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9",
+                "parameters": [
+                    0.5267789992503993,
+                    -0.012997049704877483,
+                    0.00027566798580564263,
+                    -2.1999437758422645e-06,
+                    1.0475188912968558e-08,
+                    -3.071732160639534e-11,
+                    5.542091469231246e-14,
+                    -5.988500742140274e-17,
+                    3.5558125213995054e-20,
+                    -8.925650754181933e-24
+                ]
+            },
+            "lackof_pyruvate": {
+                "sse": 2.511470185159053e-06,
+                "function": "A + B * x + C * x**2 + D * x**3 + E * x**4 + F=
+ * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9",
+                "parameters": [
+                    -0.11261053226207124,
+                    0.008353319629065006,
+                    -7.300769347090447e-05,
+                    9.627877066513853e-07,
+                    -8.73870112943374e-09,
+                    5.1844208278471095e-11,
+                    -2.0542409480008058e-13,
+                    5.187661175458083e-16,
+                    -7.643778476004359e-19,
+                    4.937761975080345e-22
+                ]
+            },
+            "lactate_accumulation": {
+                "sse": 0.0162703627782912,
+                "function": "A + B * x + C * x**2 + D * x**3 + E * x**4 + F=
+ * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9",
+                "parameters": [
+                    8.555318649111877,
+                    -1.2200685897491201,
+                    0.01835361491572295,
+                    -0.00012326967822524443,
+                    4.656688047834646e-07,
+                    -1.0768707819015025e-09,
+                    1.5666849965474283e-12,
+                    -1.4047181496795933e-15,
+                    7.113160327659501e-19,
+                    -1.5600207593510453e-22
+                ]
+            },
+            "fat": {
+                "sse": 0.014067027859413111,
+                "function": "A + B * x + C * x**2 + D * x**3 + E * x**4 + F=
+ * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9",
+                "parameters": [
+                    -36.291499550697836,
+                    4.019571214870905,
+                    -8.557662903529391e-05,
+                    4.734910460543112e-05,
+                    -1.3451495837983739e-06,
+                    1.2629071603157049e-08,
+                    -6.788030925661785e-11,
+                    2.1130302495219952e-13,
+                    -3.648264575502667e-16,
+                    2.644195417263717e-19
+                ]
+            },
+            "carbohydrate": {
+                "sse": 147.96295807262393,
+                "function": "A + B * x + C * x**2 + D * x**3 + E * x**4 + F=
+ * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9",
+                "parameters": [
+                    -4912.2701099055,
+                    175.40101805307026,
+                    -2.5699622072685786,
+                    0.020536826671101037,
+                    -9.763949419868633e-05,
+                    2.8630160745303337e-07,
+                    -5.165367381463473e-10,
+                    5.5813651823336e-13,
+                    -3.3140674907774616e-16,
+                    8.31890629116488e-20
+                ]
+            },
+            "tau_value": 32.0,
+            "training_zones": [],
+            "at_percent_vo2max": 77.4
+        },
+        {
+            "id": 170177224078,
+            "sport_id": 61,
+            "athlete_display_id": 154662600022,
+            "first_name": "Test",
+            "last_name": "Athlet",
+            "created_at": "2023-12-05T10:31:21.879802Z",
+            "vo2max": "60.85",
+            "vlamax": "0.35",
+            "anaerobic_threshold": 0.0,
+            "anaerobic_threshold_absolute": 0.0,
+            "fatmax": 0.0,
+            "fatmax_power": 0.0,
+            "carb_max": 0.0,
+            "oxygen_demand": {
+                "sse": 1.416315780961758e-07,
+                "function": "A + B * x",
+                "parameters": [
+                    5.0000001096672,
+                    0.22966166769229085
+                ]
+            },
+            "oxygen_uptake": {
+                "sse": 0.23105466946894754,
+                "function": "A + B * x + C * x**2 + D * x**3 + E * x**4 + F=
+ * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9",
+                "parameters": [
+                    -36.74647796729282,
+                    1.767848490115157,
+                    -0.023276789387345988,
+                    0.00018375000044525038,
+                    -8.032790138927726e-07,
+                    1.8225276651394163e-09,
+                    -1.4012522108982643e-12,
+                    -2.27633813002875e-15,
+                    5.423946194486817e-18,
+                    -3.17109543029876e-21
+                ]
+            },
+            "lactate_production": {
+                "sse": 0.08836080604111277,
+                "function": "A + B * x + C * x**2 + D * x**3 + E * x**4 + F=
+ * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9",
+                "parameters": [
+                    15.965664252071322,
+                    -0.5882749244729423,
+                    0.008902259871468867,
+                    -7.027722239220063e-05,
+                    3.072366912486223e-07,
+                    -6.971562913595951e-10,
+                    5.363395138580509e-13,
+                    8.697660244482757e-16,
+                    -2.0735486293669515e-18,
+                    1.2124262826426479e-21
+                ]
+            },
+            "max_aerobic": {
+                "sse": 0.007640376445668681,
+                "function": "A + B * x + C * x**2 + D * x**3 + E * x**4 + F=
+ * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9",
+                "parameters": [
+                    -1.2151551063015886,
+                    0.05846089725309054,
+                    -0.0007697671735902794,
+                    6.076924528424802e-06,
+                    -2.6568099754121842e-08,
+                    6.029236113090253e-11,
+                    -4.6410389065686454e-14,
+                    -7.514215654334235e-17,
+                    1.7922854033912808e-19,
+                    -1.0480681061077239e-22
+                ]
+            },
+            "lackof_pyruvate": {
+                "sse": 8.718483556302749e-06,
+                "function": "A + B * x + C * x**2 + D * x**3 + E * x**4 + F=
+ * x**5 + G * x**6 + H * x**7 + I * x**8",
+                "parameters": [
+                    -0.08664208883315794,
+                    0.015062476308722152,
+                    -0.00012986628404751003,
+                    3.137959727549764e-07,
+                    1.26289131983697e-08,
+                    -1.8630515953696184e-10,
+                    1.1577723838488672e-12,
+                    -3.622031906277186e-15,
+                    4.5122160091518886e-18
+                ]
+            },
+            "lactate_accumulation": {
+                "sse": 0.011397083980512769,
+                "function": "A + B * x + C * x**2 + D * x**3 + E * x**4 + F=
+ * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9",
+                "parameters": [
+                    -0.0048891560468066276,
+                    -0.9529931660397851,
+                    0.025490187104346935,
+                    -0.00029185019451600353,
+                    1.8543546973137316e-06,
+                    -7.160182983738145e-09,
+                    1.731463684929309e-11,
+                    -2.5729318197576753e-14,
+                    2.1549893833140292e-17,
+                    -7.806058963103902e-21
+                ]
+            },
+            "fat": {
+                "sse": 0.007916393857958389,
+                "function": "A + B * x + C * x**2 + D * x**3 + E * x**4 + F=
+ * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9",
+                "parameters": [
+                    0.14908543931796361,
+                    3.48053972559702,
+                    0.18133481511793845,
+                    -0.005497094268774798,
+                    8.163492183212486e-05,
+                    -7.230399837832179e-07,
+                    3.9285337967918365e-09,
+                    -1.2826571412565102e-11,
+                    2.2592495526384207e-14,
+                    -1.6055385952742122e-17
+                ]
+            },
+            "carbohydrate": {
+                "sse": 59.315073972898745,
+                "function": "A + B * x + C * x**2 + D * x**3 + E * x**4 + F=
+ * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9",
+                "parameters": [
+                    10722.336859794756,
+                    -395.0923669576114,
+                    5.979229184336265,
+                    -0.04720742206874811,
+                    0.0002064298530993321,
+                    -4.6870485089040725e-07,
+                    3.6180354057065953e-10,
+                    5.8113397725223e-13,
+                    -1.3895544961919407e-15,
+                    8.129781615945554e-19
+                ]
+            },
+            "tau_value": 32.0,
+            "training_zones": [],
+            "at_percent_vo2max": 85.5
+        },
+        {
+            "id": 170185481343,
+            "sport_id": 61,
+            "athlete_display_id": 154662600022,
+            "first_name": "Test",
+            "last_name": "Athlet",
+            "created_at": "2023-12-06T09:27:18.852461Z",
+            "vo2max": "58.75",
+            "vlamax": "0.23",
+            "anaerobic_threshold": 0.0,
+            "anaerobic_threshold_absolute": 0.0,
+            "fatmax": 0.0,
+            "fatmax_power": 0.0,
+            "carb_max": 0.0,
+            "oxygen_demand": {
+                "sse": 1.2333258973997958e-07,
+                "function": "A + B * x",
+                "parameters": [
+                    5.00000009389903,
+                    0.23054651453351377
+                ]
+            },
+            "oxygen_uptake": {
+                "sse": 0.09812699537211253,
+                "function": "A + B * x + C * x**2 + D * x**3 + E * x**4 + F=
+ * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9",
+                "parameters": [
+                    134.24178069082978,
+                    -6.052193405216329,
+                    0.1311562707355324,
+                    -0.0015423677543056704,
+                    1.1225457403498692e-05,
+                    -5.23446943483802e-08,
+                    1.562399202269931e-10,
+                    -2.8846475925783836e-13,
+                    2.9997972229304426e-16,
+                    -1.343634097176352e-19
+                ]
+            },
+            "lactate_production": {
+                "sse": 0.03752741463995982,
+                "function": "A + B * x + C * x**2 + D * x**3 + E * x**4 + F=
+ * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9",
+                "parameters": [
+                    -49.79902815811787,
+                    2.419689832701218,
+                    -0.05049212298164858,
+                    0.000593575817128249,
+                    -4.3189870466215895e-06,
+                    2.0136262433803924e-08,
+                    -6.009900208828828e-11,
+                    1.1096189937765982e-13,
+                    -1.1540114987478685e-16,
+                    5.169668113332803e-20
+                ]
+            },
+            "max_aerobic": {
+                "sse": 0.0032448026590239294,
+                "function": "A + B * x + C * x**2 + D * x**3 + E * x**4 + F=
+ * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9",
+                "parameters": [
+                    4.455123470601229,
+                    -0.20086382555916457,
+                    0.004351443525551,
+                    -5.116354306401124e-05,
+                    3.723257103198355e-07,
+                    -1.7360304400885058e-09,
+                    5.1815868506176375e-12,
+                    -9.566832037580494e-15,
+                    9.949188421478247e-18,
+                    -4.456669691594257e-21
+                ]
+            },
+            "lackof_pyruvate": {
+                "sse": 3.850694357226307e-05,
+                "function": "A + B * x + C * x**2 + D * x**3 + E * x**4 + F=
+ * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9",
+                "parameters": [
+                    -0.32577029059272844,
+                    0.01954705909472622,
+                    3.983821471225727e-05,
+                    -6.612294154526057e-06,
+                    1.2145131963539037e-07,
+                    -1.1243030535281634e-09,
+                    5.918419401831609e-12,
+                    -1.7478900143425074e-14,
+                    2.4922886848079602e-17,
+                    -1.0547463673761029e-20
+                ]
+            },
+            "lactate_accumulation": {
+                "sse": 0.014443600521502549,
+                "function": "A + B * x + C * x**2 + D * x**3 + E * x**4 + F=
+ * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9",
+                "parameters": [
+                    -22.517123840350674,
+                    -0.57873730442105,
+                    0.030664764703010296,
+                    -0.0004606649980624101,
+                    3.58650896365167e-06,
+                    -1.6691037287153727e-08,
+                    4.8559351644836245e-11,
+                    -8.710184897255076e-14,
+                    8.850858674614698e-17,
+                    -3.9108546257387365e-20
+                ]
+            },
+            "fat": {
+                "sse": 0.03937722158199226,
+                "function": "A + B * x + C * x**2 + D * x**3 + E * x**4 + F=
+ * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9",
+                "parameters": [
+                    -170.35141436887722,
+                    5.330676246513826,
+                    0.3763907841543467,
+                    -0.012219995085474259,
+                    0.00018361222758518108,
+                    -1.599066806750439e-06,
+                    8.44515895335862e-09,
+                    -2.649464293993775e-11,
+                    4.4440642580377125e-14,
+                    -2.971038151340164e-17
+                ]
+            },
+            "carbohydrate": {
+                "sse": 25.190515339360292,
+                "function": "A + B * x + C * x**2 + D * x**3 + E * x**4 + F=
+ * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9",
+                "parameters": [
+                    -33214.30659501115,
+                    1614.5168346833984,
+                    -33.702188474177156,
+                    0.39631147899928915,
+                    -0.0028842805009602016,
+                    1.3449197426883663e-05,
+                    -4.014318361395693e-08,
+                    7.411634338164146e-11,
+                    -7.707598179706586e-14,
+                    3.452374917561969e-17
+                ]
+            },
+            "tau_value": 32.0,
+            "training_zones": [],
+            "at_percent_vo2max": 90.9
+        }
+    ]
+}
+
+Training Planner Tool
+
+Description:
+
+The API endpoint allows to get the latest athlete's test data.
+
+URL: https://{{inscyd_host}}/api/external/athlete/last_data/
+
+Method: GET
+
+DATA / PARAMS
+
+Header:
+
+X-Api-Key: String
+
+Request parameters:
+
+user_id: <<number>>  // integer
+user_email: <<user email>>  // string
+sport_id: <<number>>  // integer
+athlete_display_id: <<number>>  // integer,
+id: <<number>>  // integer; Athlete ID (deprecated parameter)
+email: <<athlete email>>  // string; (deprecated parameter)
+
+Response body parameters:
+
+  *   Structure
+
+{
+  "count": "<integer>",
+  "next": "<uri>",
+  "previous": "<uri>",
+  "page_size": "<integer>",
+  "total_pages": "<integer>",
+  "results": [
+    {
+      "athlete_display_id": "<integer>",
+      "first_name": "<string>",
+      "id": "<integer>",
+      "last_name": "<string>",
+      "created_at": "<dateTime>",
+      "lackof_pyruvate": {
+        "sse": "<double>"
+        "function": "A + B * x + C * x**2 + D * x**3 + ...",
+        "parameters": ["<double>", "<double>", ...]
+      },
+      "lactate_accumulation": {
+        "sse": "<double>"
+        "function": "A + B * x + C * x**2 + D * x**3 + ...",
+        "parameters": ["<double>", "<double>", ...]
+      },
+      "fat": {
+        "sse": "<double>"
+        "function": "A + B * x + C * x**2 + D * x**3 + ...",
+        "parameters": ["<double>", "<double>", ...]
+      },
+      "carbohydrate": {
+        "sse": "<double>"
+        "function": "A + B * x + C * x**2 + D * x**3 + ...",
+        "parameters": ["<double>", "<double>", ...]
+      },
+      "training_zones": [
+        {
+          "id": "<integer>",
+          "name": "<string>",
+          "is_default": "<boolean>",
+          "zones": {}
+        },
+        ...
+      ]
+    }
+  ]
+}
+
+  *   Example
+
+{
+    "count": 1,
+    "next": null,
+    "previous": null,
+    "page_size": 10,
+    "total_pages": 1,
+    "results": [
+        {
+            "id": 154663631691,
+            "athlete_display_id": 154662600022,
+            "first_name": "Test",
+            "last_name": "Athlet",
+            "created_at": "2019-01-04T21:11:56.916323Z",
+            "lackof_pyruvate": {
+                "sse": 5.8754972911836395e-05,
+                "function": "A + B * x + C * x**2 + D * x**3 + E * x**4 + F=
+ * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9",
+                "parameters": [
+                    0.25982511448763257,
+                    0.21295973873057464,
+                    -0.07424718205264012,
+                    0.09300922505703452,
+                    -0.08874278826703304,
+                    0.05274204960373321,
+                    -0.020356611798592123,
+                    0.004813260036169763,
+                    -0.000642848018846015,
+                    3.594128544785076e-05
+                ]
+            },
+            "lactate_accumulation": {
+                "sse": 0.02117062976193029,
+                "function": "A + B * x + C * x**2 + D * x**3 + E * x**4 + F=
+ * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9",
+                "parameters": [
+                    -252.17273086351386,
+                    143.762070096993,
+                    74.08885409075518,
+                    -98.50713488047887,
+                    42.52327099787749,
+                    -10.101258541229987,
+                    1.4586124447588056,
+                    -0.1281841884396519,
+                    0.0063348288138678245,
+                    -0.00013548517153222112
+                ]
+            },
+            "fat": {
+                "sse": 0.06845297930102208,
+                "function": "A + B * x + C * x**2 + D * x**3 + E * x**4 + F=
+ * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9",
+                "parameters": [
+                    208.359405863554,
+                    177.2539256843581,
+                    -75.1957639830076,
+                    97.50429190266688,
+                    -91.56274365710226,
+                    53.75628141674488,
+                    -20.41238308345173,
+                    4.756224393087938,
+                    -0.625654745360629,
+                    0.034619357533904306
+                ]
+            },
+            "carbohydrate": {
+                "sse": 96.29708822734962,
+                "function": "A + B * x + C * x**2 + D * x**3 + E * x**4 + F=
+ * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9",
+                "parameters": [
+                    259.93940787612206,
+                    -935.6587532511871,
+                    1992.3217788268346,
+                    -2106.6288873387607,
+                    1289.9936168871434,
+                    -471.9158723997113,
+                    103.90508869325501,
+                    -13.293524342540744,
+                    0.908044008452759,
+                    -0.025602958963921955
+                ]
+            },
+            "training_zones": [
+                {
+                    "id": 123,
+                    "name": "INSCYD Default Triathlon Running",
+                    "is_default": false,
+                    "zones": {}
+                },
+                {
+                    "id": 1797,
+                    "name": "Lactate shuttling bug Triathlon Running",
+                    "is_default": false,
+                    "zones": [
+                        {
+                            "name": "LS-power",
+                            "code": "1",
+                            "master_metric": 28,
+                            "lower": {
+                                "power_watt": "nc",
+                                "power_watt_kg": "nc"
+                            },
+                            "upper": {
+                                "power_watt": "nc",
+                                "power_watt_kg": "nc"
+                            },
+                            "target": {
+                                "power_watt": 0,
+                                "power_watt_kg": 0.0
+                            },
+                            "output_values": {}
+                        },
+                        {
+                            "name": "LS-power/speed",
+                            "code": "2",
+                            "master_metric": 28,
+                            "lower": {
+                                "power_watt": "nc",
+                                "speed_m_s": "nc"
+                            },
+                            "upper": {
+                                "power_watt": "nc",
+                                "speed_m_s": "nc"
+                            },
+                            "target": {
+                                "power_watt": 0,
+                                "speed_m_s": 0
+                            },
+                            "output_values": {}
+                        }
+                    ]
+                }
+            ]
+        }
+    ]
+}
+
+Fueling Metrics
+Create Fueling Metrics
+
+URL: https://{{inscyd_host}}/api/external/athlete/fueling_metrics
+
+Method: POST
+
+DATA / PARAMS
+
+Header:
+
+X-Api-Key: String
+
+Request body parameters in form-data format:
+
+Response body parameters:
+
+{
+  "athlete_id": "<integer>",
+  "carbohydrate": {
+    "sse": "<double>"
+    "function": "A + B * x + C * x**2 + D * x**3 + ...",
+    "parameters": ["<double>", "<double>", ...]
+  },
+  "created_at": "<dateTime>",
+  "fat": {
+    "sse": "<double>"
+    "function": "A + B * x + C * x**2 + D * x**3 + ...",
+    "parameters": ["<double>", "<double>", ...]
+  },
+  "id": "<integer>",
+  "snippets_data": {}
+}
+
+
+
+Update Fueling Metrics (Disabled)
+
+URL: https://{{inscyd_host}}/api/external/athlete/fueling_metrics/<id>/
+
+<id> - INSCYD Test display ID (integer, mandatory)
+
+Method: PUT
+
+DATA / PARAMS
+
+Header:
+
+X-Api-Key: String
+
+Request body parameters in form-data format:
+
+Response body parameters:
+
+{
+  "athlete_id": "<integer>",
+  "carbohydrate": {
+    "sse": "<double>"
+    "function": "A + B * x + C * x**2 + D * x**3 + ...",
+    "parameters": ["<double>", "<double>", ...]
+  },
+  "created_at": "<dateTime>",
+  "fat": {
+    "sse": "<double>"
+    "function": "A + B * x + C * x**2 + D * x**3 + ...",
+    "parameters": ["<double>", "<double>", ...]
+  },
+  "id": "<integer>",
+  "snippets_data": {}
+}
+
+
+
+Training Metrics
+Create Training Metrics
+
+URL: https://{{inscyd_host}}/api/external/athlete/training_metric
+
+Method: POST
+
+DATA / PARAMS
+
+Header:
+
+X-Api-Key: String
+
+Request body parameters in form-data format:
+
+Response body parameters:
+
+{
+  "anaerobic_threshold": "<double>",
+  "anaerobic_threshold_absolute": "<double>",
+  "athlete_id": "<integer>",
+  "carbohydrate": {
+    "sse": "<double>"
+    "function": "A + B * x + C * x**2 + D * x**3 + ...",
+    "parameters": ["<double>", "<double>", ...]
+  },
+  "created_at": "<dateTime>",
+  "fat": {
+    "sse": "<double>"
+    "function": "A + B * x + C * x**2 + D * x**3 + ...",
+    "parameters": ["<double>", "<double>", ...]
+  },
+  "id": "<integer>",
+  "lackof_pyruvate": {
+    "sse": "<double>"
+    "function": "A + B * x + C * x**2 + D * x**3 + ...",
+    "parameters": ["<double>", "<double>", ...]
+  },
+  "lactate_accumulation": {
+    "sse": "<double>"
+    "function": "A + B * x + C * x**2 + D * x**3 + ...",
+    "parameters": ["<double>", "<double>", ...]
+  },
+  "oxygen_uptake": {
+    "sse": "<double>"
+    "function": "A + B * x + C * x**2 + D * x**3 + ...",
+    "parameters": ["<double>", "<double>", ...]
+  },
+  "snippets_data": {},
+  "tau_value": "<double>",
+  "vo2max": "<double>"
+}
+
+
+
+--000000000000b856e3064f874d21
+Content-Type: text/html; charset="UTF-8"
+Content-Transfer-Encoding: quoted-printable
+
+<html><head>
+<meta http-equiv=3D"Content-Type" content=3D"text/html; charset=3Dutf-8">
+</head>
+<body>
+<p><span style=3D"color: #ff0000;">-- External Sender --</span></p>
+<div>
+<div dir=3D"ltr">
+<h2>&nbsp;Share Athletes Data</h2>
+<p><strong>Description:</strong></p>
+<p>The API endpoint allows to get athletes' test information. It is possibl=
+e to use different filters in request parameters, like a user ID or email a=
+ddress, athlete ID, sport ID, and start/end dates.</p>
+<p><strong>URL</strong>: <span class=3D"gmail-code">https://{{inscyd_host}}=
+/api/external/athlete/all_data/</span></p>
+<p><strong>Method: GET</strong></p>
+<p><strong>DATA / PARAMS</strong></p>
+<p><strong>Header:</strong></p>
+<p>X-Api-Key: String</p>
+<p><strong>Request parameters:&nbsp;</strong></p>
+<div class=3D"gmail-fabric-editor-breakout-mark">
+<pre class=3D"gmail-code-block"><div class=3D"gmail-code-block--start"></di=
+v><div class=3D"gmail-code-block-content-wrapper"><div style=3D"background-=
+color:var(--ds-background-neutral,#0515240f);box-sizing:content-box;font-si=
+ze:0.875em;width:var(--lineNumberGutterWidth,2rem)"><div class=3D"gmail-cod=
+e-block-gutter-pseudo-element" style=3D"color:var(--ds-text-subtlest,#6b6e7=
+6);text-align:right"></div></div><div class=3D"gmail-code-content"><code ar=
+ia-label=3D"">user_id: &lt;&lt;number&gt;&gt;  // integer
+user_email: &lt;&lt;user email&gt;&gt;  // string
+sport_id: &lt;&lt;number&gt;&gt;  // integer
+athlete_display_id: &lt;&lt;number&gt;&gt;  // integer
+start_date: &lt;&lt;iso date, for instance: 2025-01-01T00:00:00&gt;&gt;  //=
+ string; only return results from this date forwards
+end_date: &lt;&lt;iso date, for instance: 2025-01-31T00:00:00&gt;&gt;  // s=
+tring; only return results up to this date
+id: &lt;&lt;number&gt;&gt;  // integer; Athlete ID (deprecated parameter)
+email: &lt;&lt;athlete email&gt;&gt;  // string; (deprecated parameter)</co=
+de></div></div><div class=3D"gmail-code-block--end"></div></pre>
+</div>
+<p><strong>Response body parameters:</strong></p>
+<ul class=3D"gmail-ak-ul">
+<li>
+<p><strong>Structure</strong></p>
+</li></ul>
+<div class=3D"gmail-fabric-editor-breakout-mark">
+<div>
+<pre class=3D"gmail-code-block"><div class=3D"gmail-code-block--start"></di=
+v><div class=3D"gmail-code-block-content-wrapper"><div style=3D"background-=
+color:var(--ds-background-neutral,#0515240f);box-sizing:content-box;font-si=
+ze:0.875em;width:var(--lineNumberGutterWidth,2rem)"><div class=3D"gmail-cod=
+e-block-gutter-pseudo-element" style=3D"color:var(--ds-text-subtlest,#6b6e7=
+6);text-align:right"></div></div><div class=3D"gmail-code-content"><code ar=
+ia-label=3D"">{
+  &quot;count&quot;: &quot;&lt;integer&gt;&quot;,
+  &quot;next&quot;: &quot;&lt;uri&gt;&quot;,
+  &quot;previous&quot;: &quot;&lt;uri&gt;&quot;,
+  &quot;page_size&quot;: &quot;&lt;integer&gt;&quot;,
+  &quot;total_pages&quot;: &quot;&lt;integer&gt;&quot;,
+  &quot;results&quot;: [
+    {
+      &quot;athlete_display_id&quot;: &quot;&lt;integer&gt;&quot;,
+      &quot;first_name&quot;: &quot;&lt;string&gt;&quot;,
+      &quot;id&quot;: &quot;&lt;integer&gt;&quot;,
+      &quot;last_name&quot;: &quot;&lt;string&gt;&quot;,
+      &quot;sport_id&quot;: &quot;&lt;integer&gt;&quot;,
+      &quot;created_at&quot;: &quot;&lt;dateTime&gt;&quot;,
+      &quot;vo2max&quot;: &quot;&lt;double&gt;&quot;,
+      &quot;vlamax&quot;: &quot;&lt;double&gt;&quot;,
+      &quot;anaerobic_threshold&quot;: &quot;&lt;double&gt;&quot;,
+      &quot;anaerobic_threshold_absolute&quot;: &quot;&lt;double&gt;&quot;,
+      &quot;fatmax&quot;: &quot;&lt;double&gt;&quot;,
+      &quot;fatmax_power&quot;: &quot;&lt;double&gt;&quot;,
+      &quot;carb_max&quot;: &quot;&lt;double&gt;&quot;,
+      &quot;oxygen_demand&quot;: {
+        &quot;sse&quot;: &quot;&lt;double&gt;&quot;
+        &quot;function&quot;: &quot;A + B * x + C * x**2 + D * x**3 + ...&q=
+uot;,
+        &quot;parameters&quot;: [&quot;&lt;double&gt;&quot;, &quot;&lt;doub=
+le&gt;&quot;, ...]
+      },
+      &quot;oxygen_uptake&quot;: {
+        &quot;sse&quot;: &quot;&lt;double&gt;&quot;
+        &quot;function&quot;: &quot;A + B * x + C * x**2 + D * x**3 + ...&q=
+uot;,
+        &quot;parameters&quot;: [&quot;&lt;double&gt;&quot;, &quot;&lt;doub=
+le&gt;&quot;, ...]
+      },
+      &quot;lactate_production&quot;: {
+        &quot;sse&quot;: &quot;&lt;double&gt;&quot;
+        &quot;function&quot;: &quot;A + B * x + C * x**2 + D * x**3 + ...&q=
+uot;,
+        &quot;parameters&quot;: [&quot;&lt;double&gt;&quot;, &quot;&lt;doub=
+le&gt;&quot;, ...]
+      },
+      &quot;max_aerobic&quot;: {
+        &quot;sse&quot;: &quot;&lt;double&gt;&quot;
+        &quot;function&quot;: &quot;A + B * x + C * x**2 + D * x**3 + ...&q=
+uot;,
+        &quot;parameters&quot;: [&quot;&lt;double&gt;&quot;, &quot;&lt;doub=
+le&gt;&quot;, ...]
+      },
+      &quot;lackof_pyruvate&quot;: {
+        &quot;sse&quot;: &quot;&lt;double&gt;&quot;
+        &quot;function&quot;: &quot;A + B * x + C * x**2 + D * x**3 + ...&q=
+uot;,
+        &quot;parameters&quot;: [&quot;&lt;double&gt;&quot;, &quot;&lt;doub=
+le&gt;&quot;, ...]
+      },
+      &quot;lactate_accumulation&quot;: {
+        &quot;sse&quot;: &quot;&lt;double&gt;&quot;
+        &quot;function&quot;: &quot;A + B * x + C * x**2 + D * x**3 + ...&q=
+uot;,
+        &quot;parameters&quot;: [&quot;&lt;double&gt;&quot;, &quot;&lt;doub=
+le&gt;&quot;, ...]
+      },
+      &quot;fat&quot;: {
+        &quot;sse&quot;: &quot;&lt;double&gt;&quot;
+        &quot;function&quot;: &quot;A + B * x + C * x**2 + D * x**3 + ...&q=
+uot;,
+        &quot;parameters&quot;: [&quot;&lt;double&gt;&quot;, &quot;&lt;doub=
+le&gt;&quot;, ...]
+      },
+      &quot;carbohydrate&quot;: {
+        &quot;sse&quot;: &quot;&lt;double&gt;&quot;
+        &quot;function&quot;: &quot;A + B * x + C * x**2 + D * x**3 + ...&q=
+uot;,
+        &quot;parameters&quot;: [&quot;&lt;double&gt;&quot;, &quot;&lt;doub=
+le&gt;&quot;, ...]
+      },
+      &quot;tau_value&quot;: &quot;&lt;double&gt;&quot;,
+      &quot;training_zones&quot;: [
+        {
+          &quot;id&quot;: &quot;&lt;integer&gt;&quot;,
+          &quot;name&quot;: &quot;&lt;string&gt;&quot;,
+          &quot;is_default&quot;: &quot;&lt;boolean&gt;&quot;,
+          &quot;zones&quot;: {}
+        },
+        ...
+      ],
+      &quot;at_percent_vo2max&quot;: &quot;&lt;double&gt;&quot;
+    },
+    ...
+  ]
+}&nbsp;</code></div></div><div class=3D"gmail-code-block--end"></div></pre>
+</div>
+</div>
+<ul class=3D"gmail-ak-ul">
+<li>
+<p><strong>Example</strong></p>
+</li></ul>
+<div class=3D"gmail-fabric-editor-breakout-mark">
+<div>
+<pre class=3D"gmail-code-block"><div class=3D"gmail-code-block--start"></di=
+v><div class=3D"gmail-code-block-content-wrapper"><div style=3D"background-=
+color:var(--ds-background-neutral,#0515240f);box-sizing:content-box;font-si=
+ze:0.875em;width:var(--lineNumberGutterWidth,2rem)"><div class=3D"gmail-cod=
+e-block-gutter-pseudo-element" style=3D"color:var(--ds-text-subtlest,#6b6e7=
+6);text-align:right"></div></div><div class=3D"gmail-code-content"><code ar=
+ia-label=3D"">{
+    &quot;count&quot;: 9,
+    &quot;next&quot;: &quot;<a href=3D"http://127.0.0.1:8000/api/external/a=
+thlete/all_data/?athlete_display_id=3D154662600022&amp;page=3D2&amp;sport_i=
+d=3D61&amp;user_email=3Dcontact%40inscyd.com&amp;user_id=3D192">http://127.=
+0.0.1:8000/api/external/athlete/all_data/?athlete_display_id=3D154662600022=
+&amp;page=3D2&amp;sport_id=3D61&amp;user_email=3Dcontact%40inscyd.com&amp;u=
+ser_id=3D192</a>&quot;,
+    &quot;previous&quot;: null,
+    &quot;page_size&quot;: 5,
+    &quot;total_pages&quot;: 2,
+    &quot;results&quot;: [
+        {
+            &quot;id&quot;: 169996740170,
+            &quot;sport_id&quot;: 61,
+            &quot;athlete_display_id&quot;: 154662600022,
+            &quot;first_name&quot;: &quot;Test&quot;,
+            &quot;last_name&quot;: &quot;Athlet&quot;,
+            &quot;created_at&quot;: &quot;2023-11-14T13:10:08.590286Z&quot;=
+,
+            &quot;vo2max&quot;: &quot;80.00&quot;,
+            &quot;vlamax&quot;: &quot;0.70&quot;,
+            &quot;anaerobic_threshold&quot;: 0.0,
+            &quot;anaerobic_threshold_absolute&quot;: 0.0,
+            &quot;fatmax&quot;: 0.0,
+            &quot;fatmax_power&quot;: 0.0,
+            &quot;carb_max&quot;: 0.0,
+            &quot;oxygen_demand&quot;: {
+                &quot;sse&quot;: 2.8208424326745623,
+                &quot;function&quot;: &quot;A + B * x&quot;,
+                &quot;parameters&quot;: [
+                    1.0245463830136188,
+                    0.1822562213342966
+                ]
+            },
+            &quot;oxygen_uptake&quot;: {
+                &quot;sse&quot;: 1.0119550717029657,
+                &quot;function&quot;: &quot;A + B * x + C * x**2 + D * x**3=
+ + E * x**4 + F * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9&quot;,
+                &quot;parameters&quot;: [
+                    -8.255460908655058,
+                    0.4305433314537527,
+                    -0.002634046315718288,
+                    1.3890398973926871e-05,
+                    -4.0021506769060574e-08,
+                    6.162693020746604e-11,
+                    -4.8033759868634915e-14,
+                    1.2450149199487972e-17,
+                    5.229910655004115e-21,
+                    -2.850839298029528e-24
+                ]
+            },
+            &quot;lactate_production&quot;: {
+                &quot;sse&quot;: 0.3869957127996308,
+                &quot;function&quot;: &quot;A + B * x + C * x**2 + D * x**3=
+ + E * x**4 + F * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9&quot;,
+                &quot;parameters&quot;: [
+                    3.6345202133238494,
+                    -0.09531905602143509,
+                    0.0010071324052093294,
+                    -5.310383594618248e-06,
+                    1.5300973967422687e-08,
+                    -2.3558124486573916e-11,
+                    1.835586840813138e-14,
+                    -4.749749830077604e-18,
+                    -2.005509394145104e-21,
+                    1.0913353044584269e-24
+                ]
+            },
+            &quot;max_aerobic&quot;: {
+                &quot;sse&quot;: 0.033462717561826116,
+                &quot;function&quot;: &quot;A + B * x + C * x**2 + D * x**3=
+ + E * x**4 + F * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9&quot;,
+                &quot;parameters&quot;: [
+                    -0.2729983630182699,
+                    0.014237277454499667,
+                    -8.710485962307351e-05,
+                    4.593429157873729e-07,
+                    -1.3234942045333923e-09,
+                    2.038042551726061e-12,
+                    -1.5886397786262466e-15,
+                    4.1194604321489463e-19,
+                    1.728174501357802e-22,
+                    -9.424472428820457e-26
+                ]
+            },
+            &quot;lackof_pyruvate&quot;: {
+                &quot;sse&quot;: 6.873222691142174e-06,
+                &quot;function&quot;: &quot;A + B * x + C * x**2 + D * x**3=
+ + E * x**4 + F * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9&quot;,
+                &quot;parameters&quot;: [
+                    -0.01702556469025551,
+                    0.005409934919033881,
+                    3.0186813113966185e-07,
+                    -5.167875374588354e-08,
+                    1.4065271503970717e-10,
+                    4.005059149114358e-13,
+                    -8.078249720477936e-15,
+                    3.606664938632266e-17,
+                    -7.910823007631093e-20,
+                    6.785887829713938e-23
+                ]
+            },
+            &quot;lactate_accumulation&quot;: {
+                &quot;sse&quot;: 0.015625071358079303,
+                &quot;function&quot;: &quot;A + B * x + C * x**2 + D * x**3=
+ + E * x**4 + F * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9&quot;,
+                &quot;parameters&quot;: [
+                    -182.27912174772754,
+                    2.683070437526925,
+                    -0.016798561438065296,
+                    5.831020228376042e-05,
+                    -1.242110249563642e-07,
+                    1.7032645564153008e-10,
+                    -1.5103031399537098e-13,
+                    8.359153607396884e-17,
+                    -2.616828575412082e-20,
+                    3.516466462257574e-24
+                ]
+            },
+            &quot;fat&quot;: {
+                &quot;sse&quot;: 0.008442828488308952,
+                &quot;function&quot;: &quot;A + B * x + C * x**2 + D * x**3=
+ + E * x**4 + F * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9&quot;,
+                &quot;parameters&quot;: [
+                    0.853175956058325,
+                    3.463714009133593,
+                    0.014974041961404621,
+                    -0.0002204199865509695,
+                    1.5037182957297757e-06,
+                    -6.734629967483838e-09,
+                    1.7030637641587104e-11,
+                    -2.0673469194174624e-14,
+                    -3.039861722710429e-18,
+                    2.202146157849974e-20
+                ]
+            },
+            &quot;carbohydrate&quot;: {
+                &quot;sse&quot;: 296.8953513204866,
+                &quot;function&quot;: &quot;A + B * x + C * x**2 + D * x**3=
+ + E * x**4 + F * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9&quot;,
+                &quot;parameters&quot;: [
+                    2788.844929883559,
+                    -73.14153049717608,
+                    0.7728220878559313,
+                    -0.004075080384327446,
+                    1.1742525685303034e-05,
+                    -1.808233600675072e-08,
+                    1.4095194872313078e-11,
+                    -3.65518431100171e-15,
+                    -1.533146732861634e-18,
+                    8.361359316945806e-22
+                ]
+            },
+            &quot;tau_value&quot;: 32.0,
+            &quot;training_zones&quot;: [],
+            &quot;at_percent_vo2max&quot;: 78.3
+        },
+        {
+            &quot;id&quot;: 169996956085,
+            &quot;sport_id&quot;: 61,
+            &quot;athlete_display_id&quot;: 154662600022,
+            &quot;first_name&quot;: &quot;Test&quot;,
+            &quot;last_name&quot;: &quot;Athlet&quot;,
+            &quot;created_at&quot;: &quot;2023-11-14T13:46:07.730961Z&quot;=
+,
+            &quot;vo2max&quot;: &quot;80.00&quot;,
+            &quot;vlamax&quot;: &quot;0.70&quot;,
+            &quot;anaerobic_threshold&quot;: 0.0,
+            &quot;anaerobic_threshold_absolute&quot;: 0.0,
+            &quot;fatmax&quot;: 0.0,
+            &quot;fatmax_power&quot;: 0.0,
+            &quot;carb_max&quot;: 0.0,
+            &quot;oxygen_demand&quot;: {
+                &quot;sse&quot;: 3.0598418166223635,
+                &quot;function&quot;: &quot;A + B * x&quot;,
+                &quot;parameters&quot;: [
+                    1.0101114611850226,
+                    0.18230822606826919
+                ]
+            },
+            &quot;oxygen_uptake&quot;: {
+                &quot;sse&quot;: 1.0137281876125006,
+                &quot;function&quot;: &quot;A + B * x + C * x**2 + D * x**3=
+ + E * x**4 + F * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9&quot;,
+                &quot;parameters&quot;: [
+                    -9.716749875732182,
+                    0.4737192609336261,
+                    -0.00316279996547512,
+                    1.7375374021778706e-05,
+                    -5.371221701328189e-08,
+                    9.479576891331773e-11,
+                    -9.781331609248705e-14,
+                    5.741995118378284e-17,
+                    -1.7137095727446894e-20,
+                    1.8494921642743255e-24
+                ]
+            },
+            &quot;lactate_production&quot;: {
+                &quot;sse&quot;: 0.3692998855953012,
+                &quot;function&quot;: &quot;A + B * x + C * x**2 + D * x**3=
+ + E * x**4 + F * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9&quot;,
+                &quot;parameters&quot;: [
+                    3.995434957021036,
+                    -0.10655320935112585,
+                    0.0011522812743832815,
+                    -6.32983003313068e-06,
+                    1.956892183765546e-08,
+                    -3.453758890786637e-11,
+                    3.563828671272735e-14,
+                    -2.0922261432335565e-17,
+                    6.245015815708837e-21,
+                    -6.741654840948545e-25
+                ]
+            },
+            &quot;max_aerobic&quot;: {
+                &quot;sse&quot;: 0.031932437851576144,
+                &quot;function&quot;: &quot;A + B * x + C * x**2 + D * x**3=
+ + E * x**4 + F * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9&quot;,
+                &quot;parameters&quot;: [
+                    -0.30610553251271655,
+                    0.014922869690461018,
+                    -9.963562261513411e-05,
+                    5.473659761370535e-07,
+                    -1.6920751507738609e-09,
+                    2.9863623028157526e-12,
+                    -3.0815118127617298e-15,
+                    1.8090468033044188e-18,
+                    -5.399625310864768e-22,
+                    5.828681054907454e-26
+                ]
+            },
+            &quot;lackof_pyruvate&quot;: {
+                &quot;sse&quot;: 4.622520495136788e-06,
+                &quot;function&quot;: &quot;A + B * x + C * x**2 + D * x**3=
+ + E * x**4 + F * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9&quot;,
+                &quot;parameters&quot;: [
+                    -0.015143159263925577,
+                    0.004927662618526752,
+                    4.841335979525887e-06,
+                    -1.1154309263711028e-07,
+                    6.456534036576674e-10,
+                    -2.4173603860163614e-12,
+                    2.352627755201326e-15,
+                    1.1431225957362275e-17,
+                    -4.542012704319876e-20,
+                    4.788122124386385e-23
+                ]
+            },
+            &quot;lactate_accumulation&quot;: {
+                &quot;sse&quot;: 0.015870438908463423,
+                &quot;function&quot;: &quot;A + B * x + C * x**2 + D * x**3=
+ + E * x**4 + F * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9&quot;,
+                &quot;parameters&quot;: [
+                    -151.8145938794031,
+                    2.239302678388872,
+                    -0.01403089399669497,
+                    4.863474291122253e-05,
+                    -1.0326526499929017e-07,
+                    1.4112203275810742e-10,
+                    -1.2482845744747008e-13,
+                    6.906663288690917e-17,
+                    -2.169277662657456e-20,
+                    2.942117617581073e-24
+                ]
+            },
+            &quot;fat&quot;: {
+                &quot;sse&quot;: 0.006523366293214185,
+                &quot;function&quot;: &quot;A + B * x + C * x**2 + D * x**3=
+ + E * x**4 + F * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9&quot;,
+                &quot;parameters&quot;: [
+                    -4.1521913561427075,
+                    3.565156159333444,
+                    0.012705382643916331,
+                    -0.00019971652504998963,
+                    1.383837884932939e-06,
+                    -6.386039389389292e-09,
+                    1.6814948280391375e-11,
+                    -2.244187535110003e-14,
+                    1.8917931535303883e-18,
+                    1.8126645769071317e-20
+                ]
+            },
+            &quot;carbohydrate&quot;: {
+                &quot;sse&quot;: 297.41704349708743,
+                &quot;function&quot;: &quot;A + B * x + C * x**2 + D * x**3=
+ + E * x**4 + F * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9&quot;,
+                &quot;parameters&quot;: [
+                    3218.1748812680544,
+                    -85.8246709186819,
+                    0.9281200694767616,
+                    -0.00509848294385727,
+                    1.576242415975932e-05,
+                    -2.7820380565261848e-08,
+                    2.870869118447393e-11,
+                    -1.6855763195731533e-14,
+                    5.032147772448397e-18,
+                    -5.434643891198236e-22
+                ]
+            },
+            &quot;tau_value&quot;: 32.0,
+            &quot;training_zones&quot;: [],
+            &quot;at_percent_vo2max&quot;: 77.4
+        },
+        {
+            &quot;id&quot;: 170076154672,
+            &quot;sport_id&quot;: 61,
+            &quot;athlete_display_id&quot;: 154662600022,
+            &quot;first_name&quot;: &quot;Test&quot;,
+            &quot;last_name&quot;: &quot;Athlet&quot;,
+            &quot;created_at&quot;: &quot;2023-11-23T17:45:49.895776Z&quot;=
+,
+            &quot;vo2max&quot;: &quot;80.00&quot;,
+            &quot;vlamax&quot;: &quot;0.70&quot;,
+            &quot;anaerobic_threshold&quot;: 0.0,
+            &quot;anaerobic_threshold_absolute&quot;: 0.0,
+            &quot;fatmax&quot;: 0.0,
+            &quot;fatmax_power&quot;: 0.0,
+            &quot;carb_max&quot;: 0.0,
+            &quot;oxygen_demand&quot;: {
+                &quot;sse&quot;: 106.34936049439591,
+                &quot;function&quot;: &quot;A + B * x&quot;,
+                &quot;parameters&quot;: [
+                    -10.41268858798901,
+                    0.2368118835081573
+                ]
+            },
+            &quot;oxygen_uptake&quot;: {
+                &quot;sse&quot;: 0.5043227704469543,
+                &quot;function&quot;: &quot;A + B * x + C * x**2 + D * x**3=
+ + E * x**4 + F * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9&quot;,
+                &quot;parameters&quot;: [
+                    16.73359140184894,
+                    -0.41293488418568913,
+                    0.008755700236256624,
+                    -6.987063589799913e-05,
+                    3.326811665319258e-07,
+                    -9.755247041547547e-10,
+                    1.760040068172215e-12,
+                    -1.9018005542722673e-15,
+                    1.1292407663874086e-18,
+                    -2.8345908104412495e-22
+                ]
+            },
+            &quot;lactate_production&quot;: {
+                &quot;sse&quot;: 0.18372416456069005,
+                &quot;function&quot;: &quot;A + B * x + C * x**2 + D * x**3=
+ + E * x**4 + F * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9&quot;,
+                &quot;parameters&quot;: [
+                    -6.098549936498158,
+                    0.2177634409886854,
+                    -0.003190703639841899,
+                    2.5497585868874376e-05,
+                    -1.212260216090439e-07,
+                    3.5546545573877815e-10,
+                    -6.413229124967266e-13,
+                    6.929739230127119e-16,
+                    -4.1146984918808803e-19,
+                    1.0328628099049922e-22
+                ]
+            },
+            &quot;max_aerobic&quot;: {
+                &quot;sse&quot;: 0.0158861729848784,
+                &quot;function&quot;: &quot;A + B * x + C * x**2 + D * x**3=
+ + E * x**4 + F * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9&quot;,
+                &quot;parameters&quot;: [
+                    0.5267789992503993,
+                    -0.012997049704877483,
+                    0.00027566798580564263,
+                    -2.1999437758422645e-06,
+                    1.0475188912968558e-08,
+                    -3.071732160639534e-11,
+                    5.542091469231246e-14,
+                    -5.988500742140274e-17,
+                    3.5558125213995054e-20,
+                    -8.925650754181933e-24
+                ]
+            },
+            &quot;lackof_pyruvate&quot;: {
+                &quot;sse&quot;: 2.511470185159053e-06,
+                &quot;function&quot;: &quot;A + B * x + C * x**2 + D * x**3=
+ + E * x**4 + F * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9&quot;,
+                &quot;parameters&quot;: [
+                    -0.11261053226207124,
+                    0.008353319629065006,
+                    -7.300769347090447e-05,
+                    9.627877066513853e-07,
+                    -8.73870112943374e-09,
+                    5.1844208278471095e-11,
+                    -2.0542409480008058e-13,
+                    5.187661175458083e-16,
+                    -7.643778476004359e-19,
+                    4.937761975080345e-22
+                ]
+            },
+            &quot;lactate_accumulation&quot;: {
+                &quot;sse&quot;: 0.0162703627782912,
+                &quot;function&quot;: &quot;A + B * x + C * x**2 + D * x**3=
+ + E * x**4 + F * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9&quot;,
+                &quot;parameters&quot;: [
+                    8.555318649111877,
+                    -1.2200685897491201,
+                    0.01835361491572295,
+                    -0.00012326967822524443,
+                    4.656688047834646e-07,
+                    -1.0768707819015025e-09,
+                    1.5666849965474283e-12,
+                    -1.4047181496795933e-15,
+                    7.113160327659501e-19,
+                    -1.5600207593510453e-22
+                ]
+            },
+            &quot;fat&quot;: {
+                &quot;sse&quot;: 0.014067027859413111,
+                &quot;function&quot;: &quot;A + B * x + C * x**2 + D * x**3=
+ + E * x**4 + F * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9&quot;,
+                &quot;parameters&quot;: [
+                    -36.291499550697836,
+                    4.019571214870905,
+                    -8.557662903529391e-05,
+                    4.734910460543112e-05,
+                    -1.3451495837983739e-06,
+                    1.2629071603157049e-08,
+                    -6.788030925661785e-11,
+                    2.1130302495219952e-13,
+                    -3.648264575502667e-16,
+                    2.644195417263717e-19
+                ]
+            },
+            &quot;carbohydrate&quot;: {
+                &quot;sse&quot;: 147.96295807262393,
+                &quot;function&quot;: &quot;A + B * x + C * x**2 + D * x**3=
+ + E * x**4 + F * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9&quot;,
+                &quot;parameters&quot;: [
+                    -4912.2701099055,
+                    175.40101805307026,
+                    -2.5699622072685786,
+                    0.020536826671101037,
+                    -9.763949419868633e-05,
+                    2.8630160745303337e-07,
+                    -5.165367381463473e-10,
+                    5.5813651823336e-13,
+                    -3.3140674907774616e-16,
+                    8.31890629116488e-20
+                ]
+            },
+            &quot;tau_value&quot;: 32.0,
+            &quot;training_zones&quot;: [],
+            &quot;at_percent_vo2max&quot;: 77.4
+        },
+        {
+            &quot;id&quot;: 170177224078,
+            &quot;sport_id&quot;: 61,
+            &quot;athlete_display_id&quot;: 154662600022,
+            &quot;first_name&quot;: &quot;Test&quot;,
+            &quot;last_name&quot;: &quot;Athlet&quot;,
+            &quot;created_at&quot;: &quot;2023-12-05T10:31:21.879802Z&quot;=
+,
+            &quot;vo2max&quot;: &quot;60.85&quot;,
+            &quot;vlamax&quot;: &quot;0.35&quot;,
+            &quot;anaerobic_threshold&quot;: 0.0,
+            &quot;anaerobic_threshold_absolute&quot;: 0.0,
+            &quot;fatmax&quot;: 0.0,
+            &quot;fatmax_power&quot;: 0.0,
+            &quot;carb_max&quot;: 0.0,
+            &quot;oxygen_demand&quot;: {
+                &quot;sse&quot;: 1.416315780961758e-07,
+                &quot;function&quot;: &quot;A + B * x&quot;,
+                &quot;parameters&quot;: [
+                    5.0000001096672,
+                    0.22966166769229085
+                ]
+            },
+            &quot;oxygen_uptake&quot;: {
+                &quot;sse&quot;: 0.23105466946894754,
+                &quot;function&quot;: &quot;A + B * x + C * x**2 + D * x**3=
+ + E * x**4 + F * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9&quot;,
+                &quot;parameters&quot;: [
+                    -36.74647796729282,
+                    1.767848490115157,
+                    -0.023276789387345988,
+                    0.00018375000044525038,
+                    -8.032790138927726e-07,
+                    1.8225276651394163e-09,
+                    -1.4012522108982643e-12,
+                    -2.27633813002875e-15,
+                    5.423946194486817e-18,
+                    -3.17109543029876e-21
+                ]
+            },
+            &quot;lactate_production&quot;: {
+                &quot;sse&quot;: 0.08836080604111277,
+                &quot;function&quot;: &quot;A + B * x + C * x**2 + D * x**3=
+ + E * x**4 + F * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9&quot;,
+                &quot;parameters&quot;: [
+                    15.965664252071322,
+                    -0.5882749244729423,
+                    0.008902259871468867,
+                    -7.027722239220063e-05,
+                    3.072366912486223e-07,
+                    -6.971562913595951e-10,
+                    5.363395138580509e-13,
+                    8.697660244482757e-16,
+                    -2.0735486293669515e-18,
+                    1.2124262826426479e-21
+                ]
+            },
+            &quot;max_aerobic&quot;: {
+                &quot;sse&quot;: 0.007640376445668681,
+                &quot;function&quot;: &quot;A + B * x + C * x**2 + D * x**3=
+ + E * x**4 + F * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9&quot;,
+                &quot;parameters&quot;: [
+                    -1.2151551063015886,
+                    0.05846089725309054,
+                    -0.0007697671735902794,
+                    6.076924528424802e-06,
+                    -2.6568099754121842e-08,
+                    6.029236113090253e-11,
+                    -4.6410389065686454e-14,
+                    -7.514215654334235e-17,
+                    1.7922854033912808e-19,
+                    -1.0480681061077239e-22
+                ]
+            },
+            &quot;lackof_pyruvate&quot;: {
+                &quot;sse&quot;: 8.718483556302749e-06,
+                &quot;function&quot;: &quot;A + B * x + C * x**2 + D * x**3=
+ + E * x**4 + F * x**5 + G * x**6 + H * x**7 + I * x**8&quot;,
+                &quot;parameters&quot;: [
+                    -0.08664208883315794,
+                    0.015062476308722152,
+                    -0.00012986628404751003,
+                    3.137959727549764e-07,
+                    1.26289131983697e-08,
+                    -1.8630515953696184e-10,
+                    1.1577723838488672e-12,
+                    -3.622031906277186e-15,
+                    4.5122160091518886e-18
+                ]
+            },
+            &quot;lactate_accumulation&quot;: {
+                &quot;sse&quot;: 0.011397083980512769,
+                &quot;function&quot;: &quot;A + B * x + C * x**2 + D * x**3=
+ + E * x**4 + F * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9&quot;,
+                &quot;parameters&quot;: [
+                    -0.0048891560468066276,
+                    -0.9529931660397851,
+                    0.025490187104346935,
+                    -0.00029185019451600353,
+                    1.8543546973137316e-06,
+                    -7.160182983738145e-09,
+                    1.731463684929309e-11,
+                    -2.5729318197576753e-14,
+                    2.1549893833140292e-17,
+                    -7.806058963103902e-21
+                ]
+            },
+            &quot;fat&quot;: {
+                &quot;sse&quot;: 0.007916393857958389,
+                &quot;function&quot;: &quot;A + B * x + C * x**2 + D * x**3=
+ + E * x**4 + F * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9&quot;,
+                &quot;parameters&quot;: [
+                    0.14908543931796361,
+                    3.48053972559702,
+                    0.18133481511793845,
+                    -0.005497094268774798,
+                    8.163492183212486e-05,
+                    -7.230399837832179e-07,
+                    3.9285337967918365e-09,
+                    -1.2826571412565102e-11,
+                    2.2592495526384207e-14,
+                    -1.6055385952742122e-17
+                ]
+            },
+            &quot;carbohydrate&quot;: {
+                &quot;sse&quot;: 59.315073972898745,
+                &quot;function&quot;: &quot;A + B * x + C * x**2 + D * x**3=
+ + E * x**4 + F * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9&quot;,
+                &quot;parameters&quot;: [
+                    10722.336859794756,
+                    -395.0923669576114,
+                    5.979229184336265,
+                    -0.04720742206874811,
+                    0.0002064298530993321,
+                    -4.6870485089040725e-07,
+                    3.6180354057065953e-10,
+                    5.8113397725223e-13,
+                    -1.3895544961919407e-15,
+                    8.129781615945554e-19
+                ]
+            },
+            &quot;tau_value&quot;: 32.0,
+            &quot;training_zones&quot;: [],
+            &quot;at_percent_vo2max&quot;: 85.5
+        },
+        {
+            &quot;id&quot;: 170185481343,
+            &quot;sport_id&quot;: 61,
+            &quot;athlete_display_id&quot;: 154662600022,
+            &quot;first_name&quot;: &quot;Test&quot;,
+            &quot;last_name&quot;: &quot;Athlet&quot;,
+            &quot;created_at&quot;: &quot;2023-12-06T09:27:18.852461Z&quot;=
+,
+            &quot;vo2max&quot;: &quot;58.75&quot;,
+            &quot;vlamax&quot;: &quot;0.23&quot;,
+            &quot;anaerobic_threshold&quot;: 0.0,
+            &quot;anaerobic_threshold_absolute&quot;: 0.0,
+            &quot;fatmax&quot;: 0.0,
+            &quot;fatmax_power&quot;: 0.0,
+            &quot;carb_max&quot;: 0.0,
+            &quot;oxygen_demand&quot;: {
+                &quot;sse&quot;: 1.2333258973997958e-07,
+                &quot;function&quot;: &quot;A + B * x&quot;,
+                &quot;parameters&quot;: [
+                    5.00000009389903,
+                    0.23054651453351377
+                ]
+            },
+            &quot;oxygen_uptake&quot;: {
+                &quot;sse&quot;: 0.09812699537211253,
+                &quot;function&quot;: &quot;A + B * x + C * x**2 + D * x**3=
+ + E * x**4 + F * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9&quot;,
+                &quot;parameters&quot;: [
+                    134.24178069082978,
+                    -6.052193405216329,
+                    0.1311562707355324,
+                    -0.0015423677543056704,
+                    1.1225457403498692e-05,
+                    -5.23446943483802e-08,
+                    1.562399202269931e-10,
+                    -2.8846475925783836e-13,
+                    2.9997972229304426e-16,
+                    -1.343634097176352e-19
+                ]
+            },
+            &quot;lactate_production&quot;: {
+                &quot;sse&quot;: 0.03752741463995982,
+                &quot;function&quot;: &quot;A + B * x + C * x**2 + D * x**3=
+ + E * x**4 + F * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9&quot;,
+                &quot;parameters&quot;: [
+                    -49.79902815811787,
+                    2.419689832701218,
+                    -0.05049212298164858,
+                    0.000593575817128249,
+                    -4.3189870466215895e-06,
+                    2.0136262433803924e-08,
+                    -6.009900208828828e-11,
+                    1.1096189937765982e-13,
+                    -1.1540114987478685e-16,
+                    5.169668113332803e-20
+                ]
+            },
+            &quot;max_aerobic&quot;: {
+                &quot;sse&quot;: 0.0032448026590239294,
+                &quot;function&quot;: &quot;A + B * x + C * x**2 + D * x**3=
+ + E * x**4 + F * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9&quot;,
+                &quot;parameters&quot;: [
+                    4.455123470601229,
+                    -0.20086382555916457,
+                    0.004351443525551,
+                    -5.116354306401124e-05,
+                    3.723257103198355e-07,
+                    -1.7360304400885058e-09,
+                    5.1815868506176375e-12,
+                    -9.566832037580494e-15,
+                    9.949188421478247e-18,
+                    -4.456669691594257e-21
+                ]
+            },
+            &quot;lackof_pyruvate&quot;: {
+                &quot;sse&quot;: 3.850694357226307e-05,
+                &quot;function&quot;: &quot;A + B * x + C * x**2 + D * x**3=
+ + E * x**4 + F * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9&quot;,
+                &quot;parameters&quot;: [
+                    -0.32577029059272844,
+                    0.01954705909472622,
+                    3.983821471225727e-05,
+                    -6.612294154526057e-06,
+                    1.2145131963539037e-07,
+                    -1.1243030535281634e-09,
+                    5.918419401831609e-12,
+                    -1.7478900143425074e-14,
+                    2.4922886848079602e-17,
+                    -1.0547463673761029e-20
+                ]
+            },
+            &quot;lactate_accumulation&quot;: {
+                &quot;sse&quot;: 0.014443600521502549,
+                &quot;function&quot;: &quot;A + B * x + C * x**2 + D * x**3=
+ + E * x**4 + F * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9&quot;,
+                &quot;parameters&quot;: [
+                    -22.517123840350674,
+                    -0.57873730442105,
+                    0.030664764703010296,
+                    -0.0004606649980624101,
+                    3.58650896365167e-06,
+                    -1.6691037287153727e-08,
+                    4.8559351644836245e-11,
+                    -8.710184897255076e-14,
+                    8.850858674614698e-17,
+                    -3.9108546257387365e-20
+                ]
+            },
+            &quot;fat&quot;: {
+                &quot;sse&quot;: 0.03937722158199226,
+                &quot;function&quot;: &quot;A + B * x + C * x**2 + D * x**3=
+ + E * x**4 + F * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9&quot;,
+                &quot;parameters&quot;: [
+                    -170.35141436887722,
+                    5.330676246513826,
+                    0.3763907841543467,
+                    -0.012219995085474259,
+                    0.00018361222758518108,
+                    -1.599066806750439e-06,
+                    8.44515895335862e-09,
+                    -2.649464293993775e-11,
+                    4.4440642580377125e-14,
+                    -2.971038151340164e-17
+                ]
+            },
+            &quot;carbohydrate&quot;: {
+                &quot;sse&quot;: 25.190515339360292,
+                &quot;function&quot;: &quot;A + B * x + C * x**2 + D * x**3=
+ + E * x**4 + F * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9&quot;,
+                &quot;parameters&quot;: [
+                    -33214.30659501115,
+                    1614.5168346833984,
+                    -33.702188474177156,
+                    0.39631147899928915,
+                    -0.0028842805009602016,
+                    1.3449197426883663e-05,
+                    -4.014318361395693e-08,
+                    7.411634338164146e-11,
+                    -7.707598179706586e-14,
+                    3.452374917561969e-17
+                ]
+            },
+            &quot;tau_value&quot;: 32.0,
+            &quot;training_zones&quot;: [],
+            &quot;at_percent_vo2max&quot;: 90.9
+        }
+    ]
+}</code></div></div><div class=3D"gmail-code-block--end"></div></pre>
+</div>
+</div>
+<h2><span style=3D"display:inline-block;min-height:16.25px;min-width:16.25p=
+x;overflow:hidden;text-align:center;vertical-align:middle" aria-label=3D":e=
+lectric_plug:" class=3D"emoji-common-placeholder"></span>Training Planner T=
+ool</h2>
+<p><strong>Description:</strong></p>
+<p>The API endpoint allows to get the latest athlete's test data.</p>
+<p><strong>URL</strong>: <span class=3D"gmail-code">https://{{inscyd_host}}=
+/api/external/athlete/last_data/</span></p>
+<p><strong>Method: GET</strong></p>
+<p><strong>DATA / PARAMS</strong></p>
+<p><strong>Header:</strong></p>
+<p>X-Api-Key: String</p>
+<p><strong>Request parameters:&nbsp;</strong></p>
+<div class=3D"gmail-fabric-editor-breakout-mark">
+<pre class=3D"gmail-code-block"><div class=3D"gmail-code-block--start"></di=
+v><div class=3D"gmail-code-block-content-wrapper"><div style=3D"background-=
+color:var(--ds-background-neutral,#0515240f);box-sizing:content-box;font-si=
+ze:0.875em;width:var(--lineNumberGutterWidth,2rem)"><div class=3D"gmail-cod=
+e-block-gutter-pseudo-element" style=3D"color:var(--ds-text-subtlest,#6b6e7=
+6);text-align:right"></div></div><div class=3D"gmail-code-content"><code ar=
+ia-label=3D"">user_id: &lt;&lt;number&gt;&gt;  // integer
+user_email: &lt;&lt;user email&gt;&gt;  // string
+sport_id: &lt;&lt;number&gt;&gt;  // integer
+athlete_display_id: &lt;&lt;number&gt;&gt;  // integer,=20
+id: &lt;&lt;number&gt;&gt;  // integer; Athlete ID (deprecated parameter)
+email: &lt;&lt;athlete email&gt;&gt;  // string; (deprecated parameter)</co=
+de></div></div><div class=3D"gmail-code-block--end"></div></pre>
+</div>
+<p><strong>Response body parameters:</strong></p>
+<ul class=3D"gmail-ak-ul">
+<li>
+<p><strong>Structure</strong></p>
+</li></ul>
+<div class=3D"gmail-fabric-editor-breakout-mark">
+<div>
+<pre class=3D"gmail-code-block"><div class=3D"gmail-code-block--start"></di=
+v><div class=3D"gmail-code-block-content-wrapper"><div style=3D"background-=
+color:var(--ds-background-neutral,#0515240f);box-sizing:content-box;font-si=
+ze:0.875em;width:var(--lineNumberGutterWidth,2rem)"><div class=3D"gmail-cod=
+e-block-gutter-pseudo-element" style=3D"color:var(--ds-text-subtlest,#6b6e7=
+6);text-align:right"></div></div><div class=3D"gmail-code-content"><code ar=
+ia-label=3D"">{
+  &quot;count&quot;: &quot;&lt;integer&gt;&quot;,
+  &quot;next&quot;: &quot;&lt;uri&gt;&quot;,
+  &quot;previous&quot;: &quot;&lt;uri&gt;&quot;,
+  &quot;page_size&quot;: &quot;&lt;integer&gt;&quot;,
+  &quot;total_pages&quot;: &quot;&lt;integer&gt;&quot;,
+  &quot;results&quot;: [ =20
+    {
+      &quot;athlete_display_id&quot;: &quot;&lt;integer&gt;&quot;,
+      &quot;first_name&quot;: &quot;&lt;string&gt;&quot;,
+      &quot;id&quot;: &quot;&lt;integer&gt;&quot;,
+      &quot;last_name&quot;: &quot;&lt;string&gt;&quot;,
+      &quot;created_at&quot;: &quot;&lt;dateTime&gt;&quot;,
+      &quot;lackof_pyruvate&quot;: {
+        &quot;sse&quot;: &quot;&lt;double&gt;&quot;
+        &quot;function&quot;: &quot;A + B * x + C * x**2 + D * x**3 + ...&q=
+uot;,
+        &quot;parameters&quot;: [&quot;&lt;double&gt;&quot;, &quot;&lt;doub=
+le&gt;&quot;, ...]
+      },
+      &quot;lactate_accumulation&quot;: {
+        &quot;sse&quot;: &quot;&lt;double&gt;&quot;
+        &quot;function&quot;: &quot;A + B * x + C * x**2 + D * x**3 + ...&q=
+uot;,
+        &quot;parameters&quot;: [&quot;&lt;double&gt;&quot;, &quot;&lt;doub=
+le&gt;&quot;, ...]
+      },
+      &quot;fat&quot;: {
+        &quot;sse&quot;: &quot;&lt;double&gt;&quot;
+        &quot;function&quot;: &quot;A + B * x + C * x**2 + D * x**3 + ...&q=
+uot;,
+        &quot;parameters&quot;: [&quot;&lt;double&gt;&quot;, &quot;&lt;doub=
+le&gt;&quot;, ...]
+      },
+      &quot;carbohydrate&quot;: {
+        &quot;sse&quot;: &quot;&lt;double&gt;&quot;
+        &quot;function&quot;: &quot;A + B * x + C * x**2 + D * x**3 + ...&q=
+uot;,
+        &quot;parameters&quot;: [&quot;&lt;double&gt;&quot;, &quot;&lt;doub=
+le&gt;&quot;, ...]
+      },
+      &quot;training_zones&quot;: [
+        {
+          &quot;id&quot;: &quot;&lt;integer&gt;&quot;,
+          &quot;name&quot;: &quot;&lt;string&gt;&quot;,
+          &quot;is_default&quot;: &quot;&lt;boolean&gt;&quot;,
+          &quot;zones&quot;: {}
+        },
+        ...
+      ]
+    }
+  ]
+}&nbsp;</code></div></div><div class=3D"gmail-code-block--end"></div></pre>
+</div>
+</div>
+<ul class=3D"gmail-ak-ul">
+<li>
+<p><strong>Example</strong></p>
+</li></ul>
+<div class=3D"gmail-fabric-editor-breakout-mark">
+<div>
+<pre class=3D"gmail-code-block"><div class=3D"gmail-code-block--start"></di=
+v><div class=3D"gmail-code-block-content-wrapper"><div style=3D"background-=
+color:var(--ds-background-neutral,#0515240f);box-sizing:content-box;font-si=
+ze:0.875em;width:var(--lineNumberGutterWidth,2rem)"><div class=3D"gmail-cod=
+e-block-gutter-pseudo-element" style=3D"color:var(--ds-text-subtlest,#6b6e7=
+6);text-align:right"></div></div><div class=3D"gmail-code-content"><code ar=
+ia-label=3D"">{
+    &quot;count&quot;: 1,
+    &quot;next&quot;: null,
+    &quot;previous&quot;: null,
+    &quot;page_size&quot;: 10,
+    &quot;total_pages&quot;: 1,
+    &quot;results&quot;: [
+        {
+            &quot;id&quot;: 154663631691,
+            &quot;athlete_display_id&quot;: 154662600022,
+            &quot;first_name&quot;: &quot;Test&quot;,
+            &quot;last_name&quot;: &quot;Athlet&quot;,
+            &quot;created_at&quot;: &quot;2019-01-04T21:11:56.916323Z&quot;=
+,
+            &quot;lackof_pyruvate&quot;: {
+                &quot;sse&quot;: 5.8754972911836395e-05,
+                &quot;function&quot;: &quot;A + B * x + C * x**2 + D * x**3=
+ + E * x**4 + F * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9&quot;,
+                &quot;parameters&quot;: [
+                    0.25982511448763257,
+                    0.21295973873057464,
+                    -0.07424718205264012,
+                    0.09300922505703452,
+                    -0.08874278826703304,
+                    0.05274204960373321,
+                    -0.020356611798592123,
+                    0.004813260036169763,
+                    -0.000642848018846015,
+                    3.594128544785076e-05
+                ]
+            },
+            &quot;lactate_accumulation&quot;: {
+                &quot;sse&quot;: 0.02117062976193029,
+                &quot;function&quot;: &quot;A + B * x + C * x**2 + D * x**3=
+ + E * x**4 + F * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9&quot;,
+                &quot;parameters&quot;: [
+                    -252.17273086351386,
+                    143.762070096993,
+                    74.08885409075518,
+                    -98.50713488047887,
+                    42.52327099787749,
+                    -10.101258541229987,
+                    1.4586124447588056,
+                    -0.1281841884396519,
+                    0.0063348288138678245,
+                    -0.00013548517153222112
+                ]
+            },
+            &quot;fat&quot;: {
+                &quot;sse&quot;: 0.06845297930102208,
+                &quot;function&quot;: &quot;A + B * x + C * x**2 + D * x**3=
+ + E * x**4 + F * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9&quot;,
+                &quot;parameters&quot;: [
+                    208.359405863554,
+                    177.2539256843581,
+                    -75.1957639830076,
+                    97.50429190266688,
+                    -91.56274365710226,
+                    53.75628141674488,
+                    -20.41238308345173,
+                    4.756224393087938,
+                    -0.625654745360629,
+                    0.034619357533904306
+                ]
+            },
+            &quot;carbohydrate&quot;: {
+                &quot;sse&quot;: 96.29708822734962,
+                &quot;function&quot;: &quot;A + B * x + C * x**2 + D * x**3=
+ + E * x**4 + F * x**5 + G * x**6 + H * x**7 + I * x**8 + J * x**9&quot;,
+                &quot;parameters&quot;: [
+                    259.93940787612206,
+                    -935.6587532511871,
+                    1992.3217788268346,
+                    -2106.6288873387607,
+                    1289.9936168871434,
+                    -471.9158723997113,
+                    103.90508869325501,
+                    -13.293524342540744,
+                    0.908044008452759,
+                    -0.025602958963921955
+                ]
+            },
+            &quot;training_zones&quot;: [
+                {
+                    &quot;id&quot;: 123,
+                    &quot;name&quot;: &quot;INSCYD Default Triathlon Runnin=
+g&quot;,
+                    &quot;is_default&quot;: false,
+                    &quot;zones&quot;: {}
+                },
+                {
+                    &quot;id&quot;: 1797,
+                    &quot;name&quot;: &quot;Lactate shuttling bug Triathlon=
+ Running&quot;,
+                    &quot;is_default&quot;: false,
+                    &quot;zones&quot;: [
+                        {
+                            &quot;name&quot;: &quot;LS-power&quot;,
+                            &quot;code&quot;: &quot;1&quot;,
+                            &quot;master_metric&quot;: 28,
+                            &quot;lower&quot;: {
+                                &quot;power_watt&quot;: &quot;nc&quot;,
+                                &quot;power_watt_kg&quot;: &quot;nc&quot;
+                            },
+                            &quot;upper&quot;: {
+                                &quot;power_watt&quot;: &quot;nc&quot;,
+                                &quot;power_watt_kg&quot;: &quot;nc&quot;
+                            },
+                            &quot;target&quot;: {
+                                &quot;power_watt&quot;: 0,
+                                &quot;power_watt_kg&quot;: 0.0
+                            },
+                            &quot;output_values&quot;: {}
+                        },
+                        {
+                            &quot;name&quot;: &quot;LS-power/speed&quot;,
+                            &quot;code&quot;: &quot;2&quot;,
+                            &quot;master_metric&quot;: 28,
+                            &quot;lower&quot;: {
+                                &quot;power_watt&quot;: &quot;nc&quot;,
+                                &quot;speed_m_s&quot;: &quot;nc&quot;
+                            },
+                            &quot;upper&quot;: {
+                                &quot;power_watt&quot;: &quot;nc&quot;,
+                                &quot;speed_m_s&quot;: &quot;nc&quot;
+                            },
+                            &quot;target&quot;: {
+                                &quot;power_watt&quot;: 0,
+                                &quot;speed_m_s&quot;: 0
+                            },
+                            &quot;output_values&quot;: {}
+                        }
+                    ]
+                }
+            ]
+        }
+    ]
+}</code></div></div><div class=3D"gmail-code-block--end"></div></pre>
+</div>
+</div>
+<p></p>
+<h2>Fueling Metrics</h2>
+<h3><span style=3D"display:inline-block;min-height:16.25px;min-width:16.25p=
+x;overflow:hidden;text-align:center;vertical-align:middle" aria-label=3D":e=
+lectric_plug:" class=3D"emoji-common-placeholder"></span><strong>Create Fue=
+ling Metrics</strong></h3>
+<p><strong>URL</strong>: <span class=3D"gmail-code">https://{{inscyd_host}}=
+/api/external/athlete/fueling_metrics</span></p>
+<p><strong>Method: POST</strong></p>
+<p><strong>DATA / PARAMS</strong></p>
+<p><strong>Header:</strong></p>
+<p>X-Api-Key: String</p>
+<p><strong>Request body parameters in form-data format:&nbsp;</strong></p>
+<div class=3D"gmail-mediaSingleView-content-wrap" style=3D"margin-left:0px;=
+margin-right:0px;width:unset">
+<div class=3D"gmail-rich-media-item gmail-mediaSingleView-content-wrap gmai=
+l-image-wide" style=3D"display:flex;margin-left:0px">
+<div style=3D"color:var(--ds-icon,#292a2e)">
+<div>
+<div class=3D"gmail-media-content-wrap">
+<div width=3D"156" height=3D"125" title=3D"Attachment" style=3D"background-=
+color:var(--ak-editor-media-card-background-color);background-image:url(&qu=
+ot;data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAA=
+IBRAA7&quot;);display:var(--ak-editor-media-card-display,inline-block);heig=
+ht:var(--ak-editor-media-card-height,0);margin-left:0px;outline:none;paddin=
+g-bottom:var(--ak-editor-media-padding-bottom,0);width:var(--ak-editor-medi=
+a-card-width,100%)">
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<p><strong>Response body parameters:</strong></p>
+<div class=3D"gmail-fabric-editor-breakout-mark">
+<pre class=3D"gmail-code-block"><div class=3D"gmail-code-block--start"></di=
+v><div class=3D"gmail-code-block-content-wrapper"><div style=3D"background-=
+color:var(--ds-background-neutral,#0515240f);box-sizing:content-box;font-si=
+ze:0.875em;width:var(--lineNumberGutterWidth,2rem)"><div class=3D"gmail-cod=
+e-block-gutter-pseudo-element" style=3D"color:var(--ds-text-subtlest,#6b6e7=
+6);text-align:right"></div></div><div class=3D"gmail-code-content"><code ar=
+ia-label=3D"">{
+  &quot;athlete_id&quot;: &quot;&lt;integer&gt;&quot;,
+  &quot;carbohydrate&quot;: {
+    &quot;sse&quot;: &quot;&lt;double&gt;&quot;
+    &quot;function&quot;: &quot;A + B * x + C * x**2 + D * x**3 + ...&quot;=
+,
+    &quot;parameters&quot;: [&quot;&lt;double&gt;&quot;, &quot;&lt;double&g=
+t;&quot;, ...]
+  },
+  &quot;created_at&quot;: &quot;&lt;dateTime&gt;&quot;,
+  &quot;fat&quot;: {
+    &quot;sse&quot;: &quot;&lt;double&gt;&quot;
+    &quot;function&quot;: &quot;A + B * x + C * x**2 + D * x**3 + ...&quot;=
+,
+    &quot;parameters&quot;: [&quot;&lt;double&gt;&quot;, &quot;&lt;double&g=
+t;&quot;, ...]
+  },
+  &quot;id&quot;: &quot;&lt;integer&gt;&quot;,
+  &quot;snippets_data&quot;: {}
+}</code></div></div><div class=3D"gmail-code-block--end"></div></pre>
+</div>
+<p>&nbsp;</p>
+<h3><span style=3D"display:inline-block;min-height:16.25px;min-width:16.25p=
+x;overflow:hidden;text-align:center;vertical-align:middle" aria-label=3D":e=
+lectric_plug:" class=3D"emoji-common-placeholder"></span><strong>Update Fue=
+ling Metrics (Disabled)</strong></h3>
+<p><strong>URL</strong>: <span class=3D"gmail-code">https://{{inscyd_host}}=
+/api/external/athlete/fueling_metrics/&lt;id&gt;/</span></p>
+<p>&lt;id&gt; - INSCYD Test display ID (integer, mandatory)</p>
+<p><strong>Method: PUT</strong></p>
+<p><strong>DATA / PARAMS</strong></p>
+<p><strong>Header:</strong></p>
+<p>X-Api-Key: String</p>
+<p><strong>Request body parameters in form-data format:&nbsp;</strong></p>
+<div class=3D"gmail-mediaSingleView-content-wrap" style=3D"margin-left:0px;=
+margin-right:0px;width:unset">
+<div class=3D"gmail-rich-media-item gmail-mediaSingleView-content-wrap gmai=
+l-image-wide" style=3D"display:flex;margin-left:0px">
+<div style=3D"color:var(--ds-icon,#292a2e)">
+<div>
+<div class=3D"gmail-media-content-wrap">
+<div width=3D"156" height=3D"125" title=3D"Attachment" style=3D"background-=
+color:var(--ak-editor-media-card-background-color);background-image:url(&qu=
+ot;data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAA=
+IBRAA7&quot;);display:var(--ak-editor-media-card-display,inline-block);heig=
+ht:var(--ak-editor-media-card-height,0);margin-left:0px;outline:none;paddin=
+g-bottom:var(--ak-editor-media-padding-bottom,0);width:var(--ak-editor-medi=
+a-card-width,100%)">
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<p><strong>Response body parameters:</strong></p>
+<div class=3D"gmail-fabric-editor-breakout-mark">
+<pre class=3D"gmail-code-block"><div class=3D"gmail-code-block--start"></di=
+v><div class=3D"gmail-code-block-content-wrapper"><div style=3D"background-=
+color:var(--ds-background-neutral,#0515240f);box-sizing:content-box;font-si=
+ze:0.875em;width:var(--lineNumberGutterWidth,2rem)"><div class=3D"gmail-cod=
+e-block-gutter-pseudo-element" style=3D"color:var(--ds-text-subtlest,#6b6e7=
+6);text-align:right"></div></div><div class=3D"gmail-code-content"><code ar=
+ia-label=3D"">{
+  &quot;athlete_id&quot;: &quot;&lt;integer&gt;&quot;,
+  &quot;carbohydrate&quot;: {
+    &quot;sse&quot;: &quot;&lt;double&gt;&quot;
+    &quot;function&quot;: &quot;A + B * x + C * x**2 + D * x**3 + ...&quot;=
+,
+    &quot;parameters&quot;: [&quot;&lt;double&gt;&quot;, &quot;&lt;double&g=
+t;&quot;, ...]
+  },
+  &quot;created_at&quot;: &quot;&lt;dateTime&gt;&quot;,
+  &quot;fat&quot;: {
+    &quot;sse&quot;: &quot;&lt;double&gt;&quot;
+    &quot;function&quot;: &quot;A + B * x + C * x**2 + D * x**3 + ...&quot;=
+,
+    &quot;parameters&quot;: [&quot;&lt;double&gt;&quot;, &quot;&lt;double&g=
+t;&quot;, ...]
+  },
+  &quot;id&quot;: &quot;&lt;integer&gt;&quot;,
+  &quot;snippets_data&quot;: {}
+}</code></div></div><div class=3D"gmail-code-block--end"></div></pre>
+</div>
+<p>&nbsp;</p>
+<p></p>
+<h2>Training Metrics</h2>
+<h3><span style=3D"display:inline-block;min-height:16.25px;min-width:16.25p=
+x;overflow:hidden;text-align:center;vertical-align:middle" aria-label=3D":e=
+lectric_plug:" class=3D"emoji-common-placeholder"></span><strong>Create Tra=
+ining Metrics</strong></h3>
+<p><strong>URL</strong>: <span class=3D"gmail-code">https://{{inscyd_host}}=
+/api/external/athlete/training_metric</span></p>
+<p><strong>Method: POST</strong></p>
+<p><strong>DATA / PARAMS</strong></p>
+<p><strong>Header:</strong></p>
+<p>X-Api-Key: String</p>
+<p><strong>Request body parameters in form-data format:&nbsp;</strong></p>
+<div class=3D"gmail-mediaSingleView-content-wrap" style=3D"margin-left:0px;=
+margin-right:0px;width:unset">
+<div class=3D"gmail-rich-media-item gmail-mediaSingleView-content-wrap gmai=
+l-image-wide" style=3D"display:flex;margin-left:0px">
+<div style=3D"color:var(--ds-icon,#292a2e)">
+<div>
+<div class=3D"gmail-media-content-wrap">
+<div width=3D"156" height=3D"125" title=3D"Attachment" style=3D"background-=
+color:var(--ak-editor-media-card-background-color);background-image:url(&qu=
+ot;data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAA=
+IBRAA7&quot;);display:var(--ak-editor-media-card-display,inline-block);heig=
+ht:var(--ak-editor-media-card-height,0);margin-left:0px;outline:none;paddin=
+g-bottom:var(--ak-editor-media-padding-bottom,0);width:var(--ak-editor-medi=
+a-card-width,100%)">
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<p><strong>Response body parameters:</strong></p>
+<div class=3D"gmail-fabric-editor-breakout-mark">
+<pre class=3D"gmail-code-block"><div class=3D"gmail-code-block--start"></di=
+v><div class=3D"gmail-code-block-content-wrapper"><div style=3D"background-=
+color:var(--ds-background-neutral,#0515240f);box-sizing:content-box;font-si=
+ze:0.875em;width:var(--lineNumberGutterWidth,2rem)"><div class=3D"gmail-cod=
+e-block-gutter-pseudo-element" style=3D"color:var(--ds-text-subtlest,#6b6e7=
+6);text-align:right"></div></div><div class=3D"gmail-code-content"><code ar=
+ia-label=3D"">{
+  &quot;anaerobic_threshold&quot;: &quot;&lt;double&gt;&quot;,
+  &quot;anaerobic_threshold_absolute&quot;: &quot;&lt;double&gt;&quot;,
+  &quot;athlete_id&quot;: &quot;&lt;integer&gt;&quot;,
+  &quot;carbohydrate&quot;: {
+    &quot;sse&quot;: &quot;&lt;double&gt;&quot;
+    &quot;function&quot;: &quot;A + B * x + C * x**2 + D * x**3 + ...&quot;=
+,
+    &quot;parameters&quot;: [&quot;&lt;double&gt;&quot;, &quot;&lt;double&g=
+t;&quot;, ...]
+  },
+  &quot;created_at&quot;: &quot;&lt;dateTime&gt;&quot;,
+  &quot;fat&quot;: {
+    &quot;sse&quot;: &quot;&lt;double&gt;&quot;
+    &quot;function&quot;: &quot;A + B * x + C * x**2 + D * x**3 + ...&quot;=
+,
+    &quot;parameters&quot;: [&quot;&lt;double&gt;&quot;, &quot;&lt;double&g=
+t;&quot;, ...]
+  },
+  &quot;id&quot;: &quot;&lt;integer&gt;&quot;,
+  &quot;lackof_pyruvate&quot;: {
+    &quot;sse&quot;: &quot;&lt;double&gt;&quot;
+    &quot;function&quot;: &quot;A + B * x + C * x**2 + D * x**3 + ...&quot;=
+,
+    &quot;parameters&quot;: [&quot;&lt;double&gt;&quot;, &quot;&lt;double&g=
+t;&quot;, ...]
+  },
+  &quot;lactate_accumulation&quot;: {
+    &quot;sse&quot;: &quot;&lt;double&gt;&quot;
+    &quot;function&quot;: &quot;A + B * x + C * x**2 + D * x**3 + ...&quot;=
+,
+    &quot;parameters&quot;: [&quot;&lt;double&gt;&quot;, &quot;&lt;double&g=
+t;&quot;, ...]
+  },
+  &quot;oxygen_uptake&quot;: {
+    &quot;sse&quot;: &quot;&lt;double&gt;&quot;
+    &quot;function&quot;: &quot;A + B * x + C * x**2 + D * x**3 + ...&quot;=
+,
+    &quot;parameters&quot;: [&quot;&lt;double&gt;&quot;, &quot;&lt;double&g=
+t;&quot;, ...]
+  },
+  &quot;snippets_data&quot;: {},
+  &quot;tau_value&quot;: &quot;&lt;double&gt;&quot;,
+  &quot;vo2max&quot;: &quot;&lt;double&gt;&quot;
+}</code></div></div><div class=3D"gmail-code-block--end"></div></pre>
+</div>
+<p>&nbsp;</p>
+</div>
+</div>
+</body>
+</html>
+
+--000000000000b856e3064f874d21--

@@ -207,7 +207,7 @@ def calculate_position_metrics(event_ids: list[int] | None = None, engine=None) 
     return df
 
 
-def refresh_position_metrics(metrics_df: pd.DataFrame, engine=None, chunksize: int = 5000) -> None:
+def refresh_position_metrics(metrics_df: pd.DataFrame, engine=None, chunksize: int = 2000) -> None:
     """Refresh metrics for the events present in metrics_df.
 
     This keeps historical metrics for other events intact.
@@ -258,7 +258,7 @@ def main():
     parser.add_argument(
         "--chunksize",
         type=int,
-        default=5000,
+        default=2000,
         help="Insert chunksize for writing position_metrics",
     )
     args = parser.parse_args()

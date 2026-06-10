@@ -1713,6 +1713,7 @@ def format_simulation_output(sim_df: pd.DataFrame) -> pd.DataFrame:
     # not individual split predictions (those are inputs to the sim, not outputs)
     display_cols = [
         "predicted_rank",
+        "mean_time_rank",
         "athlete_full_name",
         "athlete_country_name",
         "prob_win_pct",
@@ -1720,7 +1721,6 @@ def format_simulation_output(sim_df: pd.DataFrame) -> pd.DataFrame:
         "prob_top5_pct",
         "prob_top10_pct",
         "expected_rank",
-        "sim_front_pack_pct_fmt",
         "total_p50_hms",
         "pred_total_hms",
     ]
@@ -1730,6 +1730,7 @@ def format_simulation_output(sim_df: pd.DataFrame) -> pd.DataFrame:
     result = output_df[available_cols].copy()
     result = result.rename(columns={
         "predicted_rank": "Det. Rank",
+        "mean_time_rank": "Sim Rank",
         "athlete_full_name": "Athlete",
         "athlete_country_name": "Country",
         "prob_win_pct": "Win %",

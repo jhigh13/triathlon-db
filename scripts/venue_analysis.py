@@ -107,15 +107,33 @@ def parse_time_to_seconds(t) -> float | None:
 
 
 def adjust_outlier(series: pd.Series, threshold: float = 2.0) -> pd.Series:
-    """If the smallest positive value is >threshold× smaller than the 2nd smallest, mark it NA.
-    Mirrors the logic in tri_analysis/metrics.py."""
-    valid = series[series > 0]
+    """Mark implausibly small split times as NaN so they don't poison min/mean.
+
+    Three filters, applied in order:
+      1. Non-positive values (timing-system gaps recorded as ``00:00:00``) → NaN.
+      2. Values below 50% of the median split → NaN (clearly bad data — e.g.
+         a 9-minute swim when the field ran 17 minutes).
+      3. Iteratively, if the smallest remaining value is more than ``threshold``×
+         faster than the second-smallest, drop it as a residual outlier.
+    """
+    s = pd.to_numeric(series, errors="coerce")
+    s = s.where(s > 0, np.nan)
+    valid = s.dropna()
     if len(valid) < 2:
-        return series
-    sorted_vals = valid.sort_values()
-    if sorted_vals.iloc[0] * threshold < sorted_vals.iloc[1]:
-        return series.mask(series == sorted_vals.iloc[0], pd.NA)
-    return series
+        return s
+    median_val = float(valid.median())
+    if median_val > 0:
+        s = s.where(s.isna() | (s >= median_val * 0.5), np.nan)
+    for _ in range(5):
+        valid = s.dropna()
+        if len(valid) < 2:
+            break
+        sorted_vals = valid.sort_values()
+        if sorted_vals.iloc[0] * threshold < sorted_vals.iloc[1]:
+            s = s.mask(s == sorted_vals.iloc[0], np.nan)
+        else:
+            break
+    return s
 
 
 def seconds_to_mmss(s: float | None, always_hours: bool = False) -> str:
@@ -179,6 +197,8 @@ def query_splits(engine, event_id: int, prog_id: int) -> dict:
     result = {}
     for col, key in [("swimtime", "swim"), ("biketime", "bike"), ("runtime", "run"), ("total_time", "total")]:
         secs = df[col].apply(parse_time_to_seconds).dropna()
+        secs = adjust_outlier(secs, threshold=1.5)
+        secs = secs.dropna()
         result[f"{key}_fastest"] = float(secs.min()) if len(secs) else None
         result[f"{key}_avg"] = float(secs.mean()) if len(secs) else None
         result[f"{key}_n"] = len(secs)
@@ -621,7 +641,7 @@ def query_wtcs_season_splits(engine, athlete_ids: list[int], venue_date,
     df = pd.read_sql(sql, engine, params={"athlete_ids": list(athlete_ids),
                                           "venue_date": venue_date})
     for src, dst in [("swimtime", "swim_sec"), ("biketime", "bike_sec"), ("runtime", "run_sec")]:
-        df[dst] = df[src].apply(parse_time_to_seconds)
+        df[dst] = adjust_outlier(df[src].apply(parse_time_to_seconds))
     return df
 
 
@@ -707,8 +727,21 @@ _WEATHER_CACHE: dict = {}
 _AQI_CACHE:     dict = {}
 
 
+# Hardcoded fallback for venues that have been geocoded historically. Avoids
+# relying on Nominatim when local SSL certs / network are unavailable.
+VENUE_COORDS_FALLBACK: dict[str, tuple[float, float]] = {
+    "huatulco":  (15.831, -96.320),
+    "alghero":   (40.564,   8.319),
+    "yokohama":  (35.444, 139.638),
+    "abu dhabi": (24.466,  54.367),
+    "quiberon":  (47.485,  -3.114),
+    "montreal":  (45.503, -73.534),   # Parc Jean-Drapeau, Notre-Dame Island
+}
+
+
 def geocode_venue(venue: str) -> tuple | None:
-    """Geocode a venue string via Nominatim OSM. Returns (lat, lon) or None."""
+    """Geocode a venue string via Nominatim OSM. Returns (lat, lon) or None.
+    Falls back to VENUE_COORDS_FALLBACK on network/SSL failure."""
     if venue in _GEOCODE_CACHE:
         return _GEOCODE_CACHE[venue]
     try:
@@ -725,7 +758,13 @@ def geocode_venue(venue: str) -> tuple | None:
             _GEOCODE_CACHE[venue] = result
             return result
     except Exception as exc:
-        print(f"  [Geocode] Failed for '{venue}': {exc}")
+        print(f"  [Geocode] Nominatim failed for '{venue}': {exc}")
+    # Fallback to hardcoded coords for known venues
+    fb = VENUE_COORDS_FALLBACK.get(venue.lower().strip())
+    if fb:
+        print(f"  [Geocode] Using fallback coords for '{venue}' -> {fb[0]:.3f}, {fb[1]:.3f}")
+        _GEOCODE_CACHE[venue] = fb
+        return fb
     _GEOCODE_CACHE[venue] = None
     return None
 
@@ -834,6 +873,148 @@ def fetch_openmeteo_marine(lat: float, lon: float, race_date: str) -> dict:
         print(f"  [OpenMeteo Marine] {race_date}: {exc}")
     _MARINE_CACHE[key] = result
     return result
+
+
+def fetch_sst_for_race_day(lat: float, lon: float, race_date: str,
+                           years_back: int = 7) -> tuple[float | None, str]:
+    """Best-effort sea-surface temperature for race_date.
+
+    Tries the marine API for the actual race_date first (forecast window).
+    Falls back to averaging the same calendar day across prior years.
+    Returns (sst_celsius, source) where source is 'forecast' / 'climatology' / 'unavailable'.
+    """
+    direct = fetch_openmeteo_marine(lat, lon, race_date)
+    if direct.get("sst") is not None:
+        return float(direct["sst"]), "forecast"
+
+    target = pd.to_datetime(race_date).date()
+    current_year = date.today().year
+    vals: list[float] = []
+    for yr_off in range(1, years_back + 1):
+        yr = current_year - yr_off
+        d = date(yr, target.month, target.day).isoformat()
+        result = fetch_openmeteo_marine(lat, lon, d)
+        if result.get("sst") is not None:
+            vals.append(float(result["sst"]))
+    if vals:
+        return sum(vals) / len(vals), "climatology"
+    return None, "unavailable"
+
+
+# ── Forward forecast + climatology (used by Race-Day Forecast slide) ─────────
+
+def fetch_openmeteo_forecast(lat: float, lon: float, race_date: str) -> dict:
+    """Forward forecast for race_date. Returns hourly arrays for 04:00–12:00 local,
+    or empty dict if race_date is outside the 16-day forecast window.
+
+    Result keys: 'time', 'temperature_2m', 'apparent_temperature',
+    'relative_humidity_2m', 'wind_speed_10m', 'precipitation_probability', 'uv_index'.
+    """
+    try:
+        r = requests.get(
+            "https://api.open-meteo.com/v1/forecast",
+            params={
+                "latitude": lat, "longitude": lon,
+                "start_date": race_date, "end_date": race_date,
+                "hourly": ",".join([
+                    "temperature_2m", "apparent_temperature",
+                    "relative_humidity_2m", "wind_speed_10m",
+                    "precipitation_probability", "uv_index",
+                ]),
+                "wind_speed_unit": "kmh",
+                "timezone": "auto",
+                "forecast_days": 16,
+            },
+            timeout=15,
+        )
+        if not r.ok:
+            return {}
+        hrs = r.json().get("hourly", {})
+        times = hrs.get("time", [])
+        # Confirm race_date is actually present in the returned series
+        if not any(t.startswith(race_date) for t in times):
+            return {}
+        keep_idx = [i for i, t in enumerate(times)
+                    if t.startswith(race_date) and "04" <= t[11:13] <= "12"]
+        if not keep_idx:
+            return {}
+        out: dict = {"time": [times[i][11:16] for i in keep_idx]}
+        for col in ["temperature_2m", "apparent_temperature",
+                    "relative_humidity_2m", "wind_speed_10m",
+                    "precipitation_probability", "uv_index"]:
+            vals = hrs.get(col, [])
+            out[col] = [vals[i] if i < len(vals) else None for i in keep_idx]
+        return out
+    except Exception as exc:
+        print(f"  [OpenMeteo forecast] {race_date}: {exc}")
+        return {}
+
+
+def fetch_openmeteo_climatology(lat: float, lon: float, race_date: str,
+                                years_back: int = 7) -> dict:
+    """Average each hour 04:00–12:00 across the same calendar day for the last
+    `years_back` years. Used as a fallback when the race date is outside the
+    forward-forecast window."""
+    target = pd.to_datetime(race_date).date()
+    current_year = date.today().year
+    rows_per_hour: dict[str, dict[str, list]] = {}
+    fields = ["temperature_2m", "apparent_temperature",
+              "relative_humidity_2m", "wind_speed_10m",
+              "precipitation", "uv_index"]
+    for yr_off in range(1, years_back + 1):
+        yr = current_year - yr_off
+        d = date(yr, target.month, target.day).isoformat()
+        try:
+            r = requests.get(
+                "https://archive-api.open-meteo.com/v1/archive",
+                params={
+                    "latitude": lat, "longitude": lon,
+                    "start_date": d, "end_date": d,
+                    "hourly": ",".join(fields),
+                    "wind_speed_unit": "kmh",
+                    "timezone": "auto",
+                },
+                timeout=15,
+            )
+            if not r.ok:
+                continue
+            hrs = r.json().get("hourly", {})
+            times = hrs.get("time", [])
+            for i, t in enumerate(times):
+                hour = t[11:16]
+                if not ("04" <= t[11:13] <= "12"):
+                    continue
+                bucket = rows_per_hour.setdefault(hour, {f: [] for f in fields})
+                for f in fields:
+                    arr = hrs.get(f, [])
+                    if i < len(arr) and arr[i] is not None:
+                        bucket[f].append(arr[i])
+        except Exception as exc:
+            print(f"  [OpenMeteo climatology {d}]: {exc}")
+            continue
+    if not rows_per_hour:
+        return {}
+    times_sorted = sorted(rows_per_hour.keys())
+    out: dict = {"time": times_sorted}
+    out_field_map = {
+        "temperature_2m": "temperature_2m",
+        "apparent_temperature": "apparent_temperature",
+        "relative_humidity_2m": "relative_humidity_2m",
+        "wind_speed_10m": "wind_speed_10m",
+        "precipitation": "precipitation",
+        "uv_index": "uv_index",
+    }
+    for src, dst in out_field_map.items():
+        out[dst] = [
+            (sum(rows_per_hour[h][src]) / len(rows_per_hour[h][src]))
+            if rows_per_hour[h][src] else None
+            for h in times_sorted
+        ]
+    # Climatology has no precip-probability — synthesise from mean precipitation > 0.1mm
+    out["precipitation_probability"] = [
+        100.0 if (p is not None and p > 0.1) else 0.0 for p in out["precipitation"]
+    ]
+    return out
 
 
 def enrich_rows_with_openmeteo(rows: list[dict], coords: tuple | None) -> None:
@@ -1126,12 +1307,18 @@ def add_title_slide(prs: Presentation, venue: str, years_back: int):
         slide.shapes.add_picture(USAT_LOGO_PATH, Inches(0.6), Inches(0.4), Inches(2.1), Inches(1.6))
 
     # Main title
-    _add_textbox(slide, f"{venue.upper()} RACE HISTORY",
+    _add_textbox(slide, f"{venue.upper()} RACE PREVIEW",
                  Inches(0.5), Inches(2.0), Inches(11.8), Inches(1.4),
                  font_size=54, bold=True, color=WHITE, align=PP_ALIGN.CENTER)
 
-    # Subtitle
-    _add_textbox(slide, f"Elite Analysis  ·  Past {years_back} Years  ·  {date.today().strftime('%B %Y')}",
+    # Subtitle — pull the upcoming race month from EVENT_SCHEDULES when available
+    sched = EVENT_SCHEDULES.get(venue.lower().strip())
+    when_str = sched.get("date_range", "").split(",")[-1].strip() if sched else ""
+    if not when_str:
+        when_str = date.today().strftime("%B %Y")
+    elif when_str.isdigit():  # year-only
+        when_str = sched.get("date_range", date.today().strftime("%B %Y"))
+    _add_textbox(slide, f"Elite Analysis  ·  {when_str}",
                  Inches(0.5), Inches(4.3), Inches(11.8), Inches(0.6),
                  font_size=18, color=RGBColor(0xAA, 0xBB, 0xDD), align=PP_ALIGN.CENTER)
 
@@ -1845,22 +2032,30 @@ def add_course_differentiators_slide(
     prs: Presentation, venue: str, all_rows: list[dict],
     events_df: pd.DataFrame, content: dict
 ):
-    """Gender-neutral slide: venue overview, course features, quick links."""
+    """Gender-neutral venue intro: narrative, course features, quick links.
+
+    Prefers structured data from VENUE_PREVIEW + SWIM/BIKE/RUN_COURSE_PROFILES.
+    Falls back to historical race rows (`all_rows`) when no profile is defined.
+    """
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     add_slide_chrome(slide, "Key Course Differentiators", venue)
 
-    # ── Left column: description + feature bullets ─────────────────────────────
+    vkey = venue.lower().strip()
+    preview = VENUE_PREVIEW.get(vkey, {})
+    swim_p  = SWIM_COURSE_PROFILES.get(vkey, {})
+    bike_p  = BIKE_COURSE_PROFILES.get(vkey, {})
+    run_p   = RUN_COURSE_PROFILES.get(vkey, {})
+
+    # ── Left column: venue name + narrative ───────────────────────────────────
     _add_textbox(slide, venue.upper(),
                  Inches(0.3), Inches(1.2), Inches(6.6), Inches(0.55),
                  font_size=20, bold=True, color=NAVY)
 
-    venue_desc = (
+    narrative = preview.get("narrative") or (
         f"[PLACEHOLDER: 2-3 sentences on what makes {venue} unique as a race venue — "
-        "geography, setting, and character. E.g. 'Set on the Coral Riviera of Sardinia, "
-        "the WTCS Alghero course combines crystal-clear Mediterranean waters, a flat "
-        "coastal bike circuit, and a multi-lap run through the ancient walled city.']"
+        "geography, setting, and character.]"
     )
-    _add_textbox(slide, venue_desc,
+    _add_textbox(slide, narrative,
                  Inches(0.3), Inches(1.78), Inches(6.6), Inches(1.35),
                  font_size=11, color=DARK_GRAY)
 
@@ -1873,15 +2068,15 @@ def add_course_differentiators_slide(
                  Inches(0.35), Inches(3.27), Inches(6.2), Inches(0.3),
                  font_size=12, bold=True, color=WHITE)
 
-    features = [
-        f"[PLACEHOLDER: Feature 1 — e.g. 'Open-water swim in the Bay of {venue} — calm seas']",
-        f"[PLACEHOLDER: Feature 2 — e.g. 'Flat coastal bike circuit — fast and tactical']",
-        f"[PLACEHOLDER: Feature 3 — e.g. 'Multi-lap run through the historic city centre']",
-        f"[PLACEHOLDER: Feature 4 — e.g. 'Hot Mediterranean conditions typical in late May']",
+    features = preview.get("features") or [
+        f"[PLACEHOLDER: Feature 1 — swim character]",
+        f"[PLACEHOLDER: Feature 2 — bike character]",
+        f"[PLACEHOLDER: Feature 3 — run character]",
+        f"[PLACEHOLDER: Feature 4 — conditions]",
     ]
-    for i, feat in enumerate(features):
+    for i, feat in enumerate(features[:4]):
         _add_textbox(slide, f"•  {feat}",
-                     Inches(0.4), Inches(3.7 + i * 0.72), Inches(6.4), Inches(0.65),
+                     Inches(0.4), Inches(3.7 + i * 0.72), Inches(6.4), Inches(0.7),
                      font_size=11, color=DARK_GRAY)
 
     # ── Right column: course at a glance ───────────────────────────────────────
@@ -1893,47 +2088,72 @@ def add_course_differentiators_slide(
                  Inches(7.25), Inches(1.22), Inches(5.4), Inches(0.3),
                  font_size=12, bold=True, color=WHITE)
 
-    # Use most-recent complete row for course dimensions
-    ref_row = next(
-        (r for r in sorted(all_rows, key=lambda x: x["year"], reverse=True)
-         if r.get("swim_km") or r.get("bike_km") or r.get("run_km")),
-        None
-    )
-
     def _fmt_d(v) -> str:
         if v is None or (isinstance(v, float) and np.isnan(v)):
             return "—"
         if v > 100:
             v = v / 1000.0
-        return f"{v:.1f} km"
+        if v < 1:
+            return f"{int(round(v * 1000))} m"
+        return f"{v:g} km"
 
-    def _fmt_laps(v) -> str:
-        if v is None or (isinstance(v, float) and np.isnan(v)):
+    def _fmt_swim_line(p: dict) -> str:
+        d = p.get("total_km")
+        laps = p.get("laps")
+        if not d:
             return "—"
-        return str(int(v))
+        if laps and laps > 1 and p.get("loop_km"):
+            return f"{_fmt_d(d)} – {laps} laps × {_fmt_d(p['loop_km'])}"
+        if laps == 1:
+            return f"{_fmt_d(d)} – 1 lap"
+        return _fmt_d(d)
 
-    glance_items: list[tuple[str, str]] = []
-    if ref_row:
-        glance_items = [
-            ("Swim",       _fmt_d(ref_row.get("swim_km"))),
-            ("Bike",       _fmt_d(ref_row.get("bike_km"))),
-            ("Run",        _fmt_d(ref_row.get("run_km"))),
-            ("Format",     "Standard Triathlon"),
-            ("Bike Laps",  _fmt_laps(ref_row.get("bike_laps"))),
-            ("Run Laps",   _fmt_laps(ref_row.get("run_laps"))),
-        ]
-    else:
-        glance_items = [
-            ("Swim", "—"), ("Bike", "—"), ("Run", "—"),
-            ("Format", "Standard Triathlon"), ("Bike Laps", "—"), ("Run Laps", "—"),
-        ]
+    def _fmt_multi(p: dict) -> str:
+        d = p.get("total_km")
+        laps = p.get("loops") or p.get("laps")
+        loop_km = p.get("loop_km")
+        if not d:
+            return "—"
+        if laps and loop_km:
+            return f"{_fmt_d(d)} – {laps} laps × {loop_km:g} km"
+        if laps:
+            return f"{_fmt_d(d)} – {laps} laps"
+        return _fmt_d(d)
+
+    # Prefer profile data; fall back to historical row for venues without profiles
+    ref_row = next(
+        (r for r in sorted(all_rows, key=lambda x: x["year"], reverse=True)
+         if r.get("swim_km") or r.get("bike_km") or r.get("run_km")),
+        None
+    )
+    swim_label = (_fmt_swim_line(swim_p) if swim_p
+                  else (_fmt_d(ref_row.get("swim_km")) if ref_row else "—"))
+    bike_label = (_fmt_multi(bike_p) if bike_p
+                  else (_fmt_d(ref_row.get("bike_km")) if ref_row else "—"))
+    run_label  = (_fmt_multi(run_p) if run_p
+                  else (_fmt_d(ref_row.get("run_km")) if ref_row else "—"))
+
+    format_label = preview.get("format_label") or "Sprint Triathlon"
+    bike_laps_val = bike_p.get("loops") if bike_p else (
+        int(ref_row["bike_laps"]) if ref_row and ref_row.get("bike_laps") else None)
+    run_laps_val  = run_p.get("laps") if run_p else (
+        int(ref_row["run_laps"]) if ref_row and ref_row.get("run_laps") else None)
+
+    glance_items = [
+        ("Swim",       swim_label),
+        ("Bike",       bike_label),
+        ("Run",        run_label),
+        ("Format",     format_label),
+        ("Bike Laps",  str(bike_laps_val) if bike_laps_val else "—"),
+        ("Run Laps",   str(run_laps_val) if run_laps_val else "—"),
+    ]
 
     for i, (label, val) in enumerate(glance_items):
         _add_textbox(slide, f"{label}:",
                      Inches(7.3), Inches(1.65 + i * 0.37), Inches(2.0), Inches(0.35),
                      font_size=12, bold=True, color=NAVY)
         _add_textbox(slide, val,
-                     Inches(9.4), Inches(1.65 + i * 0.37), Inches(3.5), Inches(0.35),
+                     Inches(9.0), Inches(1.65 + i * 0.37), Inches(4.0), Inches(0.35),
                      font_size=12, color=DARK_GRAY)
 
     # ── Right column: quick links ──────────────────────────────────────────────
@@ -1946,24 +2166,16 @@ def add_course_differentiators_slide(
                  Inches(7.25), Inches(links_y + 0.02), Inches(5.4), Inches(0.3),
                  font_size=12, bold=True, color=WHITE)
 
-    upcoming_url = content.get("upcoming_event_url") or (
-        f"[PLACEHOLDER: https://www.triathlon.org/events/event/"
-        f"{date.today().year}_world_triathlon_championship_series_{venue.lower()}]"
-    )
-    last_url = (content.get("last_year_url") or "[PLACEHOLDER: World Triathlon results link]")
+    race_info_url = preview.get("race_info_url") or content.get("upcoming_event_url")
+    race_info_text = preview.get("race_info_text") or (
+        race_info_url or f"Race Info | {venue}")
 
-    links = [
-        ("Current Race Info",   upcoming_url),
-        ("Last Year's Results", last_url),
-        ("Race Replay",         "[PLACEHOLDER: https://triathlonlive.tv/ (TriathlonLIVE replay)]"),
-    ]
-    for i, (label, url) in enumerate(links):
-        _add_textbox(slide, label + ":",
-                     Inches(7.3), Inches(links_y + 0.45 + i * 0.85), Inches(5.6), Inches(0.3),
-                     font_size=11, bold=True, color=NAVY)
-        _add_textbox(slide, url,
-                     Inches(7.3), Inches(links_y + 0.78 + i * 0.85), Inches(5.6), Inches(0.42),
-                     font_size=10, color=DARK_GRAY, italic=True)
+    _add_textbox(slide, "Current Race Info:",
+                 Inches(7.3), Inches(links_y + 0.45), Inches(5.6), Inches(0.3),
+                 font_size=11, bold=True, color=NAVY)
+    _add_textbox(slide, race_info_text or "—",
+                 Inches(7.3), Inches(links_y + 0.78), Inches(5.6), Inches(0.42),
+                 font_size=10, color=DARK_GRAY, italic=True)
 
 
 def add_course_map_slide(
@@ -2053,6 +2265,1305 @@ def add_course_map_slide(
             align = PP_ALIGN.CENTER if ci < 3 else PP_ALIGN.LEFT
             _set_cell(tbl.cell(ri, ci), val, bold=is_hdr,
                       font_size=11 if is_hdr else 10, color=clr, bg_color=bg, align=align)
+
+
+# ── Per-venue course profile data ─────────────────────────────────────────────
+# Each dict is populated from official organiser course maps + race-info pages.
+# All three discipline dicts share parallel structure so the slide builders can
+# be lightly templated.
+
+BIKE_COURSE_PROFILES: dict[str, dict] = {
+    "montreal": {
+        "source":        "World Triathlon Para Series Montréal Elite Athlete Guide — 27 Jun 2026",
+        "loop_km":       4.1,
+        "loops":         5,
+        "total_km":      21.5,
+        "gain_per_lap_m":  None,
+        "loss_per_lap_m":  None,
+        "max_grade_pos":   None,
+        "max_grade_neg":   None,
+        "avg_grade_pct":   None,
+        "wind":           "Open island — variable",
+        "surface":        "Closed F1 circuit — Circuit Gilles-Villeneuve, Parc Jean-Drapeau",
+        "key_features": [
+            "Bike held on the Circuit Gilles-Villeneuve (CGV) F1 track — clockwise 4.1 km loop × 5 = 21.5 km",
+            "Pancake-flat, smooth tarmac throughout — no significant climbs; pure power/aero course",
+            "Team wheel station at the CGV entrance; Neutral wheel station mid-lap with full disc/rim brake inventory",
+            "Bike penalty box sits at the lap/transition split — athletes pass it 5 times across the race",
+            "RaceRanger drafting devices are mandatory for PTS/PTVI classes — install at bike racking on Friday if not done at home",
+            "Open island setting on Notre-Dame Island — winds off the St. Lawrence can swing crosswinds on the straights",
+        ],
+    },
+    "quiberon": {
+        "source":        "World Triathlon Elite Athlete Guide — WTCS Quiberon, 20 Jun 2026",
+        "loop_km":       5.5,
+        "loops":         4,
+        "total_km":      22.0,
+        "gain_per_lap_m":  None,
+        "loss_per_lap_m":  None,
+        "max_grade_pos":   None,
+        "max_grade_neg":   None,
+        "avg_grade_pct":   None,
+        "wind":           "Coastal (~20 km/h)",
+        "surface":        "Closed coastal/urban circuit — Boulevard René Cassin, Quiberon Peninsula",
+        "key_features": [
+            "Generally flat profile with no significant climbs — race typically decided on the run, not the bike",
+            "Multiple urban changes of direction and turns in town sections — bike-handling premium on lap entries",
+            "Coastal sections exposed to Atlantic wind — crosswinds can split the pack hard, especially near Pointe Riberen",
+            "Two wheel stations: René Cassin Street (just out of T1) and Fort Neuf Street / Parking Nautique near Pointe Riberen",
+            "Slightly longer than standard sprint — 22 km total over 4 × 5.5 km laps",
+        ],
+    },
+    "huatulco": {
+        "source":        "asdeporte 2026 Elite Cycling course map",
+        "loop_km":       5.0,
+        "loops":         4,
+        "total_km":      20.0,
+        "gain_per_lap_m":  84.4,
+        "loss_per_lap_m":  84.6,
+        "max_grade_pos":   18.4,
+        "max_grade_neg":  -14.9,
+        "avg_grade_pct":   3.2,
+        "surface":        "Closed urban circuit (Bahía de Santa Cruz → Vialidad 5 → return)",
+        "key_features": [
+            "Out-and-back along Blvd Santa Cruz with a tight technical hairpin at the neutral wheel station",
+            "Single sustained climb up Vialidad 5 — short but punchy (max 18.4%); strong riders can split the field every lap",
+            "Fast technical descent back into Bahía de Santa Cruz; max -14.9% grade rewards confident bike-handling",
+            "Tight start/finish chicane through transition — drafting packs reshuffle every lap on the climb and descent",
+        ],
+    },
+}
+
+SWIM_COURSE_PROFILES: dict[str, dict] = {
+    "montreal": {
+        "source":            "World Triathlon Para Series Montréal Elite Athlete Guide — 27 Jun 2026",
+        "total_km":          0.75,
+        "laps":              1,
+        "loop_km":           0.75,
+        "layout":            "Olympic Basin — Parc Jean-Drapeau (1976 Olympics rowing venue)",
+        "format":            "Sheltered rowing basin — fresh water, calm conditions",
+        "start_type":        "In-water start from pontoon",
+        "water_temp_c":      None,
+        "expected_water_temp_range_c": (22.0, 24.0),
+        "wetsuit_note":      "Guide states June water ~23 °C — under WT rules wetsuit is forbidden > 22 °C; expect non-wetsuit race",
+        "key_features": [
+            "Sheltered Olympic Basin water — no chop, no current, no wave issues; navigation-only swim",
+            "PTWC swim warm-up on course 06:15–06:45; PTS/PTVI use warm-up lane 07:00–08:15",
+            "Lounge opens 05:30 (PTWC) / 06:15 (PTS/PTVI); athletes' intro 10 min before category start",
+            "Water quality monitored by private lab — guide flags it consistently inside WT thresholds",
+            "Warm water + warm air at 7 AM start — no cold-water acclimation concerns",
+        ],
+        "missing": [
+            "Buoy layout for individual race (start gathers on pontoon — full layout TBD at familiarization)",
+        ],
+    },
+    "quiberon": {
+        "source":            "World Triathlon Elite Athlete Guide — WTCS Quiberon, 20 Jun 2026",
+        "total_km":          0.75,
+        "laps":              1,
+        "loop_km":           0.75,
+        "layout":            "Atlantic Ocean — beach loop off Boulevard René Cassin",
+        "format":            "Open ocean — Atlantic / Bay of Quiberon",
+        "start_type":        "Beach start (rue René Cassin, beach access from Place du Doued)",
+        "water_temp_c":      None,
+        "expected_water_temp_range_c": (14.9, 19.3),
+        "wetsuit_note":      "Wetsuit territory — guide states mid-June Atlantic water 14.9–19.3 °C; under WT rules wetsuit is mandatory < 16 °C and optional 16–20 °C",
+        "key_features": [
+            "Single 750 m loop in the open Atlantic off the Quiberon peninsula — cold water by elite standards",
+            "Beach start running entry from rue René Cassin — typical pack-formation chaos through the first 200 m",
+            "Atlantic exposure brings chop and swell — sighting on bigger surface waves than typical WTCS venues",
+            "Cold-water acclimation matters: 14.9–19.3 °C range means the first 100 m breath-control is a real risk",
+            "Wetsuit decision driven by morning measurement — bring both options; men race at 10:00, women at 12:00",
+            "Water quality testing site \"Lombardsbrücke\" referenced in guide (text appears templated from Hamburg) — actual Quiberon measuring points TBD pre-race",
+        ],
+        "missing": [
+            "Buoy configuration and turn structure (not in race brief)",
+            "Day-of water temperature (Atlantic SST will be filled from Open-Meteo Marine forecast)",
+        ],
+    },
+    "huatulco": {
+        "source":            "asdeporte 2026 Elite Swim course map (Natación Elite — Bahía de Santa Cruz)",
+        "total_km":          0.75,
+        "laps":              1,
+        "loop_km":           0.75,
+        "layout":            "U-shape rectangle — 300 m out, 150 m across, 300 m back",
+        "format":            "Ocean — Bahía de Santa Cruz (protected marina)",
+        "start_type":        "Beach start (running entry) at Plaza Santa Cruz",
+        "water_temp_c":      None,
+        "wetsuit_note":      "Non-wetsuit likely — June water temps in Bahía de Santa Cruz typically run 27–29 °C, above the 22 °C threshold",
+        "key_features": [
+            "Single 750 m loop — 300 m east leg, 150 m across south, 300 m west leg, beach exit by transition",
+            "Tight rectangle inside the protected marina — minimal chop, current normally low at 06:30 start",
+            "Two turn buoys at the south end — Chief Swim films from outside; angled kayak inside prevents course-cutting",
+            "Sun rising due east at 06:30 — bright glare on the outbound 300 m east leg",
+            "Extraction zone marked at north dock; short beach run into T1",
+        ],
+        "missing": [],
+    },
+}
+
+RUN_COURSE_PROFILES: dict[str, dict] = {
+    "montreal": {
+        "source":            "World Triathlon Para Series Montréal Elite Athlete Guide — 27 Jun 2026",
+        "total_km":          5.0,
+        "laps":              2,
+        "loop_km":           2.5,
+        "surface":           "Asphalt — Circuit Gilles-Villeneuve + Olympic Basin path",
+        "gain_per_lap_m":    None,
+        "loss_per_lap_m":    None,
+        "max_grade_pos":     None,
+        "max_grade_neg":     None,
+        "avg_grade_pct":     None,
+        "heat_risk":         "MODERATE",
+        "key_features": [
+            "Flat 2.5 km loop × 2 — exit transition north of basin, enter CGV at the hairpin, head west to pit lane",
+            "Two left turns at the pit lane drop onto the north-side path along the Olympic Basin",
+            "Aid stations / water at 370 m, 1.1 km, 2.3 km, 3.0 km, 4.1 km — five access points per athlete",
+            "Run penalty box at ~2.6 km (loop turnaround); passed twice — drafting infractions compound across laps",
+            "PTVI Free Leading zones: T2 exit→AS1, AS2 on CGV, paddocks turnaround, AS2 on Chemin Nord, Run Penalty Box turn",
+            "Run team wheel station (for racing wheelchairs) co-located with Aid Station 2; both-side access",
+        ],
+        "missing": [
+            "Elevation profile (course described as flat — no published grade data)",
+        ],
+    },
+    "quiberon": {
+        "source":            "World Triathlon Elite Athlete Guide — WTCS Quiberon, 20 Jun 2026",
+        "total_km":          5.0,
+        "laps":              2,
+        "loop_km":           2.5,
+        "surface":           "Asphalt out-and-back; small stabilized (gravel) section per lap",
+        "gain_per_lap_m":    None,
+        "loss_per_lap_m":    None,
+        "max_grade_pos":     None,
+        "max_grade_neg":     None,
+        "avg_grade_pct":     None,
+        "key_features": [
+            "Flat out-and-back asphalt course with one short stabilized-surface section per lap",
+            "Aid stations at 0.2 km (just after T2) and 1.25 km — pass each twice across the 2 laps",
+            "Penalty Box located on the left, ~50 m before the Transition Area — easy to miss if drafting flagged",
+            "Course measurement for coaches Friday 19:00 from the Finish Area (Bd René Cassin) — register at Friday package distribution",
+            "Cool Atlantic conditions favour aggressive pacing; June daily high ~23 °C, low ~13 °C — no heat-stress concern",
+            "Lap structure: 2 × 2.5 km out-and-back (inferred from aid station spacing in the brief)",
+        ],
+        "missing": [
+            "Elevation profile and grade data (course described as \"flat\" — no numbers published)",
+            "Exact turnaround coordinates (route map TBD in the guide PDF)",
+        ],
+    },
+    "huatulco": {
+        "source":            "asdeporte 2026 Elite Run course map (Carrera Elite — Boulevard Santa Cruz)",
+        "total_km":          5.0,
+        "laps":              2,
+        "loop_km":           2.5,
+        "surface":           "Paved urban — Blvd Santa Cruz / Camino a Santa Cruz",
+        "gain_per_lap_m":    55.3,
+        "loss_per_lap_m":    55.0,
+        "max_grade_pos":     17.3,
+        "max_grade_neg":    -15.3,
+        "avg_grade_pct":     4.2,
+        "heat_risk":         "HIGH",
+        "elevation_range_m": (6, 32),
+        "key_features": [
+            "Hilly 2.5 km out-and-back loop — +55.3 m gain per lap (≈110 m total over 5 km)",
+            "Max climb 17.3% on Camino a Santa Cruz — short steep pinch that bites harder on lap 2",
+            "Steep -15.3% descent back into Bahía de Santa Cruz — light braking + high cadence preserves the legs",
+            "08:30 men's start runs into peak surface temps with limited shade on the climb",
+            "Aid stations at 1 km and 2 km plus start/finish; penalty box at start/finish — drafting tickets compound across both laps",
+            "Course turnaround at the 2 km mark off Blvd Chahue — sharp 180° on a slight uphill",
+        ],
+        "missing": [],
+    },
+}
+
+# ── Travel & arrival data (per venue, origin = Denver, CO USAT HQ) ───────────
+TRAVEL_PROFILES: dict[str, dict] = {
+    "montreal": {
+        "origin":          "Denver, CO → Montréal race week",
+        "core_read": (
+            "Denver → Montréal is a same-day continental hop — multiple nonstop options (Air Canada / "
+            "United / WestJet seasonal) plus easy one-stop itineraries through ORD, YYZ, or EWR. "
+            "Only +2 h time-zone shift (MDT → EDT), so jet-lag impact is minimal. LOC operates a "
+            "scheduled airport shuttle YUL ↔ Alt Hotel Montréal between June 23–28 (60 USD mandatory "
+            "per-person fee). Arrive at least Wednesday (Jun 24) to use the official Wed/Thu pool + gym "
+            "training windows ahead of Friday's familiarization."
+        ),
+        "stats": [
+            ("Primary route",    "DEN → YUL",       "Nonstop available"),
+            ("Flight time",      "~3h 45m",         "Nonstop estimate"),
+            ("Time zones",       "+2h",             "Montréal ahead of Denver"),
+            ("Airport Transfer", "YUL → Alt Hotel", "LOC shuttle (60 USD)"),
+            ("Transfer Distance","19 km / ~20 min", "By car/shuttle"),
+        ],
+        "hotel_title": "Host Hotel / Official Accommodation Read",
+        "hotel_bullets": [
+            "Official hotel: Alt Hotel Montréal (Germain Group), 120 Peel Street, H3C 0L8.",
+            "Block code \"2606OBTRIA\" — book via the WTPS reservations link, email reservations.altmontreal@germainhotels.com, or call 514.375.0220.",
+            "Distance to venue (Parc Jean-Drapeau): 6.3 km — 15 min by car or bike; LOC provides free venue transport on familiarization + race day.",
+            "Underground parking on site (Indigo-managed); cash / Visa / Mastercard accepted.",
+            "Hotel is downtown (Griffintown adjacent) — easy walk to Old Montréal, restaurants, and metro access.",
+        ],
+        "food_title": "Food / Grocery Options Near Hotel + Venue",
+        "food_bullets": [
+            "Best stock-up: Provigo / IGA / Métro grocery stores within walking distance of Alt Hotel (Peel St / Saint-Antoine corridor).",
+            "Quick basics: Tim Hortons / Couche-Tard / Starbucks dotted around downtown; pharmacies (Jean Coutu / Pharmaprix) for sports nutrition + electrolytes.",
+            "Athlete-friendly restaurants: Marcus, Burgundy Lion, and the Cours Mont-Royal food court are within 10–15 min walk for protein-forward options.",
+            "Venue note: Parc Jean-Drapeau is on Notre-Dame Island — bring race-day food/fluid from the hotel; on-island vendor options are limited and seasonal.",
+            "Heat consideration: Late June can hit 30 °C+ — pre-stock electrolytes / ice packs at hotel for daily training blocks.",
+        ],
+    },
+    "quiberon": {
+        "origin":          "Denver, CO → Quiberon race week",
+        "core_read": (
+            "There are no direct Denver → Nantes flights. The cleanest athlete route is a one-stop "
+            "itinerary through CDG, Dublin, Amsterdam, or another European hub into Nantes, then use "
+            "the LOC/Nirvana scheduled shuttle to Quiberon. Many flight options include an overnight "
+            "long-haul travel as a part of the leg. Minimize the 8h time zone shift by shifting daily "
+            "schedule earlier before travel."
+        ),
+        "stats": [
+            ("Primary route",    "DEN → NTE",       "1 stop likely"),
+            ("Flight time",      "~12h",            "Plus layover"),
+            ("Time zones",       "+8h",             "France ahead of Denver"),
+            ("Airport Transfer", "NTE → Quiberon",  "LOC Scheduled Transfer"),
+            ("Transfer Distance","~2 hours",        ""),
+        ],
+        "hotel_title": "Host Hotel / Official Accommodation Read",
+        "hotel_bullets": [
+            "Official accommodation is 3 hotels: Sofitel Quiberon Thalassa Sea & Spa, Mercure Quiberon Hotel, and ENV-I2N.",
+            "Sofitel = premium recovery/wellness choice, oceanfront thalassotherapy setting.",
+            "Mercure = practical team option: renovated rooms, close to beach/thalasso area, free Wi-Fi, bike storage in package.",
+            "ENV-I2N = budget-oriented accommodation within a short ride/cycle to the event site.",
+        ],
+        "food_title": "Food / Grocery Options Near Hotel + Venue",
+        "food_bullets": [
+            "Best stock-up target: Super U Quiberon (116 Rue du Port de Pêche) for groceries, water, snacks, and room food.",
+            "Quick basics: town-center bakeries, small markets, pharmacies, and convenience food around Quiberon centre / beach area.",
+            "Restaurant read: seafood/crêperie-heavy resort town; plan simple athlete meals if avoiding rich sauces or unfamiliar seafood.",
+            "Logistics note: peninsula access is constrained by one road/rail link. Potential for heavy traffic if coming from outside town center.",
+        ],
+    },
+}
+
+
+def add_travel_load_slide(prs: Presentation, venue: str) -> bool:
+    """Travel & arrival logistics — DEN→venue routing, hotel, food."""
+    travel = TRAVEL_PROFILES.get(venue.lower().strip())
+    if not travel:
+        return False
+
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    add_slide_chrome(slide, "Travel & Arrival Load", travel.get("origin", venue))
+
+    # ── Core travel read (rounded card top) ──────────────────────────────────
+    read_top = Inches(1.2)
+    read_h   = Inches(1.05)
+    read_bx = slide.shapes.add_shape(1, Inches(0.3), read_top, Inches(12.73), read_h)
+    read_bx.fill.solid()
+    read_bx.fill.fore_color.rgb = RGBColor(0xE9, 0xEF, 0xF9)
+    read_bx.line.color.rgb = MID_GRAY
+    _add_textbox(slide, "Core travel read",
+                 Inches(0.4), read_top + Inches(0.07),
+                 Inches(12.5), Inches(0.3),
+                 font_size=12, bold=True, color=NAVY, align=PP_ALIGN.CENTER)
+    _add_textbox(slide, travel.get("core_read", ""),
+                 Inches(0.5), read_top + Inches(0.38),
+                 Inches(12.3), Inches(0.62),
+                 font_size=10.5, color=DARK_GRAY, align=PP_ALIGN.CENTER)
+
+    # ── Stat cards row ───────────────────────────────────────────────────────
+    stats = travel.get("stats", [])
+    if stats:
+        cards_top = read_top + read_h + Inches(0.2)
+        n = min(len(stats), 5)
+        card_total_w_in = 12.73
+        gap_in = 0.15
+        card_w_in = (card_total_w_in - gap_in * (n - 1)) / n
+        for i, (label, main, sub) in enumerate(stats[:n]):
+            cl = Inches(0.3 + (card_w_in + gap_in) * i)
+            cw = Inches(card_w_in)
+            bx = slide.shapes.add_shape(1, cl, cards_top, cw, Inches(0.95))
+            bx.fill.solid()
+            bx.fill.fore_color.rgb = WHITE
+            bx.line.color.rgb = MID_GRAY
+            _add_textbox(slide, label, cl + Inches(0.08), cards_top + Inches(0.05),
+                         cw - Inches(0.16), Inches(0.22),
+                         font_size=10, bold=True, color=NAVY, align=PP_ALIGN.CENTER)
+            _add_textbox(slide, main, cl + Inches(0.08), cards_top + Inches(0.28),
+                         cw - Inches(0.16), Inches(0.32),
+                         font_size=14, bold=True, color=DARK_GRAY, align=PP_ALIGN.CENTER)
+            if sub:
+                _add_textbox(slide, sub, cl + Inches(0.08), cards_top + Inches(0.62),
+                             cw - Inches(0.16), Inches(0.28),
+                             font_size=9, color=MID_GRAY, italic=True, align=PP_ALIGN.CENTER)
+
+    # ── Two panels (hotel + food) ────────────────────────────────────────────
+    panels_top = read_top + read_h + Inches(1.35)
+    panel_h    = Inches(2.6)
+    panel_w    = Inches(6.2)
+    panels = [
+        (Inches(0.3),              travel.get("hotel_title", ""),  travel.get("hotel_bullets", [])),
+        (Inches(0.3) + panel_w + Inches(0.3), travel.get("food_title", ""), travel.get("food_bullets", [])),
+    ]
+    for left, title, bullets in panels:
+        bx = slide.shapes.add_shape(1, left, panels_top, panel_w, panel_h)
+        bx.fill.solid()
+        bx.fill.fore_color.rgb = WHITE
+        bx.line.color.rgb = MID_GRAY
+        _add_textbox(slide, title,
+                     left + Inches(0.15), panels_top + Inches(0.12),
+                     panel_w - Inches(0.3), Inches(0.32),
+                     font_size=13, bold=True, color=NAVY, align=PP_ALIGN.CENTER)
+        for i, b in enumerate(bullets[:6]):
+            _add_textbox(slide, f"•  {b}",
+                         left + Inches(0.18), panels_top + Inches(0.5 + i * 0.34),
+                         panel_w - Inches(0.36), Inches(0.36),
+                         font_size=10, color=DARK_GRAY)
+    return True
+
+
+# ── Venue preview narrative + feature bullets (Key Course Differentiators) ──
+# Used to populate the venue intro slide. When a venue has no historical race
+# results, this is the primary way an athlete gets a feel for the course.
+VENUE_PREVIEW: dict[str, dict] = {
+    "montreal": {
+        "narrative": (
+            "World Triathlon Para Series Montréal returns to Parc Jean-Drapeau for the 2026 "
+            "edition. The race uses the venerable Olympic Basin for a 750 m swim, then heads to "
+            "the Circuit Gilles-Villeneuve — the F1 track — for a flat, fast 21.5 km bike on a "
+            "closed circuit. The run mixes the CGV and the path alongside the rowing basin. "
+            "Late June in Montréal can run hot and humid; with 23 °C water, expect a non-wetsuit "
+            "race and a power-driven bike."
+        ),
+        "features": [
+            "Olympic Basin swim — sheltered, ~23 °C fresh water, in-water pontoon start. Non-wetsuit.",
+            "Bike on Circuit Gilles-Villeneuve (F1 track): pancake-flat 4.1 km clockwise loop × 5 = 21.5 km.",
+            "Run on CGV + Olympic Basin path: flat 2.5 km loop × 2 with five aid-station access points.",
+            "12 distinct Para sport-class starts (PTWC, PTVI, PTS2–5) staged 07:00 → 08:30 across both genders.",
+        ],
+        "format_label":   "Sprint Para Triathlon",
+        "race_info_url":  "https://events.triathlon.org/2026-world-triathlon-para-series-montreal",
+        "race_info_text": "Race Info | 2026 World Triathlon Para Series Montréal",
+    },
+    "quiberon": {
+        "narrative": (
+            "Set on the southern tip of Brittany's Quiberon peninsula, this will be the first "
+            "edition of WTCS Quiberon. Expect a cool-water, likely wetsuit sprint race with a "
+            "decently long beach start. The bike is largely flat but has multiple sections "
+            "along the coast with potential for exposure to coastal winds. The run is also a "
+            "simple out-and-back on asphalt that should lead to fast splits."
+        ),
+        "features": [
+            "Beach Start 750 m Atlantic Swim. Cool water, likely wetsuit-legal.",
+            "Flat bike course. 4 laps of 5.5 km will make the distance slightly longer than standard. "
+            "No real elevation but potential for exposed wind could come into play.",
+            "Mostly asphalt out-and-back run. Simple 2-lap course.",
+            "First race at this venue.",
+        ],
+        "format_label":   "Sprint Triathlon",
+        "race_info_url":  "https://events.triathlon.org/2026-world-triathlon-championship-series-quiberon",
+        "race_info_text": "Race Info | 2026 World Triathlon Championship Series Quiberon",
+    },
+    "huatulco": {
+        "narrative": (
+            "Huatulco's World Cup returns to the Bahía de Santa Cruz on Mexico's Pacific coast. "
+            "A staple Tier-2 World Cup with strong historical depth in the database, the course "
+            "rewards swimmers off the beach start, riders who can survive the short Vialidad 5 "
+            "climb, and runners who can hold pace in tropical heat at the 08:30 men's start."
+        ),
+        "features": [
+            "Bahía de Santa Cruz swim — warm water (~30 °C), beach start, 750 m single loop.",
+            "5 km bike loop × 4 (20 km) with a punchy Vialidad 5 climb (max 18.4%) every lap.",
+            "Hilly 2.5 km run loop × 2 — +55 m gain/lap, max 17.3% on Camino a Santa Cruz.",
+            "Tropical heat is the dominant tactical variable. Pre-cool, sponge plan mandatory.",
+        ],
+        "format_label":   "Sprint Triathlon",
+        "race_info_url":  "https://events.triathlon.org/2026-world-triathlon-cup-huatulco",
+        "race_info_text": "Race Info | 2026 World Triathlon Cup Huatulco",
+    },
+}
+
+
+# ── Race-week schedule data ───────────────────────────────────────────────────
+# Each row: (time_label, activity_text, is_highlighted). Highlighted rows render
+# in red (used for start times and mandatory meetings).
+EVENT_SCHEDULES: dict[str, dict] = {
+    "montreal": {
+        "title":      "2026 World Triathlon Para Series Montréal — Race Week",
+        "date_range": "June 24 – 27, 2026",
+        "venue_note": "Parc Jean-Drapeau, Notre-Dame Island, Montréal (EDT, UTC-4)",
+        "race_starts": [("PTWC start", "07:00"), ("PTS/PTVI window", "08:00")],
+        "days": [
+            ("Thu • June 25", "Open Training", [
+                ("11:00 – 15:00", "Swim training — Aquatic Complex (50 m pool, 4 lanes)", False),
+                ("14:00 – 17:00", "Gym training — Athletes' Quarter gym", False),
+                ("(Wed Jun 24)",   "Pool training 14:00–18:00 + gym 14:00–17:00", False),
+            ]),
+            ("Fri • June 26", "Familiarization & Briefing", [
+                ("07:45",         "Departures from Host Hotel", False),
+                ("08:45 – 09:15", "PTS/PTVI Bike Fam  •  PTWC Run Fam — Transition", False),
+                ("09:30 – 10:00", "PTS/PTVI Run Fam  •  PTWC Bike Fam — Transition", False),
+                ("10:15 – 11:00", "Swim Familiarisation (ALL) — Swim Start", False),
+                ("10:15 – 10:45", "Coaches Onsite Meeting — Transition Area", False),
+                ("10:30 – 12:00", "Equipment verification (ALL)", False),
+                ("12:00 – 12:45", "★ WTPS Pre-race briefing (ALL) — Athletes' Quarter", True),
+                ("12:45 – 13:30", "Race Package Distribution", False),
+                ("13:45",         "Departures from venue", False),
+            ]),
+            ("Sat • June 27", "PARA RACE DAY", [
+                ("05:00 / 05:30", "Hotel departures — PTWC 05:00 • PTS/PTVI 05:30", False),
+                ("05:30 / 06:15", "Athletes' Lounge opens — PTWC 05:30 • PTS/PTVI 06:15", False),
+                ("06:15 – 06:45", "PTWC swim warm-up (on course) + transition check-in", False),
+                ("06:53",         "PTWC Athletes' Introduction", False),
+                ("07:00 / 07:03", "★ PTWC1 Men 07:00  •  PTWC2 Men 07:03", True),
+                ("07:04 / 07:08", "★ PTWC1 Women 07:04  •  PTWC2 Women 07:08", True),
+                ("07:45",         "★ PTS5 Men start", True),
+                ("07:50 / 07:53", "★ PTVI1 Men 07:50  •  PTVI2/3 Men 07:53", True),
+                ("07:54 / 07:57", "★ PTVI1 Women 07:54  •  PTVI2/3 Women 07:57", True),
+                ("08:10 / 08:15", "★ PTS5 Women 08:10  •  PTS2/3/4 Women 08:15", True),
+                ("08:25 / 08:30", "★ PTS4 Men 08:25  •  PTS2/3 Men 08:30", True),
+                ("10:15 / 12:00", "Venue departures — 1st bus 10:15  •  2nd 12:00", False),
+                ("10:30 – 11:30", "WTPS Medal Ceremony — Podium", False),
+            ]),
+        ],
+    },
+    "quiberon": {
+        "title":      "2026 WTCS Quiberon — Race Week",
+        "date_range": "June 18 – 21, 2026",
+        "venue_note": "Espace Louison Bobet, Bd René Cassin, Quiberon (CEST, UTC+2)",
+        "race_starts": [("Men start", "10:00"), ("Women start", "12:00")],
+        "days": [
+            ("Friday • June 19", "Familiarization & Briefing", [
+                ("07:00 – 10:00", "Pool training — Neptune Swimming Pool", False),
+                ("09:00 – 09:30", "Bike familiarization — 2 laps from transition (escorted)", False),
+                ("10:30",         "Swim familiarization — beach", False),
+                ("14:00 – 17:00", "Pool training — Neptune", False),
+                ("16:00 – 16:30", "★ Mandatory Elite Athletes' briefing — Espace Louison Bobet", True),
+                ("16:30 – 17:00", "Elite team medical meeting — LOC Office", False),
+                ("Post-briefing", "Race package distribution", False),
+                ("19:00",         "Run course measurement (coaches) — Finish Area, Bd René Cassin", False),
+            ]),
+            ("Saturday • June 20", "WTCS SPRINT RACE DAY", [
+                ("08:30 – 09:30", "WTCS Men — Athletes' lounge check-in", False),
+                ("09:00 – 09:45", "WTCS Men — Transition + swim warm-up", False),
+                ("09:50",         "WTCS Men — Athletes' introduction", False),
+                ("10:00",         "★ WTCS MEN START", True),
+                ("11:05",         "WTCS Men medals ceremony", False),
+                ("10:30 – 11:30", "WTCS Women — Athletes' lounge check-in", False),
+                ("11:00 – 11:45", "WTCS Women — Transition + swim warm-up", False),
+                ("11:50",         "WTCS Women — Athletes' introduction", False),
+                ("12:00",         "★ WTCS WOMEN START", True),
+                ("13:10",         "WTCS Women medals ceremony", False),
+                ("13:30 – 14:00", "Mixed Relay — Team Declaration", False),
+                ("20:00 – 20:30", "Mixed Relay — Team Managers' Meeting (Elite Athletes Area)", False),
+            ]),
+            ("Sunday • June 21", "Mixed Relay Day", [
+                ("07:00 – 10:00", "Pool training — Neptune", False),
+                ("12:30 – 12:45", "Mixed Relay — Final Team Declaration", False),
+                ("15:30 – 16:30", "Mixed Relay — Athletes' lounge check-in", False),
+                ("16:00 – 16:45", "Mixed Relay — Transition + swim warm-up", False),
+                ("16:50",         "Mixed Relay — Athletes' introduction", False),
+                ("17:00",         "★ MIXED RELAY START", True),
+                ("18:30",         "Mixed Relay medals ceremony", False),
+            ]),
+        ],
+    },
+    "huatulco": {
+        "title":      "2026 World Triathlon Cup Huatulco — Race Week",
+        "date_range": "June 12 – 14, 2026",
+        "venue_note": "Plaza Santa Cruz Huatulco, Mexico",
+        "race_starts": [("Female start", "06:30"), ("Male start", "08:30")],
+        "days": [
+            ("Friday • June 12", "Familiarization Day", [
+                ("10:00",         "Bike familiarization — 3 laps from Bahía Santa Cruz", False),
+                ("10:30",         "Run familiarization", False),
+                ("11:00 – 11:45", "Swim familiarization — Santa Cruz", False),
+            ]),
+            ("Saturday • June 13", "Briefing & Packet Pickup", [
+                ("16:00 – 16:30", "★ Mandatory Elite athlete meeting — Hotel Biniguenda", True),
+                ("16:30 – 17:00", "Packet pickup — Hotel Biniguenda", False),
+            ]),
+            ("Sunday • June 14", "RACE DAY", [
+                ("05:30", "Elite Female lounge opens", False),
+                ("06:30", "★ ELITE FEMALE START", True),
+                ("07:45", "Elite Male lounge opens", False),
+                ("08:30", "★ ELITE MALE START", True),
+                ("10:00", "Awards ceremony", False),
+            ]),
+        ],
+    },
+}
+
+
+def build_bike_profile_chart(profile: dict) -> io.BytesIO:
+    """Synthesize a stylised elevation profile over the full bike distance.
+
+    The chart is a representative single-loop wave repeated `loops` times,
+    scaled to match the published gain_per_lap_m. It is intentionally schematic
+    — exact contours require a GPS-recorded FIT/GPX. The shape uses one big
+    climb + descent + short rolling section per loop, matching the bike course
+    map for Huatulco (and most short-circuit World Cups).
+    """
+    import numpy as _np
+
+    loops      = int(profile.get("loops", 1))
+    loop_km    = float(profile.get("loop_km", 5.0))
+    gain_lap   = float(profile.get("gain_per_lap_m", 80.0))
+    loss_lap   = float(profile.get("loss_per_lap_m", gain_lap))
+
+    pts_per_loop = 400
+    xs_loop = _np.linspace(0, loop_km, pts_per_loop, endpoint=False)
+    # Asymmetric wave: short steep climb (first 40%) then a longer descent (40-90%)
+    # then a small bump back to baseline (90-100%). Scale to gain_lap.
+    def _loop_shape(x):
+        t = x / loop_km
+        y = _np.where(
+            t < 0.4,
+            (t / 0.4) ** 1.2,
+            _np.where(
+                t < 0.9,
+                1.0 - ((t - 0.4) / 0.5) ** 1.1,
+                0.15 * _np.sin((t - 0.9) / 0.1 * _np.pi),
+            ),
+        )
+        return y
+    base = _loop_shape(xs_loop)
+    base = base - base.min()
+    base = base / max(base.max(), 1e-6) * gain_lap
+
+    xs_full = _np.concatenate([xs_loop + i * loop_km for i in range(loops)])
+    ys_full = _np.tile(base, loops)
+
+    fig, ax = plt.subplots(figsize=(11.0, 2.4), dpi=150)
+    ax.fill_between(xs_full, ys_full, 0, color="#4472C4", alpha=0.35, linewidth=0)
+    ax.plot(xs_full, ys_full, color="#002060", linewidth=1.4)
+
+    for i in range(1, loops):
+        ax.axvline(i * loop_km, color="#C00000", linestyle="--", linewidth=0.9, alpha=0.7)
+        ax.text(i * loop_km, ys_full.max() * 1.02, f"Lap {i + 1}",
+                ha="center", va="bottom", fontsize=8, color="#C00000")
+    ax.text(loop_km / 2, ys_full.max() * 1.02, "Lap 1",
+            ha="center", va="bottom", fontsize=8, color="#C00000")
+
+    ax.set_xlim(0, loops * loop_km)
+    ax.set_ylim(0, ys_full.max() * 1.18)
+    ax.set_xlabel("Distance (km)", fontsize=9)
+    ax.set_ylabel("Relative elevation (m)", fontsize=9)
+    ax.set_title(f"Bike Course — {loops} × {loop_km:.0f} km loop ({loops * loop_km:.0f} km total)",
+                 fontsize=11, fontweight="bold", color="#002060", pad=10)
+    ax.tick_params(labelsize=8)
+    ax.grid(axis="y", alpha=0.2)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+
+    plt.tight_layout()
+    return fig_to_image(fig)
+
+
+def add_bike_course_profile_slide(prs: Presentation, venue: str, all_rows: list[dict]):
+    """Dedicated bike course slide — published course specs + synthesized profile + tactical notes.
+
+    Only added when BIKE_COURSE_PROFILES has data for this venue. Optionally embeds
+    a course-map image from ppt files/support/{venue_lc}_bike_course.png if present.
+    """
+    profile = BIKE_COURSE_PROFILES.get(venue.lower().strip())
+    if not profile:
+        return False
+
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    add_slide_chrome(slide, "Bike Course Profile", venue)
+
+    # ── Left: course map image (if present at expected path) ──────────────────
+    map_path = os.path.join(REPO_ROOT, "ppt files", "support",
+                            f"{venue.lower().strip()}_bike_course.png")
+    map_left  = Inches(0.3)
+    map_top   = Inches(1.25)
+    map_w     = Inches(5.6)
+    map_h     = Inches(3.6)
+
+    if os.path.exists(map_path):
+        slide.shapes.add_picture(map_path, map_left, map_top, map_w, map_h)
+    else:
+        ph = slide.shapes.add_shape(1, map_left, map_top, map_w, map_h)
+        ph.fill.solid()
+        ph.fill.fore_color.rgb = LIGHT_GRAY
+        ph.line.color.rgb = MID_GRAY
+        _add_textbox(slide,
+                     f"[Drop course map here]\n\n"
+                     f"Save the organiser course map as:\n"
+                     f"ppt files/support/{venue.lower().strip()}_bike_course.png\n\n"
+                     f"It will be embedded automatically on the next run.",
+                     map_left + Inches(0.2), map_top + Inches(1.2),
+                     map_w - Inches(0.4), Inches(1.4),
+                     font_size=10, color=MID_GRAY, italic=True, align=PP_ALIGN.CENTER)
+
+    # Source caption under map
+    _add_textbox(slide, f"Source: {profile.get('source', '—')}",
+                 map_left, map_top + map_h + Inches(0.05),
+                 map_w, Inches(0.25),
+                 font_size=9, color=MID_GRAY, italic=True, align=PP_ALIGN.CENTER)
+
+    # ── Right: stats card ─────────────────────────────────────────────────────
+    stats_left = Inches(6.1)
+    stats_top  = Inches(1.25)
+    stats_w    = Inches(6.9)
+
+    # Big distance card
+    hero_h = Inches(0.9)
+    hero = slide.shapes.add_shape(1, stats_left, stats_top, stats_w, hero_h)
+    hero.fill.solid()
+    hero.fill.fore_color.rgb = NAVY
+    hero.line.fill.background()
+    _add_textbox(slide,
+                 f"{profile['total_km']:g} km   •   {profile['loops']} × {profile['loop_km']:g} km loops",
+                 stats_left, stats_top + Inches(0.12),
+                 stats_w, Inches(0.4),
+                 font_size=22, bold=True, color=WHITE, align=PP_ALIGN.CENTER)
+    _add_textbox(slide, profile.get("surface", ""),
+                 stats_left, stats_top + Inches(0.54),
+                 stats_w, Inches(0.32),
+                 font_size=11, color=RGBColor(0xAA, 0xBB, 0xDD),
+                 align=PP_ALIGN.CENTER, italic=True)
+
+    # Stats grid (3 cols × 2 rows). Tolerate None values for venues with no
+    # published elevation data (e.g. flat coastal courses).
+    grid_top = stats_top + hero_h + Inches(0.15)
+    grid_h   = Inches(1.5)
+    cell_w   = stats_w / 3
+    g  = profile.get("gain_per_lap_m")
+    l_ = profile.get("loss_per_lap_m")
+    avg_g  = profile.get("avg_grade_pct")
+    max_p  = profile.get("max_grade_pos")
+    max_n  = profile.get("max_grade_neg")
+    wind   = profile.get("wind")           # optional — e.g. "Coastal (~20 km/h)"
+    loops_ = profile.get("loops") or 1
+    loop_km_val = profile.get("loop_km")
+    # Loops cell prefers exact lap distance ("4 × 5.5 km") over loose rounding
+    loops_str = (f"{loops_} × {loop_km_val:g} km"
+                 if loop_km_val is not None else f"{loops_}")
+    # If wind is set, it bumps Max Descent out of the grid (more actionable for
+    # flat coastal courses like Quiberon/Montreal).
+    middle_row_cell = (("Wind", wind) if wind
+                       else ("Max Descent",
+                             f"{max_n:.1f}%" if max_n is not None else "—"))
+    grid_cells = [
+        ("Elevation / Lap", f"+{g:.1f} m / {l_:.1f} m" if (g is not None and l_ is not None) else "Flat (no data)"),
+        ("Total Climb",     f"~{g * loops_:.0f} m" if g is not None else "—"),
+        ("Avg Grade",       f"{avg_g:.1f}%" if avg_g is not None else "—"),
+        ("Max Climb Grade", f"+{max_p:.1f}%" if max_p is not None else "—"),
+        middle_row_cell,
+        ("Loops",           loops_str),
+    ]
+    for idx, (label, value) in enumerate(grid_cells):
+        col = idx % 3
+        row = idx // 3
+        cl = stats_left + cell_w * col + Inches(0.05)
+        cw = cell_w - Inches(0.1)
+        ct = grid_top + (Inches(0.78) * row)
+        bx = slide.shapes.add_shape(1, cl, ct, cw, Inches(0.7))
+        bx.fill.solid()
+        bx.fill.fore_color.rgb = LIGHT_GRAY
+        bx.line.color.rgb = MID_GRAY
+        _add_textbox(slide, label, cl + Inches(0.05), ct + Inches(0.04),
+                     cw - Inches(0.1), Inches(0.22),
+                     font_size=9, bold=True, color=NAVY, align=PP_ALIGN.CENTER)
+        _add_textbox(slide, value, cl + Inches(0.05), ct + Inches(0.26),
+                     cw - Inches(0.1), Inches(0.38),
+                     font_size=15, bold=True, color=DARK_GRAY, align=PP_ALIGN.CENTER)
+
+    # Tactical notes
+    notes_top = grid_top + grid_h + Inches(0.25)
+    notes_bar = slide.shapes.add_shape(1, stats_left, notes_top, stats_w, Inches(0.32))
+    notes_bar.fill.solid()
+    notes_bar.fill.fore_color.rgb = RED
+    notes_bar.line.fill.background()
+    _add_textbox(slide, "Tactical Implications",
+                 stats_left + Inches(0.1), notes_top + Inches(0.03),
+                 stats_w - Inches(0.2), Inches(0.26),
+                 font_size=12, bold=True, color=WHITE)
+
+    body_top = notes_top + Inches(0.4)
+    for i, note in enumerate(profile.get("key_features", [])):
+        _add_textbox(slide, f"•  {note}",
+                     stats_left + Inches(0.1),
+                     body_top + Inches(0.32 * i),
+                     stats_w - Inches(0.2), Inches(0.34),
+                     font_size=10.5, color=DARK_GRAY)
+
+    # ── Bottom: synthesized elevation profile chart (skip for flat courses) ───
+    has_elev = profile.get("gain_per_lap_m") is not None
+    if not has_elev:
+        chart_left   = Inches(0.3)
+        chart_top    = Inches(5.6)
+        chart_width  = Inches(12.73)
+        chart_height = Inches(1.55)
+        ph = slide.shapes.add_shape(1, chart_left, chart_top, chart_width, chart_height)
+        ph.fill.solid()
+        ph.fill.fore_color.rgb = LIGHT_GRAY
+        ph.line.color.rgb = MID_GRAY
+        _add_textbox(slide,
+                     "Flat course — published profile shows no significant climbs.\n"
+                     "No elevation chart synthesized; if a race GPS FIT becomes available, "
+                     "real contours will replace this block.",
+                     chart_left, chart_top + Inches(0.5),
+                     chart_width, Inches(0.6),
+                     font_size=11, italic=True, color=MID_GRAY, align=PP_ALIGN.CENTER)
+    else:
+        try:
+            chart_buf = build_bike_profile_chart(profile)
+            chart_left   = Inches(0.3)
+            chart_top    = Inches(5.45)
+            chart_width  = Inches(12.73)
+            chart_height = Inches(1.85)
+            slide.shapes.add_picture(chart_buf, chart_left, chart_top, chart_width, chart_height)
+            _add_textbox(slide,
+                         "Stylised — exact contours from a GPS-recorded race FIT would refine this.",
+                         chart_left, chart_top + chart_height - Inches(0.05),
+                         chart_width, Inches(0.22),
+                         font_size=8.5, italic=True, color=MID_GRAY, align=PP_ALIGN.CENTER)
+        except Exception as exc:
+            _add_textbox(slide, f"[Profile chart could not be rendered: {exc}]",
+                         Inches(0.3), Inches(5.5), Inches(12.73), Inches(0.4),
+                         font_size=10, italic=True, color=MID_GRAY, align=PP_ALIGN.CENTER)
+
+    return True
+
+
+def _add_discipline_profile_slide(prs: Presentation, venue: str, discipline: str,
+                                  profile: dict, accent_color: RGBColor,
+                                  map_filename_suffix: str) -> bool:
+    """Shared layout for Swim / Run course profile slides.
+
+    Left panel: course map image (if dropped at ppt files/support/{venue}_{suffix}.png)
+                or a styled placeholder.
+    Right panel: hero card (distance / laps / format), 2×3 stat grid, key features,
+                and a 'Missing from race brief' note when relevant.
+    """
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    add_slide_chrome(slide, f"{discipline} Course Profile", venue)
+
+    # ── Left: course map slot ────────────────────────────────────────────────
+    map_path = os.path.join(REPO_ROOT, "ppt files", "support",
+                            f"{venue.lower().strip()}_{map_filename_suffix}.png")
+    map_left = Inches(0.3)
+    map_top  = Inches(1.25)
+    map_w    = Inches(5.6)
+    map_h    = Inches(4.2)
+
+    if os.path.exists(map_path):
+        slide.shapes.add_picture(map_path, map_left, map_top, map_w, map_h)
+    else:
+        ph = slide.shapes.add_shape(1, map_left, map_top, map_w, map_h)
+        ph.fill.solid()
+        ph.fill.fore_color.rgb = LIGHT_GRAY
+        ph.line.color.rgb = MID_GRAY
+        _add_textbox(slide,
+                     f"[Drop {discipline.lower()} course map here]\n\n"
+                     f"Save the organiser map as:\n"
+                     f"ppt files/support/{venue.lower().strip()}_{map_filename_suffix}.png\n\n"
+                     f"It will be embedded automatically on the next run.",
+                     map_left + Inches(0.2), map_top + Inches(1.5),
+                     map_w - Inches(0.4), Inches(1.4),
+                     font_size=10, color=MID_GRAY, italic=True, align=PP_ALIGN.CENTER)
+
+    _add_textbox(slide, f"Source: {profile.get('source', '—')}",
+                 map_left, map_top + map_h + Inches(0.05),
+                 map_w, Inches(0.25),
+                 font_size=9, color=MID_GRAY, italic=True, align=PP_ALIGN.CENTER)
+
+    # ── Right: hero + stats grid + features ──────────────────────────────────
+    right_left = Inches(6.1)
+    right_top  = Inches(1.25)
+    right_w    = Inches(6.9)
+
+    hero_h = Inches(0.9)
+    hero = slide.shapes.add_shape(1, right_left, right_top, right_w, hero_h)
+    hero.fill.solid()
+    hero.fill.fore_color.rgb = NAVY
+    hero.line.fill.background()
+
+    total_km = profile.get("total_km")
+    laps     = profile.get("laps")
+    loop_km  = profile.get("loop_km")
+
+    def _fmt_distance(km: float | None) -> str:
+        if not km:
+            return "TBD"
+        if km < 1:
+            return f"{int(round(km * 1000))} m"
+        return f"{km:.1f} km"
+
+    hero_main = _fmt_distance(total_km) if total_km else "Distance TBD"
+    if laps and laps > 1:
+        per_lap = _fmt_distance(loop_km) if loop_km else _fmt_distance(total_km / laps if total_km else None)
+        hero_main += f"   •   {laps} × {per_lap}"
+    elif laps == 1:
+        hero_main += "   •   single lap"
+    _add_textbox(slide, hero_main,
+                 right_left, right_top + Inches(0.12),
+                 right_w, Inches(0.4),
+                 font_size=22, bold=True, color=WHITE, align=PP_ALIGN.CENTER)
+    subtitle = profile.get("format") or profile.get("surface") or ""
+    _add_textbox(slide, subtitle,
+                 right_left, right_top + Inches(0.54),
+                 right_w, Inches(0.32),
+                 font_size=11, color=RGBColor(0xAA, 0xBB, 0xDD),
+                 align=PP_ALIGN.CENTER, italic=True)
+
+    # Stat grid — 3 cols × 2 rows. Cells unknown to this discipline render '—'.
+    grid_top = right_top + hero_h + Inches(0.15)
+    cell_w   = right_w / 3
+    if discipline.lower() == "swim":
+        water_temp = profile.get("water_temp_c")
+        water_src  = profile.get("water_temp_source", "unavailable")
+        # Wetsuit decision: use live/climatology SST if available, else fall back
+        # to the published expected range from the profile, else "TBD".
+        # Elite rules: mandatory <16 °C, optional 16–20 °C, forbidden >22 °C.
+        expected_range = profile.get("expected_water_temp_range_c")
+        ref_temp = water_temp
+        if ref_temp is None and expected_range:
+            ref_temp = sum(expected_range) / 2
+        if ref_temp is None:
+            wetsuit = "TBD — depends on day-of water temp"
+        elif ref_temp >= 22:
+            wetsuit = "Forbidden (> 22 °C)"
+        elif ref_temp >= 20:
+            wetsuit = f"Likely non-wetsuit ({ref_temp:.0f} °C)"
+        elif ref_temp >= 16:
+            wetsuit = f"Wetsuit optional ({ref_temp:.0f} °C)"
+        else:
+            wetsuit = f"Wetsuit mandatory (< 16 °C)"
+
+        if water_temp is not None:
+            tag = {"forecast": "live", "climatology": "7-yr avg"}.get(water_src, "")
+            water_label = f"{water_temp:.1f} °C ({tag})" if tag else f"{water_temp:.1f} °C"
+        elif expected_range:
+            water_label = f"{expected_range[0]:.1f}–{expected_range[1]:.1f} °C (expected)"
+        else:
+            water_label = "Awaiting marine data"
+        layout     = profile.get("layout") or profile.get("format", "—")
+        grid_cells = [
+            ("Distance",      _fmt_distance(total_km)),
+            ("Layout",        layout.split(" — ")[0] if " — " in (layout or "") else (layout or "—")),
+            ("Start",         (profile.get("start_type") or "—").split(" at ")[0]),
+            ("Water Temp",    water_label),
+            ("Wetsuit",       wetsuit),
+            ("Lap Count",     f"{laps}" if laps else "—"),
+        ]
+    else:  # run
+        gain_lap = profile.get("gain_per_lap_m")
+        max_pos  = profile.get("max_grade_pos")
+        max_neg  = profile.get("max_grade_neg")
+        avg_g    = profile.get("avg_grade_pct")
+        # Heat risk: prefer explicit profile field; default to "—" so it isn't
+        # falsely flagged HIGH for cool venues. Forecast slide is the
+        # authoritative heat-stress source.
+        heat_risk = profile.get("heat_risk", "—")
+        grid_cells = [
+            ("Distance",      _fmt_distance(total_km)),
+            ("Lap Structure", f"{laps} × {_fmt_distance(loop_km)}" if (laps and loop_km) else (f"{laps} laps" if laps else "Not published")),
+            ("Total Climb",   f"~{gain_lap * laps:.0f} m" if (gain_lap and laps) else (f"+{gain_lap:.0f} m / lap" if gain_lap else "Not published")),
+            ("Avg Grade",     f"{avg_g:.1f}%" if avg_g else "—"),
+            ("Max ▲ / ▼",    f"+{max_pos:.1f}% / {max_neg:.1f}%" if (max_pos and max_neg) else (f"+{max_pos:.1f}%" if max_pos else "Not published")),
+            ("Heat Risk",     heat_risk),
+        ]
+
+    for idx, (label, value) in enumerate(grid_cells):
+        col = idx % 3
+        row = idx // 3
+        cl = right_left + cell_w * col + Inches(0.05)
+        cw = cell_w - Inches(0.1)
+        ct = grid_top + (Inches(0.78) * row)
+        bx = slide.shapes.add_shape(1, cl, ct, cw, Inches(0.7))
+        bx.fill.solid()
+        bx.fill.fore_color.rgb = LIGHT_GRAY
+        bx.line.color.rgb = MID_GRAY
+        _add_textbox(slide, label, cl + Inches(0.05), ct + Inches(0.04),
+                     cw - Inches(0.1), Inches(0.22),
+                     font_size=9, bold=True, color=NAVY, align=PP_ALIGN.CENTER)
+        _add_textbox(slide, value, cl + Inches(0.05), ct + Inches(0.26),
+                     cw - Inches(0.1), Inches(0.38),
+                     font_size=14, bold=True, color=DARK_GRAY, align=PP_ALIGN.CENTER)
+
+    # Key features panel
+    notes_top = grid_top + Inches(1.65)
+    notes_bar = slide.shapes.add_shape(1, right_left, notes_top, right_w, Inches(0.32))
+    notes_bar.fill.solid()
+    notes_bar.fill.fore_color.rgb = accent_color
+    notes_bar.line.fill.background()
+    _add_textbox(slide, "Tactical Notes",
+                 right_left + Inches(0.1), notes_top + Inches(0.03),
+                 right_w - Inches(0.2), Inches(0.26),
+                 font_size=12, bold=True, color=WHITE)
+
+    body_top = notes_top + Inches(0.4)
+    for i, note in enumerate(profile.get("key_features", [])):
+        _add_textbox(slide, f"•  {note}",
+                     right_left + Inches(0.1),
+                     body_top + Inches(0.32 * i),
+                     right_w - Inches(0.2), Inches(0.34),
+                     font_size=10.5, color=DARK_GRAY)
+
+    # ── Bottom: 'Missing from race brief' caveat strip ───────────────────────
+    missing = profile.get("missing") or []
+    if missing:
+        miss_top = Inches(6.6)
+        miss_bar = slide.shapes.add_shape(1, Inches(0.3), miss_top, Inches(12.73), Inches(0.32))
+        miss_bar.fill.solid()
+        miss_bar.fill.fore_color.rgb = LIGHT_GRAY
+        miss_bar.line.color.rgb = MID_GRAY
+        text = "Not in race brief: " + "  •  ".join(missing)
+        _add_textbox(slide, text,
+                     Inches(0.4), miss_top + Inches(0.05),
+                     Inches(12.5), Inches(0.25),
+                     font_size=9.5, italic=True, color=DARK_GRAY, align=PP_ALIGN.LEFT)
+
+    return True
+
+
+def add_swim_course_profile_slide(prs: Presentation, venue: str,
+                                  water_temp_c: float | None = None,
+                                  water_temp_source: str = "unavailable") -> bool:
+    profile = SWIM_COURSE_PROFILES.get(venue.lower().strip())
+    if not profile:
+        return False
+    profile = dict(profile)
+    if water_temp_c is not None:
+        profile["water_temp_c"] = water_temp_c
+        profile["water_temp_source"] = water_temp_source
+    return _add_discipline_profile_slide(
+        prs, venue, "Swim", profile, RED, "swim_course"
+    )
+
+
+def add_run_course_profile_slide(prs: Presentation, venue: str) -> bool:
+    profile = RUN_COURSE_PROFILES.get(venue.lower().strip())
+    if not profile:
+        return False
+    return _add_discipline_profile_slide(
+        prs, venue, "Run", profile, RED, "run_course"
+    )
+
+
+def add_race_week_schedule_slide(prs: Presentation, venue: str) -> bool:
+    """Race-week timetable. Three day-columns side by side."""
+    schedule = EVENT_SCHEDULES.get(venue.lower().strip())
+    if not schedule:
+        return False
+
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    add_slide_chrome(slide, "Race Week Schedule", venue)
+
+    # Sub-header bar with date range + venue
+    sub_top = Inches(1.2)
+    sub_bar = slide.shapes.add_shape(1, Inches(0.3), sub_top, Inches(12.73), Inches(0.42))
+    sub_bar.fill.solid()
+    sub_bar.fill.fore_color.rgb = LIGHT_GRAY
+    sub_bar.line.color.rgb = MID_GRAY
+    _add_textbox(slide,
+                 f"{schedule['date_range']}   •   {schedule.get('venue_note', '')}",
+                 Inches(0.4), sub_top + Inches(0.07),
+                 Inches(12.5), Inches(0.3),
+                 font_size=13, bold=True, color=NAVY, align=PP_ALIGN.CENTER)
+
+    days = schedule["days"]
+    n_days = len(days)
+    col_top    = Inches(1.85)
+    gap_in     = 0.25
+    total_w_in = 12.73 - gap_in * (n_days - 1)
+    col_w_in   = total_w_in / n_days
+    col_w      = Inches(col_w_in)
+    col_gap    = Inches(gap_in)
+    col_left0  = Inches(0.3)
+
+    for di, (day_label, day_subtitle, items) in enumerate(days):
+        cl = col_left0 + (col_w + col_gap) * di
+
+        # Day header
+        header_h = Inches(0.5)
+        header = slide.shapes.add_shape(1, cl, col_top, col_w, header_h)
+        header.fill.solid()
+        header.fill.fore_color.rgb = NAVY
+        header.line.fill.background()
+        _add_textbox(slide, day_label,
+                     cl + Inches(0.1), col_top + Inches(0.04),
+                     col_w - Inches(0.2), Inches(0.22),
+                     font_size=12, bold=True, color=WHITE, align=PP_ALIGN.CENTER)
+        _add_textbox(slide, day_subtitle,
+                     cl + Inches(0.1), col_top + Inches(0.26),
+                     col_w - Inches(0.2), Inches(0.22),
+                     font_size=9.5, color=RGBColor(0xAA, 0xBB, 0xDD),
+                     italic=True, align=PP_ALIGN.CENTER)
+
+        # Items table (time | activity)
+        items_top = col_top + header_h + Inches(0.1)
+        n_rows = len(items)
+        tbl_h = Inches(0.55 * n_rows)
+        tbl_shape = slide.shapes.add_table(n_rows, 2, cl, items_top, col_w, tbl_h)
+        tbl = tbl_shape.table
+        tbl.columns[0].width = Inches(col_w_in * 0.36)
+        tbl.columns[1].width = Inches(col_w_in * 0.64)
+        for ri, (tm, act, is_hi) in enumerate(items):
+            bg     = RGBColor(0xFD, 0xEC, 0xEC) if is_hi else (LIGHT_GRAY if ri % 2 == 0 else WHITE)
+            fg     = RED if is_hi else DARK_GRAY
+            _set_cell(tbl.cell(ri, 0), tm,
+                      font_size=10, bold=is_hi, color=fg, bg_color=bg, align=PP_ALIGN.CENTER)
+            _set_cell(tbl.cell(ri, 1), act,
+                      font_size=10, bold=is_hi, color=fg, bg_color=bg, align=PP_ALIGN.LEFT)
+
+    # Footer caption — venue/timezone pulled from schedule.venue_note when present
+    tz_note = schedule.get("venue_note") or f"local to {venue}"
+    _add_textbox(slide,
+                 f"Times {tz_note}. Schedule confirmed from World Triathlon race-info page / "
+                 f"athlete guide; subject to organiser updates.",
+                 Inches(0.3), Inches(6.95), Inches(12.73), Inches(0.3),
+                 font_size=9, italic=True, color=MID_GRAY, align=PP_ALIGN.CENTER)
+    return True
+
+
+def _heat_band(apparent_c: float | None) -> tuple[str, RGBColor]:
+    """Heat-stress band based on apparent temperature."""
+    if apparent_c is None:
+        return ("UNKNOWN", MID_GRAY)
+    if apparent_c < 24:    return ("LOW",      RGBColor(0x1B, 0x7F, 0x3A))
+    if apparent_c < 28:    return ("MODERATE", RGBColor(0xE6, 0xA8, 0x17))
+    if apparent_c < 32:    return ("HIGH",     RGBColor(0xE6, 0x6A, 0x00))
+    return                  ("EXTREME",        RGBColor(0xC0, 0x00, 0x00))
+
+
+def add_race_day_forecast_slide(prs: Presentation, venue: str,
+                                coords: tuple | None,
+                                race_date: str | None,
+                                race_starts: list[tuple[str, str]] | None = None) -> bool:
+    """Race-day forecast slide. Pulls the forward forecast for race_date if it is
+    inside Open-Meteo's 16-day window; otherwise falls back to a 7-year climatology
+    averaged across the same calendar day."""
+    if coords is None or race_date is None:
+        return False
+    lat, lon = coords
+
+    forecast = fetch_openmeteo_forecast(lat, lon, race_date)
+    mode = "forecast"
+    if not forecast:
+        forecast = fetch_openmeteo_climatology(lat, lon, race_date)
+        mode = "climatology"
+    if not forecast:
+        return False
+
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    add_slide_chrome(slide, "Race-Day Weather Outlook", venue)
+
+    mode_label = ("Forward forecast — Open-Meteo (≤16 days)"
+                  if mode == "forecast"
+                  else "Historical climatology — same calendar day, 7-year mean")
+    sub_top = Inches(1.2)
+    sub_bar = slide.shapes.add_shape(1, Inches(0.3), sub_top, Inches(12.73), Inches(0.42))
+    sub_bar.fill.solid()
+    sub_bar.fill.fore_color.rgb = LIGHT_GRAY
+    sub_bar.line.color.rgb = MID_GRAY
+    _add_textbox(slide,
+                 f"{race_date}   •   {mode_label}",
+                 Inches(0.4), sub_top + Inches(0.07),
+                 Inches(12.5), Inches(0.3),
+                 font_size=12, bold=True, color=NAVY, align=PP_ALIGN.CENTER)
+
+    # ── Hourly chart (top-left) ───────────────────────────────────────────────
+    times = forecast["time"]
+    temps = forecast["temperature_2m"]
+    apparent = forecast.get("apparent_temperature") or [None] * len(times)
+    humidity = forecast["relative_humidity_2m"]
+    wind     = forecast["wind_speed_10m"]
+    uv       = forecast.get("uv_index") or [None] * len(times)
+
+    fig, ax1 = plt.subplots(figsize=(8.4, 3.6), dpi=150)
+    x = list(range(len(times)))
+    ax1.plot(x, temps,    color="#C00000", linewidth=2.2, marker="o", markersize=4, label="Air temp (°C)")
+    ax1.plot(x, apparent, color="#E66A00", linewidth=1.6, linestyle="--", marker="x",
+             markersize=4, label="Apparent (°C)", alpha=0.85)
+    ax1.set_xlabel("Hour (local)", fontsize=10)
+    ax1.set_ylabel("Temperature (°C)", color="#C00000", fontsize=10)
+    ax1.tick_params(axis="y", labelcolor="#C00000")
+    ax1.set_xticks(x)
+    ax1.set_xticklabels(times, rotation=45, ha="right", fontsize=8)
+
+    ax2 = ax1.twinx()
+    ax2.plot(x, humidity, color="#002060", linewidth=2.0, marker="s", markersize=4, label="Humidity (%)")
+    ax2.set_ylabel("Humidity (%)", color="#002060", fontsize=10)
+    ax2.tick_params(axis="y", labelcolor="#002060")
+    ax2.set_ylim(0, 100)
+
+    # Race-start vertical markers
+    if race_starts:
+        for label, hhmm in race_starts:
+            if hhmm in times:
+                xi = times.index(hhmm)
+                ax1.axvline(xi, color="black", linestyle=":", linewidth=1.5, alpha=0.7)
+                ax1.text(xi, ax1.get_ylim()[1] * 0.98, label,
+                         rotation=90, va="top", ha="right", fontsize=8.5,
+                         color="black", fontweight="bold")
+
+    ax1.grid(True, alpha=0.25)
+    ax1.spines["top"].set_visible(False)
+    ax2.spines["top"].set_visible(False)
+    ax1.set_title("Hourly outlook — race window", fontsize=11, fontweight="bold", color="#002060")
+    h1, l1 = ax1.get_legend_handles_labels()
+    h2, l2 = ax2.get_legend_handles_labels()
+    ax1.legend(h1 + h2, l1 + l2, loc="lower right", fontsize=8, framealpha=0.9)
+    plt.tight_layout()
+    img_buf = fig_to_image(fig)
+    slide.shapes.add_picture(img_buf, Inches(0.3), Inches(1.75), Inches(7.7), Inches(3.4))
+
+    # ── Race-window summary stat cards (right side) ───────────────────────────
+    right_left = Inches(8.2)
+    right_w    = Inches(4.83)
+
+    def _hour_idx(hhmm: str) -> int | None:
+        """Find the time index closest to hhmm. Snaps half-hour starts (e.g.
+        '06:30') to the hour bucket that contains them ('06:00')."""
+        if hhmm in times:
+            return times.index(hhmm)
+        try:
+            target_min = int(hhmm[:2]) * 60 + int(hhmm[3:5])
+        except (ValueError, IndexError):
+            return None
+        best_i, best_d = None, None
+        for i, t in enumerate(times):
+            try:
+                tm = int(t[:2]) * 60 + int(t[3:5])
+            except (ValueError, IndexError):
+                continue
+            d = abs(tm - target_min)
+            if best_d is None or d < best_d:
+                best_d = d
+                best_i = i
+        return best_i if best_d is not None and best_d <= 60 else None
+
+    def _race_window_avg(values: list, start_idx: int, end_idx: int) -> float | None:
+        vals = [v for v in values[start_idx:end_idx + 1] if v is not None]
+        return sum(vals) / len(vals) if vals else None
+
+    cards: list[tuple[str, list[tuple[str, str, RGBColor]]]] = []
+    for label, hhmm in (race_starts or []):
+        idx = _hour_idx(hhmm)
+        if idx is None:
+            continue
+        end = min(idx + 2, len(times) - 1)
+        avg_temp = _race_window_avg(temps, idx, end)
+        avg_app  = _race_window_avg(apparent, idx, end) if any(a is not None for a in apparent) else None
+        avg_hum  = _race_window_avg(humidity, idx, end)
+        avg_wind = _race_window_avg(wind, idx, end)
+        peak_uv  = max((v for v in uv[idx:end + 1] if v is not None), default=None)
+        heat_label, heat_color = _heat_band(avg_app if avg_app is not None else avg_temp)
+        cards.append((label + f" — {hhmm}", [
+            ("Temperature",    f"{avg_temp:.1f} °C" if avg_temp is not None else "—", DARK_GRAY),
+            ("Apparent / Heat", f"{avg_app:.1f} °C" if avg_app is not None else "—", DARK_GRAY),
+            ("Humidity",       f"{avg_hum:.0f}%" if avg_hum is not None else "—", DARK_GRAY),
+            ("Wind",           f"{avg_wind:.1f} km/h" if avg_wind is not None else "—", DARK_GRAY),
+            ("UV peak",        f"{peak_uv:.1f}" if peak_uv is not None else "—", DARK_GRAY),
+            ("Heat Stress",    heat_label, heat_color),
+        ]))
+
+    card_top = Inches(1.75)
+    for ci, (card_title, rows_) in enumerate(cards[:2]):
+        ct = card_top + Inches(0.05 + ci * 1.75)
+        hdr = slide.shapes.add_shape(1, right_left, ct, right_w, Inches(0.35))
+        hdr.fill.solid()
+        hdr.fill.fore_color.rgb = NAVY
+        hdr.line.fill.background()
+        _add_textbox(slide, card_title,
+                     right_left + Inches(0.1), ct + Inches(0.04),
+                     right_w - Inches(0.2), Inches(0.27),
+                     font_size=11, bold=True, color=WHITE, align=PP_ALIGN.CENTER)
+        n_cols = 3
+        cell_w = right_w / n_cols
+        for ri, (k, v, color) in enumerate(rows_):
+            col = ri % n_cols
+            row = ri // n_cols
+            cl = right_left + cell_w * col
+            cw = cell_w - Inches(0.04)
+            cyt = ct + Inches(0.4 + row * 0.62)
+            bx = slide.shapes.add_shape(1, cl + Inches(0.02), cyt, cw, Inches(0.58))
+            bx.fill.solid()
+            bx.fill.fore_color.rgb = LIGHT_GRAY
+            bx.line.color.rgb = MID_GRAY
+            _add_textbox(slide, k, cl + Inches(0.04), cyt + Inches(0.03),
+                         cw - Inches(0.04), Inches(0.2),
+                         font_size=8, bold=True, color=NAVY, align=PP_ALIGN.CENTER)
+            _add_textbox(slide, v, cl + Inches(0.04), cyt + Inches(0.22),
+                         cw - Inches(0.04), Inches(0.34),
+                         font_size=12, bold=True, color=color, align=PP_ALIGN.CENTER)
+
+    # ── Bottom strip: tactical recommendations ────────────────────────────────
+    rec_top = Inches(5.3)
+    rec_bar = slide.shapes.add_shape(1, Inches(0.3), rec_top, Inches(12.73), Inches(0.32))
+    rec_bar.fill.solid()
+    rec_bar.fill.fore_color.rgb = RED
+    rec_bar.line.fill.background()
+    _add_textbox(slide, "Hydration & Cooling Cues",
+                 Inches(0.4), rec_top + Inches(0.03),
+                 Inches(12.5), Inches(0.26),
+                 font_size=12, bold=True, color=WHITE)
+
+    # Build cues from the data
+    cues: list[str] = []
+    avg_window = _race_window_avg(apparent, 0, len(times) - 1) if any(a is not None for a in apparent) else None
+    if avg_window is None:
+        avg_window = _race_window_avg(temps, 0, len(times) - 1)
+    if avg_window and avg_window >= 30:
+        cues.append("Pre-cool 20 min before start (ice slurry, ice towel on neck); fluid 6–8 ml/kg in the hour pre-race")
+        cues.append("Plan 2 ice-sock handoffs on the run — every other lap; sponges at every aid station on bike & run")
+    elif avg_window and avg_window >= 25:
+        cues.append("Standard heat protocol — pre-cool 10 min, sponges/ice at every aid station, target 600–800 ml/h on bike")
+    else:
+        cues.append("Cool to mild outlook — standard fluid plan (~500 ml/h), no special pre-cooling required")
+
+    # Female vs male delta cue
+    if len(cards) == 2:
+        f_temp = next((float(v.split()[0]) for k, v, _ in cards[0][1] if k == "Temperature" and v != "—"), None)
+        m_temp = next((float(v.split()[0]) for k, v, _ in cards[1][1] if k == "Temperature" and v != "—"), None)
+        if f_temp is not None and m_temp is not None:
+            delta = m_temp - f_temp
+            if delta >= 2:
+                cues.append(f"Men's race runs {delta:.1f} °C hotter than women's — heat-acclim work + heavier cooling kit for the 08:30 start")
+            elif delta >= 1:
+                cues.append(f"Men's race ~{delta:.1f} °C warmer — add one extra cooling touchpoint vs. women's plan")
+    # UV
+    peak_uv_all = max((v for v in uv if v is not None), default=None)
+    if peak_uv_all and peak_uv_all >= 8:
+        cues.append(f"UV peaks at {peak_uv_all:.1f} (very high) — long-sleeve race kit + sunscreen reapply 30 min pre-start")
+
+    # Wind — significant for coastal/exposed bike courses
+    peak_wind = max((v for v in wind if v is not None), default=None)
+    if peak_wind and peak_wind >= 25:
+        cues.append(f"Wind peaks at {peak_wind:.0f} km/h — pack will split on exposed coastal sections; "
+                    f"shallow front wheel + position discipline through crosswind segments")
+    elif peak_wind and peak_wind >= 15:
+        cues.append(f"Notable wind ({peak_wind:.0f} km/h) — drafting protection matters on exposed coastal bike sections; "
+                    f"sight more frequently in chop")
+
+    # Cold-water swim cue
+    avg_temp_full = _race_window_avg(temps, 0, len(times) - 1)
+    if avg_temp_full is not None and avg_temp_full < 16:
+        cues.append("Cold air pre-race — extended warm-up + warm clothing to lounge; "
+                    "wetsuit decision likely tilts mandatory if water tracks the same direction")
+
+    body_top = rec_top + Inches(0.4)
+    for i, cue in enumerate(cues[:4]):
+        _add_textbox(slide, f"•  {cue}",
+                     Inches(0.4), body_top + Inches(0.32 * i),
+                     Inches(12.5), Inches(0.34),
+                     font_size=10.5, color=DARK_GRAY)
+
+    # Footnote
+    _add_textbox(slide,
+                 ("Data source: Open-Meteo. "
+                  + ("Forecast refreshes every run. "
+                     if mode == "forecast"
+                     else "Forecast will replace climatology once race day is within 16 days. "))
+                 + "Historical Race Conditions slide shows what actually happened in prior years.",
+                 Inches(0.3), Inches(7.05), Inches(12.73), Inches(0.25),
+                 font_size=9, italic=True, color=MID_GRAY, align=PP_ALIGN.CENTER)
+    return True
 
 
 def add_race_overview_slide(
@@ -2234,7 +3745,10 @@ def add_top_splits_vs_season_slide(prs: Presentation, splits_df: pd.DataFrame,
     finishers = splits_df[~splits_df["dnf"]].copy()
     top_by_leg: dict[str, list[dict]] = {}
     for leg_label, col in [("Swim", "swim_sec"), ("Bike", "bike_sec"), ("Run", "run_sec")]:
-        valid = finishers[finishers[col].notna()].nsmallest(3, col)
+        col_clean = adjust_outlier(finishers[col].dropna()).reindex(finishers.index)
+        valid = finishers[col_clean.notna()].copy()
+        valid[col] = col_clean[col_clean.notna()]
+        valid = valid.nsmallest(3, col)
         top_by_leg[leg_label] = [{"name": r["Name"], "split_sec": float(r[col])}
                                  for _, r in valid.iterrows()]
 
@@ -2500,6 +4014,9 @@ def main():
                         help="Path to detailed per-lap splits Excel (auto-discovered in data/ if omitted). Implies --deep-dive.")
     parser.add_argument("--upcoming-event-id", type=int, default=None,
                         help="Event ID of the upcoming race for 'Who to Watch' (auto-detected if omitted)")
+    parser.add_argument("--preview-only", action="store_true",
+                        help="Suppress Elite gender-section slides (e.g. for Para Series venues where "
+                             "historical Elite race data is not relevant to the upcoming race).")
     args = parser.parse_args()
 
     fname = args.output or f"{args.venue.replace(' ', '_')}_{date.today()}.pptx"
@@ -2513,12 +4030,22 @@ def main():
     print(f"Querying events at '{args.venue}' (past {args.years} years)...")
     events_df = query_venue_events(engine, args.venue, args.years, args.gender)
     if events_df.empty:
-        print(f"No events found for venue '{args.venue}'.")
-        sys.exit(1)
-
-    print(f"Found {len(events_df)} program(s):")
-    for _, r in events_df.iterrows():
-        print(f"  {r.event_date}  {r.event_name}  ({r.prog_name})")
+        # No prior race history. Continue in preview-only mode iff we have
+        # static profile data + an upcoming event at this venue; otherwise abort.
+        venue_key = args.venue.lower().strip()
+        has_profile = (venue_key in BIKE_COURSE_PROFILES
+                       or venue_key in SWIM_COURSE_PROFILES
+                       or venue_key in RUN_COURSE_PROFILES
+                       or venue_key in EVENT_SCHEDULES)
+        if not has_profile:
+            print(f"No events found for venue '{args.venue}' and no preview profile data.")
+            sys.exit(1)
+        print(f"No prior race history for '{args.venue}' — building preview-only deck "
+              f"from course profile data.")
+    else:
+        print(f"Found {len(events_df)} program(s):")
+        for _, r in events_df.iterrows():
+            print(f"  {r.event_date}  {r.event_name}  ({r.prog_name})")
 
     men_df   = events_df[events_df.prog_name.str.contains("Elite Men",   case=False, na=False) &
                          ~events_df.prog_name.str.contains("Women",      case=False, na=False)]
@@ -2555,7 +4082,6 @@ def main():
         print(f"Deep-dive mode ON (reason: {reason})")
 
     detailed: dict[str, pd.DataFrame] = {}
-    upcoming = None
     if deep_dive:
         xlsx_path = args.detailed_splits or _autodiscover_detailed_splits(args.venue)
         if xlsx_path and os.path.exists(xlsx_path):
@@ -2568,15 +4094,18 @@ def main():
         else:
             print("  No detailed-splits Excel found (looked in data/); split-based deep-dive slides will be skipped")
 
-        if args.upcoming_event_id:
-            upcoming = {"event_id": int(args.upcoming_event_id), "event_date": None,
-                        "event_name": f"Upcoming event {args.upcoming_event_id}"}
+    # Upcoming-event lookup runs regardless of deep-dive — Who to Watch is useful for any venue
+    # where we have prior race history.
+    upcoming = None
+    if args.upcoming_event_id:
+        upcoming = {"event_id": int(args.upcoming_event_id), "event_date": None,
+                    "event_name": f"Upcoming event {args.upcoming_event_id}"}
+    else:
+        upcoming = find_upcoming_event(engine, args.venue)
+        if upcoming:
+            print(f"  Upcoming event detected: {upcoming['event_name']} ({upcoming['event_date']}) — event_id={upcoming['event_id']}")
         else:
-            upcoming = find_upcoming_event(engine, args.venue)
-            if upcoming:
-                print(f"  Upcoming event detected: {upcoming['event_name']} ({upcoming['event_date']}) — event_id={upcoming['event_id']}")
-            else:
-                print("  No upcoming event found at this venue; 'Who to Watch' will use rankings-only mode")
+            print("  No upcoming event found at this venue; 'Who to Watch' will use rankings-only mode")
 
     # Prior-race anchor per gender (for athlete_id lookup + podium queries)
     prior_men   = men_data[-1]   if men_data   else None
@@ -2589,11 +4118,41 @@ def main():
 
     all_data = men_data + women_data
     add_title_slide(prs, args.venue, args.years)
+    if add_race_week_schedule_slide(prs, args.venue):
+        print(f"  Race-week schedule slide added (venue: {args.venue})")
     add_course_differentiators_slide(prs, args.venue, all_data, events_df, venue_content)
     add_course_map_slide(prs, args.venue, all_data, venue_content)
+
+    # Sea-surface temp for race day (forecast if in window, else prior-years avg)
+    race_date_str = (str(pd.to_datetime(upcoming["event_date"]).date())
+                     if upcoming and upcoming.get("event_date") else None)
+    sst_c, sst_src = (None, "unavailable")
+    if coords and race_date_str:
+        sst_c, sst_src = fetch_sst_for_race_day(coords[0], coords[1], race_date_str)
+        if sst_c is not None:
+            print(f"  Sea-surface temp for {race_date_str}: {sst_c:.1f} °C ({sst_src})")
+
+    if add_swim_course_profile_slide(prs, args.venue, water_temp_c=sst_c,
+                                     water_temp_source=sst_src):
+        print(f"  Swim course profile slide added (venue: {args.venue})")
+    if add_bike_course_profile_slide(prs, args.venue, all_data):
+        print(f"  Bike course profile slide added (venue: {args.venue})")
+    if add_run_course_profile_slide(prs, args.venue):
+        print(f"  Run course profile slide added (venue: {args.venue})")
+
+    # Race-day forecast — race-start times pulled from EVENT_SCHEDULES per venue.
+    venue_schedule = EVENT_SCHEDULES.get(args.venue.lower().strip())
+    race_starts = venue_schedule.get("race_starts") if venue_schedule else None
+    if race_date_str and add_race_day_forecast_slide(prs, args.venue, coords,
+                                                    race_date_str, race_starts):
+        print(f"  Race-day forecast slide added (race_date={race_date_str})")
+
+    if add_travel_load_slide(prs, args.venue):
+        print(f"  Travel & arrival slide added (venue: {args.venue})")
+
     add_environmental_risk_slide(prs, args.venue, unique_env_rows)
 
-    if deep_dive and (prior_men or prior_women):
+    if prior_men or prior_women or upcoming:
         add_who_to_watch_slide(
             prs, engine, args.venue,
             upcoming_event_id=upcoming["event_id"] if upcoming else None,
@@ -2602,8 +4161,11 @@ def main():
         )
 
     gender_sections = []
-    if men_data   and args.gender in ("men",   "both"): gender_sections.append(("Men",   men_data))
-    if women_data and args.gender in ("women", "both"): gender_sections.append(("Women", women_data))
+    if args.preview_only:
+        print("  Preview-only mode — skipping Elite gender-section slides")
+    else:
+        if men_data   and args.gender in ("men",   "both"): gender_sections.append(("Men",   men_data))
+        if women_data and args.gender in ("women", "both"): gender_sections.append(("Women", women_data))
 
     for gender_label, data in gender_sections:
         print(f"  Building {gender_label} slides ({len(data)} races)...")

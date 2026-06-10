@@ -8,6 +8,9 @@ Usage:
     # Skip API refresh, just query DB and send
     python scripts/weekly_rankings_email.py --no-refresh
 
+    # Just send the email from already-synced data (no fetch, no sync)
+    python scripts/weekly_rankings_email.py --send-only --delay 0
+
     # Print email to stdout instead of sending
     python scripts/weekly_rankings_email.py --dry-run
 """
@@ -61,18 +64,21 @@ def fetch_us_rankings(engine) -> dict[int, list[dict]]:
             GROUP BY ranking_cat_id
         ),
         prev_dates AS (
+            -- Pick the most recent snapshot at least ~one week before latest,
+            -- so stray midweek snapshots don't collapse "change" to ~0.
             SELECT ar.ranking_cat_id,
                    MAX(ar.retrieved_at) AS prev_date
             FROM athlete_rankings ar
             JOIN current_dates cd ON ar.ranking_cat_id = cd.ranking_cat_id
-            WHERE ar.retrieved_at < cd.latest_date
+            WHERE ar.retrieved_at <= cd.latest_date - INTERVAL '6 days'
             GROUP BY ar.ranking_cat_id
         ),
         current_ranks AS (
-            SELECT DISTINCT ON (ar.ranking_cat_id, ar.athlete_name)
+             SELECT DISTINCT ON (ar.ranking_cat_id, ar.athlete_id)
                    ar.ranking_cat_id,
                    ar.athlete_id,
                    ar.athlete_name,
+                 a.country,
                    ar.rank_position,
                    ar.total_points,
                    ar.retrieved_at,
@@ -84,23 +90,24 @@ def fetch_us_rankings(engine) -> dict[int, list[dict]]:
              AND ar.retrieved_at   = cd.latest_date
             JOIN athlete a ON ar.athlete_id = a.athlete_id
             WHERE a.country = :country
-            ORDER BY ar.ranking_cat_id, ar.athlete_name, ar.rank_position
+             ORDER BY ar.ranking_cat_id, ar.athlete_id, ar.rank_position
         ),
         prev_ranks AS (
-            SELECT DISTINCT ON (ar.ranking_cat_id, ar.athlete_name)
+             SELECT DISTINCT ON (ar.ranking_cat_id, ar.athlete_id)
                    ar.ranking_cat_id,
-                   ar.athlete_name,
+                 ar.athlete_id,
                    ar.rank_position AS prev_rank_position
             FROM athlete_rankings ar
             JOIN prev_dates pd
               ON ar.ranking_cat_id = pd.ranking_cat_id
              AND ar.retrieved_at   = pd.prev_date
-            ORDER BY ar.ranking_cat_id, ar.athlete_name, ar.rank_position
+             ORDER BY ar.ranking_cat_id, ar.athlete_id, ar.rank_position
         )
         SELECT
             cr.ranking_cat_id,
             cr.athlete_id,
             cr.athlete_name,
+             cr.country,
             cr.rank_position,
             cr.total_points,
             cr.retrieved_at,
@@ -110,7 +117,7 @@ def fetch_us_rankings(engine) -> dict[int, list[dict]]:
         FROM current_ranks cr
         LEFT JOIN prev_ranks pr
           ON cr.ranking_cat_id = pr.ranking_cat_id
-         AND cr.athlete_name   = pr.athlete_name
+                 AND cr.athlete_id     = pr.athlete_id
         ORDER BY cr.ranking_cat_id, cr.rank_position
     """)
 
@@ -271,31 +278,53 @@ def store_all_breakdowns(engine) -> None:
     print(f"Stored {total_stored} total breakdown records for all athletes.")
 
 
-def fetch_at_risk(engine, by_cat: dict[int, list[dict]]) -> dict[tuple, dict]:
+def fetch_at_risk(
+    engine,
+    by_cat: dict[int, list[dict]],
+    breakdown_engine=None,
+) -> dict[tuple, dict]:
     """
-    Query athlete_ranking_breakdown for period-2 events (1-2 year old points)
-    and compute how many points are expiring in the next 2 weeks, 1 month, 3 months.
+    Simulate per-athlete World Triathlon score under the official drop-off model
+    (events get 1/3 points at 12 months, 0 points at 24 months) and report how
+    much score is at risk over the next 2 weeks, 1 month, and 3 months.
 
-    Points expire when event_finish_date + 2 years passes.
+    Mirrors the dashboard logic in app/webapp/app.py so the email and the live
+    rankings page show the same numbers.
+
+    breakdown_engine: if provided, use this engine for the breakdown query
+        (e.g. the TRIATHLON_DATABASE_URL Supabase engine).
 
     Returns dict keyed by (athlete_id, ranking_cat_id) ->
-        {"at_risk_2w": float, "at_risk_1m": float, "at_risk_3m": float}
+        {"at_risk_2w": float, "at_risk_1m": float, "at_risk_3m": float,
+         "drop_2w": int, "drop_1m": int, "drop_3m": int}
     """
+    bd_engine = breakdown_engine if breakdown_engine is not None else engine
     athlete_ids = [
         a["athlete_id"]
         for athletes in by_cat.values()
         for a in athletes
         if a.get("athlete_id")
     ]
-    if not athlete_ids:
+    cat_ids = list(by_cat.keys())
+    if not athlete_ids or not cat_ids:
         return {}
 
+    # Pull all events for the target athletes, restricted to the latest
+    # breakdown snapshot per ranking category (matches dashboard behavior).
     query = text("""
-        SELECT athlete_id, ranking_cat_id, event_finish_date, points
-        FROM athlete_ranking_breakdown
-        WHERE athlete_id = ANY(:athlete_ids)
-          AND period = 2
-          AND included = true
+        WITH latest_bd AS (
+            SELECT ranking_cat_id, MAX(retrieved_at) AS latest
+            FROM athlete_ranking_breakdown
+            WHERE ranking_cat_id = ANY(:cat_ids)
+            GROUP BY ranking_cat_id
+        )
+        SELECT abd.athlete_id, abd.ranking_cat_id, abd.event_id,
+               abd.event_finish_date, abd.points, abd.period, abd.included
+        FROM athlete_ranking_breakdown abd
+        JOIN latest_bd lb
+          ON abd.ranking_cat_id = lb.ranking_cat_id
+         AND abd.retrieved_at   = lb.latest
+        WHERE abd.athlete_id = ANY(:athlete_ids)
     """)
 
     today = date.today()
@@ -303,25 +332,66 @@ def fetch_at_risk(engine, by_cat: dict[int, list[dict]]) -> dict[tuple, dict]:
     cutoff_1m = today + timedelta(days=30)
     cutoff_3m = today + timedelta(days=91)
 
-    at_risk: dict[tuple, dict] = {}
-    with engine.connect() as conn:
-        rows = conn.execute(query, {"athlete_ids": athlete_ids}).mappings().all()
+    def _event_value_at(ev: dict, as_of: date) -> float:
+        pts = float(ev.get("points") or 0.0)
+        efd = ev.get("event_finish_date")
+        period = ev.get("period", 1)
+        if not efd:
+            return pts / 3.0 if period == 2 else pts
+        one_year = efd + timedelta(days=365)
+        two_years = efd + timedelta(days=730)
+        if as_of >= two_years:
+            return 0.0
+        if as_of >= one_year:
+            return pts / 3.0
+        return pts
 
+    def _score_at(events: list[dict], as_of: date, event_cap: int) -> float:
+        values = [_event_value_at(ev, as_of) for ev in events]
+        positive_values = [v for v in values if v > 0]
+        if not positive_values:
+            return 0.0
+        positive_values.sort(reverse=True)
+        if event_cap <= 0:
+            return sum(positive_values)
+        return sum(positive_values[:event_cap])
+
+    with bd_engine.connect() as conn:
+        rows = conn.execute(
+            query, {"cat_ids": cat_ids, "athlete_ids": athlete_ids}
+        ).mappings().all()
+
+    # Group events by (athlete_id, cat_id), dedupe by event_id within group.
+    athlete_events: dict[tuple, list[dict]] = {}
+    seen_events: set[tuple] = set()
     for row in rows:
         key = (row["athlete_id"], row["ranking_cat_id"])
-        if key not in at_risk:
-            at_risk[key] = {"at_risk_2w": 0.0, "at_risk_1m": 0.0, "at_risk_3m": 0.0}
-        efd = row["event_finish_date"]
-        pts = float(row["points"] or 0)
-        if not efd:
-            continue
-        expiry = efd + timedelta(days=730)
-        if today <= expiry <= cutoff_2w:
-            at_risk[key]["at_risk_2w"] += pts
-        if today <= expiry <= cutoff_1m:
-            at_risk[key]["at_risk_1m"] += pts
-        if today <= expiry <= cutoff_3m:
-            at_risk[key]["at_risk_3m"] += pts
+        event_id = row.get("event_id")
+        if event_id is not None:
+            dedupe_key = (key, int(event_id))
+            if dedupe_key in seen_events:
+                continue
+            seen_events.add(dedupe_key)
+        athlete_events.setdefault(key, []).append({
+            "event_finish_date": row.get("event_finish_date"),
+            "points": float(row.get("points") or 0.0),
+            "period": row.get("period", 1),
+            "included": row.get("included", True),
+        })
+
+    at_risk: dict[tuple, dict] = {}
+    for key, events in athlete_events.items():
+        included_count = sum(1 for ev in events if ev.get("included", True))
+        event_cap = included_count if included_count > 0 else len(events)
+        current_score = _score_at(events, today, event_cap)
+        risk_2w = max(0.0, current_score - _score_at(events, cutoff_2w, event_cap))
+        risk_1m = max(0.0, current_score - _score_at(events, cutoff_1m, event_cap))
+        risk_3m = max(0.0, current_score - _score_at(events, cutoff_3m, event_cap))
+        at_risk[key] = {
+            "at_risk_2w": risk_2w,
+            "at_risk_1m": risk_1m,
+            "at_risk_3m": risk_3m,
+        }
 
     # --- Compute projected rank drops per window ---
     # For each category, load the full ranking list and simulate point loss.
@@ -373,7 +443,7 @@ def fetch_at_risk(engine, by_cat: dict[int, list[dict]]) -> dict[tuple, dict]:
 
 def rank_change_html(current: int, prev: int | None) -> str:
     if prev is None:
-        return '<span style="color:#888">NEW</span>'
+        return '<span style="color:#888">&#8212;</span>'
     delta = prev - current  # positive = moved up
     if delta > 0:
         return f'<span style="color:#22a744">&#9650; {delta}</span>'
@@ -403,10 +473,12 @@ def build_html(by_cat: dict[int, list[dict]], at_risk: dict[tuple, dict] | None 
                 curr = row["events_current_period"] if row["events_current_period"] is not None else 0
                 prev_ev = row["events_previous_period"] if row["events_previous_period"] is not None else 0
                 total_events = curr + prev_ev if (curr or prev_ev) else "—"
+                country = row.get("country") or "—"
                 rows_html += f"""
             <tr>
                 <td style="padding:6px 12px;text-align:center;font-weight:bold">{row['rank_position']}</td>
                 <td style="padding:6px 12px">{row['athlete_name']}</td>
+                <td style="padding:6px 12px">{country}</td>
                 <td style="padding:6px 12px;text-align:right">{pts}</td>
                 <td style="padding:6px 12px;text-align:center">{total_events}</td>
                 <td style="padding:6px 12px;text-align:center">{change}</td>
@@ -414,6 +486,7 @@ def build_html(by_cat: dict[int, list[dict]], at_risk: dict[tuple, dict] | None 
             else:
                 curr = row["events_current_period"] if row["events_current_period"] is not None else "—"
                 prev = row["events_previous_period"] if row["events_previous_period"] is not None else "—"
+                country = row.get("country") or "—"
                 risk = at_risk.get((row.get("athlete_id"), cat_id), {})
                 r2w = f"{int(risk['at_risk_2w']):,}" if risk.get("at_risk_2w") else "—"
                 r1m = f"{int(risk['at_risk_1m']):,}" if risk.get("at_risk_1m") else "—"
@@ -425,6 +498,7 @@ def build_html(by_cat: dict[int, list[dict]], at_risk: dict[tuple, dict] | None 
             <tr>
                 <td style="padding:6px 12px;text-align:center;font-weight:bold">{row['rank_position']}</td>
                 <td style="padding:6px 12px">{row['athlete_name']}</td>
+                <td style="padding:6px 12px">{country}</td>
                 <td style="padding:6px 12px;text-align:right">{pts}</td>
                 <td style="padding:6px 12px;text-align:center">{curr}</td>
                 <td style="padding:6px 12px;text-align:center">{prev}</td>
@@ -442,6 +516,7 @@ def build_html(by_cat: dict[int, list[dict]], at_risk: dict[tuple, dict] | None 
                 <tr style="background:#c8102e;color:white">
                     <th style="padding:8px 12px">Rank</th>
                     <th style="padding:8px 12px;text-align:left">Athlete</th>
+                    <th style="padding:8px 12px;text-align:left">Country</th>
                     <th style="padding:8px 12px;text-align:right">Points</th>
                     <th style="padding:8px 12px">Events</th>
                     <th style="padding:8px 12px">Change</th>
@@ -451,13 +526,14 @@ def build_html(by_cat: dict[int, list[dict]], at_risk: dict[tuple, dict] | None 
                 <tr style="background:#c8102e;color:white">
                     <th style="padding:8px 12px">Rank</th>
                     <th style="padding:8px 12px;text-align:left">Athlete</th>
+                    <th style="padding:8px 12px;text-align:left">Country</th>
                     <th style="padding:8px 12px;text-align:right">Points</th>
                     <th style="padding:8px 12px" title="Events scored in last 0-1 years">Curr Events</th>
                     <th style="padding:8px 12px" title="Events scored in last 1-2 years">Prev Events</th>
                     <th style="padding:8px 12px">Change</th>
-                    <th style="padding:8px 12px;text-align:right" title="Points expiring in next 2 weeks">At Risk 2W</th>
-                    <th style="padding:8px 12px;text-align:right" title="Points expiring in next 1 month">At Risk 1M</th>
-                    <th style="padding:8px 12px;text-align:right" title="Points expiring in next 3 months">At Risk 3M</th>
+                    <th style="padding:8px 12px;text-align:right" title="Points expiring in next 2 weeks">Risk 2W</th>
+                    <th style="padding:8px 12px;text-align:right" title="Points expiring in next 1 month">Risk 1M</th>
+                    <th style="padding:8px 12px;text-align:right" title="Points expiring in next 3 months">Risk 3M</th>
                     <th style="padding:8px 12px" title="Projected rank drop in 2 weeks">Drop 2W</th>
                     <th style="padding:8px 12px" title="Projected rank drop in 1 month">Drop 1M</th>
                     <th style="padding:8px 12px" title="Projected rank drop in 3 months">Drop 3M</th>
@@ -571,6 +647,34 @@ def _insert_batches(supa_engine, insert_sql: str, rows: list, table: str, batch_
                 _time.sleep(2 ** attempt)
 
 
+def prune_stale_breakdowns(engine, label: str = "DB") -> None:
+    """
+    Keep only each athlete's most recent breakdown snapshot per ranking category.
+
+    When an event passes the 2-year window the World Triathlon API stops returning
+    it, so a fresh fetch never overwrites the old row — it lingers as an "orphan"
+    and keeps showing up (e.g. expired events still listed as Counted). The
+    breakdown table is current-state only (rank history lives in athlete_rankings),
+    so dropping anything older than the latest snapshot per (athlete, category)
+    removes orphans without losing anything the dashboard needs.
+    """
+    delete_sql = text("""
+        DELETE FROM athlete_ranking_breakdown b
+        USING (
+            SELECT athlete_id, ranking_cat_id, MAX(retrieved_at) AS latest
+            FROM athlete_ranking_breakdown
+            GROUP BY athlete_id, ranking_cat_id
+        ) m
+        WHERE b.athlete_id = m.athlete_id
+          AND b.ranking_cat_id = m.ranking_cat_id
+          AND b.retrieved_at < m.latest
+    """)
+    with engine.begin() as conn:
+        result = conn.execute(delete_sql)
+        deleted = result.rowcount or 0
+    print(f"[{label}] Pruned {deleted:,} stale breakdown rows (orphaned expired events).")
+
+
 def sync_to_supabase(local_engine) -> None:
     """Append new retrieved_at snapshots from local DB → Supabase (athlete_rankings + breakdown)."""
     supa_url = os.getenv("TRIATHLON_DATABASE_URL", "")
@@ -636,6 +740,13 @@ def sync_to_supabase(local_engine) -> None:
                 (:athlete_id, :athlete_name, :ranking_cat_name, :ranking_cat_id,
                  :rank_position, :total_points, :year, :retrieved_at,
                  :events_current_period, :events_previous_period)
+            ON CONFLICT (athlete_name, ranking_cat_name, year, retrieved_at) DO UPDATE SET
+                athlete_id             = EXCLUDED.athlete_id,
+                ranking_cat_id         = EXCLUDED.ranking_cat_id,
+                rank_position          = EXCLUDED.rank_position,
+                total_points           = EXCLUDED.total_points,
+                events_current_period  = EXCLUDED.events_current_period,
+                events_previous_period = EXCLUDED.events_previous_period
         """, rows, "athlete_rankings")
         print(f"[Supabase] athlete_rankings: {len(rows):,} rows added ({len(new_dates)} new date(s)).")
 
@@ -657,49 +768,50 @@ def sync_to_supabase(local_engine) -> None:
             )
         """))
 
-    with supa.connect() as conn:
-        existing_dates2 = {
-            r[0] for r in conn.execute(text(
-                "SELECT DISTINCT retrieved_at::date FROM athlete_ranking_breakdown"
-            )).fetchall()
-        }
+    # Prune local orphans first so they don't get pushed to Supabase.
+    prune_stale_breakdowns(local_engine, label="Local")
 
+    # Row-based sync: push the freshest row per (athlete_id, ranking_cat_id,
+    # event_id) from local. The ON CONFLICT upsert makes this idempotent.
+    # We deliberately do NOT date-diff here: the old logic only synced brand-new
+    # retrieved_at dates, so a full-roster refresh that landed on a date already
+    # partially present on Supabase (e.g. after the US-only sync) was silently
+    # skipped, leaving non-US athletes frozen at an old snapshot.
     with local_engine.connect() as conn:
-        local_dates2 = {
-            r[0] for r in conn.execute(text(
-                "SELECT DISTINCT retrieved_at::date FROM athlete_ranking_breakdown"
-            )).fetchall()
-        }
+        rows2 = conn.execute(text("""
+            SELECT DISTINCT ON (athlete_id, ranking_cat_id, event_id)
+                   athlete_id, ranking_cat_id, event_id, event_title,
+                   event_finish_date, points, period, position, retrieved_at, included
+            FROM athlete_ranking_breakdown
+            ORDER BY athlete_id, ranking_cat_id, event_id, retrieved_at DESC
+        """)).fetchall()
 
-    new_dates2 = local_dates2 - existing_dates2
-    if not new_dates2:
-        print("[Supabase] athlete_ranking_breakdown: already up to date.")
-    else:
-        date_list2 = ", ".join(f"'{d}'" for d in sorted(new_dates2))
-        with local_engine.connect() as conn:
-            rows2 = conn.execute(text(f"""
-                SELECT athlete_id, ranking_cat_id, event_id, event_title,
-                       event_finish_date, points, period, position, retrieved_at, included
-                FROM athlete_ranking_breakdown
-                WHERE retrieved_at::date IN ({date_list2})
-            """)).fetchall()
-        _insert_batches(supa, """
-            INSERT INTO athlete_ranking_breakdown
-                (athlete_id, ranking_cat_id, event_id, event_title,
-                 event_finish_date, points, period, position, retrieved_at, included)
-            VALUES
-                (:athlete_id, :ranking_cat_id, :event_id, :event_title,
-                 :event_finish_date, :points, :period, :position, :retrieved_at, :included)
-            ON CONFLICT (athlete_id, ranking_cat_id, event_id) DO UPDATE SET
-                event_title       = EXCLUDED.event_title,
-                event_finish_date = EXCLUDED.event_finish_date,
-                points            = EXCLUDED.points,
-                period            = EXCLUDED.period,
-                position          = EXCLUDED.position,
-                included          = EXCLUDED.included,
-                retrieved_at      = EXCLUDED.retrieved_at
-        """, rows2, "athlete_ranking_breakdown")
-        print(f"[Supabase] athlete_ranking_breakdown: {len(rows2):,} rows added or updated ({len(new_dates2)} new date(s)).")
+    try:
+        if not rows2:
+            print("[Supabase] athlete_ranking_breakdown: nothing to sync.")
+        else:
+            _insert_batches(supa, """
+                INSERT INTO athlete_ranking_breakdown
+                    (athlete_id, ranking_cat_id, event_id, event_title,
+                     event_finish_date, points, period, position, retrieved_at, included)
+                VALUES
+                    (:athlete_id, :ranking_cat_id, :event_id, :event_title,
+                     :event_finish_date, :points, :period, :position, :retrieved_at, :included)
+                ON CONFLICT (athlete_id, ranking_cat_id, event_id) DO UPDATE SET
+                    event_title       = EXCLUDED.event_title,
+                    event_finish_date = EXCLUDED.event_finish_date,
+                    points            = EXCLUDED.points,
+                    period            = EXCLUDED.period,
+                    position          = EXCLUDED.position,
+                    included          = EXCLUDED.included,
+                    retrieved_at      = EXCLUDED.retrieved_at
+            """, rows2, "athlete_ranking_breakdown")
+            print(f"[Supabase] athlete_ranking_breakdown: {len(rows2):,} rows upserted (row-based).")
+    finally:
+        # Always prune Supabase orphans, even if the upsert failed partway —
+        # the upsert only pushes local's clean newest-per-event rows, so it can
+        # never create orphans, but a skipped prune leaves expired events behind.
+        prune_stale_breakdowns(supa, label="Supabase")
 
 
 def update_computed_rankings(local_engine) -> None:
@@ -775,16 +887,29 @@ def update_computed_rankings(local_engine) -> None:
     print(f"[Supabase] computed_weekly_rankings: {inserted:,} rows synced.")
 
 
-def main(refresh: bool = True, dry_run: bool = False, all_breakdowns: bool = False,
-         preview_delay_minutes: int = 60, sync_only: bool = False) -> None:
+def main(refresh: bool = True, dry_run: bool = False, all_breakdowns: bool = True,
+         preview_delay_minutes: int = 60, sync_only: bool = False,
+         send_only: bool = False) -> None:
     import time as _time
 
-    # --sync-only: just push local data to Supabase, no email
+    # --send-only: build and send the email straight from existing local data.
+    # No API fetch, no breakdown refresh, no Supabase sync. Use when everything
+    # has already been synced and you just want to (re)send the email.
+    if send_only:
+        refresh = False
+        all_breakdowns = False
+        print("Send-only mode: using existing DB data (no fetch, no sync).")
+
+    # --sync-only: refresh data and push to Supabase, no email. Doubles as a
+    # repair command: with all_breakdowns (default) it re-fetches every ranked
+    # athlete's breakdown from the API, fixing stale non-US dashboard data.
     if sync_only:
         if refresh:
             print("Fetching rankings from World Triathlon API...")
             import_rankings(category_ids=list(EMAIL_CATEGORIES.keys()))
         engine = get_engine()
+        if all_breakdowns:
+            store_all_breakdowns(engine)
         sync_to_supabase(engine)
         update_computed_rankings(engine)
         return
@@ -800,9 +925,13 @@ def main(refresh: bool = True, dry_run: bool = False, all_breakdowns: bool = Fal
 
     engine = get_engine()
 
-    # Step 1b: optionally fetch breakdowns for ALL athletes (for dashboard)
-    if all_breakdowns:
+    # Step 1b: fetch breakdowns for ALL ranked athletes so the dashboard stays
+    # current for every athlete, not just the US set. Skipped for --dry-run
+    # (which only previews the email HTML) to keep that fast.
+    did_all_breakdowns = False
+    if all_breakdowns and not dry_run:
         store_all_breakdowns(engine)
+        did_all_breakdowns = True
 
     # Step 2: query DB for US athletes
     by_cat = fetch_us_rankings(engine)
@@ -816,9 +945,17 @@ def main(refresh: bool = True, dry_run: bool = False, all_breakdowns: bool = Fal
     for cat_id, label in EMAIL_CATEGORIES.items():
         print(f"  {label}: {len(by_cat.get(cat_id, []))} athletes")
 
-    # Step 3: fetch per-event breakdown and compute points at risk
-    print("Fetching per-athlete ranking breakdowns...")
-    fetch_and_store_breakdowns(engine, by_cat)
+    # Step 3: fetch per-event breakdown and compute points at risk.
+    # If store_all_breakdowns already ran, the US athletes are already covered,
+    # so skip the redundant US-only re-fetch. Send-only skips fetching entirely.
+    if not did_all_breakdowns and not send_only:
+        print("Fetching per-athlete ranking breakdowns...")
+        fetch_and_store_breakdowns(engine, by_cat)
+
+    # Read at-risk from the local engine: this week's rankings + breakdowns
+    # were just refreshed above, but the Supabase sync hasn't run yet. Using
+    # the local DB here ensures the email matches what the dashboard will
+    # show once sync_to_supabase() completes below.
     at_risk = fetch_at_risk(engine, by_cat)
 
     # Step 4: build email
@@ -843,17 +980,18 @@ def main(refresh: bool = True, dry_run: bool = False, all_breakdowns: bool = Fal
     else:
         print("[Email] SMTP_USER not set — skipping preview send.")
 
-    # Step 6: sync local data to Supabase while we wait
-    print("\n[Supabase] Starting data sync...")
-    try:
-        sync_to_supabase(engine)
-    except Exception as e:
-        print(f"[Supabase] athlete_rankings sync failed (non-fatal): {e}")
+    # Step 6: sync local data to Supabase while we wait (skipped in send-only).
+    if not send_only:
+        print("\n[Supabase] Starting data sync...")
+        try:
+            sync_to_supabase(engine)
+        except Exception as e:
+            print(f"[Supabase] athlete_rankings sync failed (non-fatal): {e}")
 
-    try:
-        update_computed_rankings(engine)
-    except Exception as e:
-        print(f"[Supabase] computed_weekly_rankings sync failed (non-fatal): {e}")
+        try:
+            update_computed_rankings(engine)
+        except Exception as e:
+            print(f"[Supabase] computed_weekly_rankings sync failed (non-fatal): {e}")
 
     # Step 7: wait until preview_delay_minutes has elapsed from start
     elapsed = _time.time() - start_time
@@ -873,11 +1011,18 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Send weekly US triathlon rankings email.")
     parser.add_argument("--no-refresh", action="store_true", help="Skip API fetch, use existing DB data.")
     parser.add_argument("--dry-run", action="store_true", help="Print email to stdout instead of sending.")
-    parser.add_argument("--all-breakdowns", action="store_true", help="Fetch breakdowns for ALL athletes (for dashboard). Takes ~15 min.")
+    parser.add_argument("--all-breakdowns", action="store_true",
+                        help="(Default behavior; kept for back-compat) Fetch breakdowns for ALL athletes.")
+    parser.add_argument("--us-breakdowns-only", action="store_true",
+                        help="Only refresh US-athlete breakdowns (fast). Dashboard non-US athletes will go stale.")
     parser.add_argument("--delay", type=int, default=60, metavar="MINUTES",
                         help="Minutes to wait between preview and full send (default: 60).")
     parser.add_argument("--sync-only", action="store_true", help="Push local data to Supabase without sending any email.")
+    parser.add_argument("--send-only", action="store_true",
+                        help="Build and send the email from existing DB data only — no fetch, no Supabase sync.")
     args = parser.parse_args()
 
-    main(refresh=not args.no_refresh, dry_run=args.dry_run, all_breakdowns=args.all_breakdowns,
-         preview_delay_minutes=args.delay, sync_only=args.sync_only)
+    main(refresh=not args.no_refresh, dry_run=args.dry_run,
+         all_breakdowns=not args.us_breakdowns_only,
+         preview_delay_minutes=args.delay, sync_only=args.sync_only,
+         send_only=args.send_only)
