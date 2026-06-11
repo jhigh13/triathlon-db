@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Emelia Perry — PTWC Progression vs Lauren Parker</title>
+<style>
+  body { font-family: Arial, sans-serif; max-width: 1100px; margin: 24px auto; color: #222; }
+  h1 { color: #002868; border-bottom: 3px solid #C8102E; padding-bottom: 8px; }
+  h2 { color: #002868; margin-top: 28px; }
+  .kpi { display: inline-block; padding: 10px 18px; margin: 6px 8px 6px 0;
+          background: #f4f4f4; border-left: 4px solid #C8102E; }
+  .kpi b { font-size: 1.4em; color: #C8102E; }
+  table { border-collapse: collapse; margin: 12px 0; font-size: 0.92em; }
+  td, th { border: 1px solid #ccc; padding: 6px 10px; }
+  th { background: #002868; color: white; }
+  img { max-width: 100%; margin: 12px 0; border: 1px solid #ddd; }
+  .note { background: #fff8e1; border-left: 4px solid #B8860B; padding: 10px 14px; margin: 12px 0; }
+  .caveat { background: #ffebee; border-left: 4px solid #C8102E; padding: 10px 14px; margin: 12px 0; font-size: 0.9em; }
+</style></head><body>
+<h1>Emelia Perry — PTWC Progression vs Lauren Parker</h1>
+
+<h2>Story</h2>
+<p><b>Emelia Perry has closed the gap on Paralympic gold medalist Lauren Parker across every discipline from 2023 to 2025.</b>
+The total time deficit shrank by <b>76%</b>, average finish position improved from
+<b>7th</b> to <b>2.3</b>, and Perry has flipped from trailing Parker
+on the run to running faster than her in 2025.</p>
+
+<div class="kpi"><b>76%</b><br>Total deficit reduction</div>
+<div class="kpi"><b>74%</b><br>Bike deficit reduction</div>
+<div class="kpi"><b>-47s</b><br>2025 run advantage (Perry ahead)</div>
+<div class="kpi"><b>7 &rarr; 2.3</b><br>Avg finish position</div>
+
+<h2>Yearly Deficit Trend — Sprint Distance (10 overlap races)</h2>
+<img src="fig1_yearly_deficit.png">
+
+<h2>Finish Position Trend</h2>
+<img src="fig2_position.png">
+
+<h2>Every Overlap Race</h2>
+<img src="fig3_per_race.png">
+
+<h2>2025 World Championships, Wollongong — Worlds Silver</h2>
+<div class="note">
+  Perry finished <b>2nd</b> at PTWC Worlds, only
+  <b>70s behind Parker</b> on total time, and was
+  <b>76s faster than Parker on the run</b>.
+  Best individual head-to-head result of her career.
+</div>
+
+<h2>Yearly Detail (sprint races)</h2>
+<table border="1" class="dataframe">
+  <thead>
+    <tr style="text-align: right;">
+      <th></th>
+      <th>n races</th>
+      <th>Swim Δ (s)</th>
+      <th>Bike Δ (s)</th>
+      <th>Run Δ (s)</th>
+      <th>Total Δ (s)</th>
+      <th>Perry avg pos</th>
+    </tr>
+    <tr>
+      <th>year</th>
+      <th></th>
+      <th></th>
+      <th></th>
+      <th></th>
+      <th></th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th>2023</th>
+      <td>3</td>
+      <td>199.3</td>
+      <td>380.0</td>
+      <td>34.0</td>
+      <td>557.0</td>
+      <td>7.0</td>
+    </tr>
+    <tr>
+      <th>2024</th>
+      <td>3</td>
+      <td>135.7</td>
+      <td>177.3</td>
+      <td>-5.7</td>
+      <td>278.3</td>
+      <td>5.3</td>
+    </tr>
+    <tr>
+      <th>2025</th>
+      <td>3</td>
+      <td>103.7</td>
+      <td>99.7</td>
+      <td>-47.0</td>
+      <td>133.7</td>
+      <td>2.3</td>
+    </tr>
+    <tr>
+      <th>2026</th>
+      <td>1</td>
+      <td>105.0</td>
+      <td>40.0</td>
+      <td>-34.0</td>
+      <td>105.0</td>
+      <td>2.0</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="caveat"><b>Caveats:</b>
+2025 sample is 3 sprint races (Magog, Montreal, Wollongong Worlds). Sample is small — every additional race could move the yearly average meaningfully. Both athletes are in the H1 wheelchair sub-class, so within-class time factors cancel out and raw split differences are valid.</div>
+
+<p style="color:#888;font-size:0.85em;margin-top:40px">
+  Generated 2026-05-21 17:20 — Source: World Triathlon API (race_results, events tables).
+</p>
+</body></html>

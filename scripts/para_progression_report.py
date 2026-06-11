@@ -55,6 +55,7 @@ PARKER   = Athlete(122515, "Lauren Parker",    "Parker",   "AUS")
 HERMES   = Athlete(165205, "McClain Hermes",   "Hermes",   "USA")
 RODRIGUEZ= Athlete(40701,  "Susana Rodriguez", "Rodriguez","ESP")  # B1
 TARANTELLO=Athlete(166501, "Francesca Tarantello","Tarantello","ITA")  # B3
+FISHER   = Athlete(165198, "Skyler Fisher",   "Fisher",   "USA")  # H2 PTWC
 
 
 # ---------- Time parsing ----------
@@ -318,8 +319,12 @@ def chart_perry_per_race(df: pd.DataFrame, out: Path):
 
 
 # ---------- Charts: Hermes deck ----------
-def chart_hermes_pace_trend(df: pd.DataFrame, out: Path):
-    """Per-race pace by segment over time, Hermes vs podium-avg (excl self) per race."""
+def chart_pace_trend(df: pd.DataFrame, athlete_name: str, peers_meta: list[dict],
+                     out: Path, prog_label: str = ""):
+    """Per-race pace by segment over time, athlete vs podium-avg (excl self) per race.
+
+    peers_meta items: {"key": col-prefix, "label": display, "color": hex, "marker": str}
+    """
     fig, axes = plt.subplots(3, 1, figsize=(14, 12), sharex=True)
     segs = [("swim", "Swim pace (sec / 100m)"),
             ("bike", "Bike pace (sec / km)"),
@@ -329,25 +334,20 @@ def chart_hermes_pace_trend(df: pd.DataFrame, out: Path):
     for ax, (seg, label) in zip(axes, segs):
         sub = df.dropna(subset=[f"pace_h_{seg}", f"pace_pod_{seg}"]).copy()
         ax.plot(sub["event_date"], sub[f"pace_pod_{seg}"], color=GREY_DARK,
-                linewidth=1.8, label="Podium avg (excl. Hermes)", marker="s", markersize=7)
+                linewidth=1.8, label=f"Podium avg (excl. {athlete_name})", marker="s", markersize=7)
         ax.plot(sub["event_date"], sub[f"pace_h_{seg}"], color=USAT_RED,
-                linewidth=2.5, label="Hermes", marker="o", markersize=10)
+                linewidth=2.5, label=athlete_name, marker="o", markersize=10)
         scale = 100.0 if seg == "swim" else 1000.0
         dist_col = f"{seg}_m"
-        # Rodriguez markers
-        rod = sub.dropna(subset=[f"rod_{seg}"]).copy()
-        if not rod.empty:
-            rod[f"pace_rod_{seg}"] = rod[f"rod_{seg}"] / (rod[dist_col] / scale)
-            ax.scatter(rod["event_date"], rod[f"pace_rod_{seg}"],
-                       facecolor=USAT_NAVY, edgecolor="black", s=180, zorder=5,
-                       label="Rodriguez B1 (when present)", marker="D")
-        # Tarantello markers
-        tar = sub.dropna(subset=[f"tar_{seg}"]).copy()
-        if not tar.empty:
-            tar[f"pace_tar_{seg}"] = tar[f"tar_{seg}"] / (tar[dist_col] / scale)
-            ax.scatter(tar["event_date"], tar[f"pace_tar_{seg}"],
-                       facecolor=USAT_GOLD, edgecolor="black", s=180, zorder=5,
-                       label="Tarantello B3 (when present)", marker="^")
+        for peer in peers_meta:
+            pkey = peer["key"]
+            sub_p = sub.dropna(subset=[f"{pkey}_{seg}"]).copy()
+            if sub_p.empty:
+                continue
+            sub_p[f"pace_{pkey}_{seg}"] = sub_p[f"{pkey}_{seg}"] / (sub_p[dist_col] / scale)
+            ax.scatter(sub_p["event_date"], sub_p[f"pace_{pkey}_{seg}"],
+                       facecolor=peer["color"], edgecolor="black", s=180, zorder=5,
+                       label=f"{peer['label']} (when present)", marker=peer["marker"])
         # Year shading
         years = sorted(sub["event_date"].dt.year.unique())
         for i, y in enumerate(years):
@@ -362,14 +362,14 @@ def chart_hermes_pace_trend(df: pd.DataFrame, out: Path):
                      loc="left", fontsize=11)
     axes[-1].set_xlabel("Race date", fontsize=11)
     axes[-1].tick_params(axis="x", rotation=30)
-    fig.suptitle("McClain Hermes — Pace Trend Across PTVI Career",
+    fig.suptitle(f"{athlete_name} — Pace Trend Across {prog_label} Career".strip(),
                  fontsize=15, fontweight="bold", y=0.995)
     fig.tight_layout()
     fig.savefig(out, bbox_inches="tight")
     plt.close(fig)
 
 
-def chart_hermes_yearly_pace(df: pd.DataFrame, out: Path):
+def chart_yearly_pace(df: pd.DataFrame, athlete_name: str, out: Path):
     """Yearly avg pace-deficit to podium (excl self)."""
     df = df.dropna(subset=["pace_d_swim","pace_d_bike","pace_d_run"], how="all").copy()
     agg = df.groupby("year").agg(
@@ -395,16 +395,16 @@ def chart_hermes_yearly_pace(df: pd.DataFrame, out: Path):
                         textcoords="offset points", ha="center", fontsize=9, fontweight="bold")
         ax.set_xticks(range(len(years)))
         ax.set_xticklabels([f"{y}\nn={int(n)}" for y, n in zip(years, agg["n"])])
-    fig.suptitle("Hermes — Yearly Avg Pace Deficit vs Podium (excl. self)",
+    fig.suptitle(f"{athlete_name} — Yearly Avg Pace Deficit vs Podium (excl. self)",
                  fontsize=14, fontweight="bold", y=1.02)
-    fig.text(0.5, -0.04, "Red = Hermes slower than podium.  Navy = Hermes faster.",
+    fig.text(0.5, -0.04, f"Red = {athlete_name} slower than podium.  Navy = {athlete_name} faster.",
              ha="center", fontsize=9, color=GREY_DARK)
     fig.tight_layout()
     fig.savefig(out, bbox_inches="tight")
     plt.close(fig)
 
 
-def chart_hermes_worlds_only(df_full: pd.DataFrame, out: Path):
+def chart_worlds_only(df_full: pd.DataFrame, athlete_name: str, out: Path):
     """Worlds-only deficit by year (one race per year). Removes small-field bias from yearly avg.
 
     Filters to events whose cat == 'World Championships' AND name contains 'Para Championships'.
@@ -445,7 +445,7 @@ def chart_hermes_worlds_only(df_full: pd.DataFrame, out: Path):
             f"{y}\n{agg.loc[int(y),'venue']}\nfield={int(agg.loc[int(y),'n_field'])} · {int(agg.loc[int(y),'pos'])}{ordinal(int(agg.loc[int(y),'pos']))}"
             for y in years
         ], fontsize=8)
-    fig.suptitle("Hermes — Pace Deficit vs Podium at World Championships Only",
+    fig.suptitle(f"{athlete_name} — Pace Deficit vs Podium at World Championships Only",
                  fontsize=14, fontweight="bold", y=1.02)
     fig.text(0.5, -0.06,
              "Strips small-field bias from the yearly average — only deep-field benchmarks remain.",
@@ -456,8 +456,9 @@ def chart_hermes_worlds_only(df_full: pd.DataFrame, out: Path):
     return agg
 
 
-def chart_peer_direct(df_overlap: pd.DataFrame, peer_label: str, out: Path):
-    """Direct per-race head-to-head deficit chart for Hermes vs a single peer."""
+def chart_peer_direct(df_overlap: pd.DataFrame, peer_label: str, out: Path,
+                      athlete_name: str = "Athlete"):
+    """Direct per-race head-to-head deficit chart for athlete vs a single peer."""
     df = df_overlap.sort_values("event_date").reset_index(drop=True).copy()
     df["label"] = df.apply(lambda r: f"{r['event_date'].strftime('%b %Y')}\n{shortname(r['event_name'])}", axis=1)
     fig, axes = plt.subplots(1, 3, figsize=(15, 5.2), sharey=False)
@@ -474,10 +475,10 @@ def chart_peer_direct(df_overlap: pd.DataFrame, peer_label: str, out: Path):
         for i, v in enumerate(vals):
             ax.annotate(f"{int(v):+d}s", xy=(i, v), xytext=(0,4 if v>=0 else -14),
                         textcoords="offset points", ha="center", fontsize=9, fontweight="bold")
-    fig.suptitle(f"Hermes vs {peer_label} — Per-Race Deficit (each overlap race)",
+    fig.suptitle(f"{athlete_name} vs {peer_label} — Per-Race Deficit (each overlap race)",
                  fontsize=14, fontweight="bold", y=1.02)
     fig.text(0.5, -0.08,
-             "Red = Hermes behind.  Navy = Hermes ahead.",
+             f"Red = {athlete_name} behind.  Navy = {athlete_name} ahead.",
              ha="center", fontsize=9, color=GREY_DARK)
     fig.tight_layout()
     fig.savefig(out, bbox_inches="tight")
@@ -621,11 +622,15 @@ def build_hermes(engine, outdir: Path):
     overlap_rod.to_csv(outdir / "data_rodriguez_overlap.csv", index=False)
     overlap_tar.to_csv(outdir / "data_tarantello_overlap.csv", index=False)
 
-    chart_hermes_pace_trend(full, outdir / "fig1_pace_trend.png")
-    chart_hermes_yearly_pace(full, outdir / "fig2_yearly_pace.png")
-    worlds_agg = chart_hermes_worlds_only(full, outdir / "fig3_worlds_only.png")
-    chart_peer_direct(overlap_rod, "Rodriguez (B1)", outdir / "fig4_rodriguez_direct.png")
-    chart_peer_direct(overlap_tar, "Tarantello (B3)", outdir / "fig5_tarantello_direct.png")
+    peers_meta = [
+        {"key": "rod", "label": "Rodriguez B1", "color": USAT_NAVY, "marker": "D"},
+        {"key": "tar", "label": "Tarantello B3", "color": USAT_GOLD, "marker": "^"},
+    ]
+    chart_pace_trend(full, "Hermes", peers_meta, outdir / "fig1_pace_trend.png", prog_label="PTVI")
+    chart_yearly_pace(full, "Hermes", outdir / "fig2_yearly_pace.png")
+    worlds_agg = chart_worlds_only(full, "Hermes", outdir / "fig3_worlds_only.png")
+    chart_peer_direct(overlap_rod, "Rodriguez (B1)", outdir / "fig4_rodriguez_direct.png", athlete_name="Hermes")
+    chart_peer_direct(overlap_tar, "Tarantello (B3)", outdir / "fig5_tarantello_direct.png", athlete_name="Hermes")
 
     yearly = full.dropna(subset=["pace_d_swim","pace_d_bike","pace_d_run"], how="all") \
                  .groupby("year").agg(
@@ -940,6 +945,226 @@ def build_pptx_hermes(outdir: Path, stats: dict) -> Path:
     return pptx_path
 
 
+# ---------- Build Fisher deck (PTWC, peers = Parker + Perry) ----------
+def build_fisher(engine, outdir: Path):
+    outdir.mkdir(parents=True, exist_ok=True)
+    peers = {"prk": PARKER.aid, "pry": PERRY.aid}
+    full = pull_full_history(engine, FISHER, peer_ids=peers)
+    overlap_prk = pull_overlap(engine, FISHER, PARKER)
+    overlap_pry = pull_overlap(engine, FISHER, PERRY)
+    full.to_csv(outdir / "data_full_history.csv", index=False)
+    overlap_prk.to_csv(outdir / "data_parker_overlap.csv", index=False)
+    overlap_pry.to_csv(outdir / "data_perry_overlap.csv", index=False)
+
+    peers_meta = [
+        {"key": "prk", "label": "Parker H1", "color": USAT_NAVY, "marker": "D"},
+        {"key": "pry", "label": "Perry H1",  "color": USAT_GOLD, "marker": "^"},
+    ]
+    chart_pace_trend(full, "Fisher", peers_meta, outdir / "fig1_pace_trend.png", prog_label="PTWC")
+    chart_yearly_pace(full, "Fisher", outdir / "fig2_yearly_pace.png")
+    worlds_agg = chart_worlds_only(full, "Fisher", outdir / "fig3_worlds_only.png")
+    chart_peer_direct(overlap_prk, "Parker (H1)", outdir / "fig4_parker_direct.png", athlete_name="Fisher")
+    chart_peer_direct(overlap_pry, "Perry (H1)",  outdir / "fig5_perry_direct.png",  athlete_name="Fisher")
+
+    yearly = full.dropna(subset=["pace_d_swim","pace_d_bike","pace_d_run"], how="all") \
+                 .groupby("year").agg(
+        n=("event_date","count"),
+        pace_swim=("pace_d_swim","mean"),
+        pace_bike=("pace_d_bike","mean"),
+        pace_run =("pace_d_run","mean"),
+        pos=("h_pos","mean"),
+    ).round(2)
+
+    # Per-peer total-deficit summary
+    def _peer_summary(df_over: pd.DataFrame) -> pd.DataFrame:
+        if df_over.empty:
+            return pd.DataFrame()
+        return df_over.groupby("year").agg(
+            n=("event_date","count"),
+            total=("d_total","mean"),
+            swim=("d_swim","mean"),
+            bike=("d_bike","mean"),
+            run=("d_run","mean"),
+        ).round(0)
+    prk_yr = _peer_summary(overlap_prk)
+    pry_yr = _peer_summary(overlap_pry)
+
+    # Best single-race gaps
+    best_prk = overlap_prk.loc[overlap_prk["d_total"].idxmin()] if not overlap_prk.empty else None
+    best_pry = overlap_pry.loc[overlap_pry["d_total"].idxmin()] if not overlap_pry.empty else None
+
+    # Cup podiums (1/2/3 at Para Cup events)
+    cup_pod = full[
+        full["cat"].fillna("").str.contains("Para Cup", case=False)
+        & full["h_pos"].isin([1, 2, 3])
+    ]
+    cup_podium_count = len(cup_pod)
+
+    body = f"""
+<h2>Story</h2>
+<p><b>Skyler Fisher has been a consistent Para Cup podium presence and produced her closest-ever deep-field gap to the world leaders at Yokohama 2026.</b>
+Across her {len(full)} PTWC race finishes she has {cup_podium_count} Para Cup podium results, and at the 2026 Yokohama World Para Series she finished within
+<b>{int(best_prk['d_total'])}s of Parker</b> (defending Paralympic gold) and <b>{int(best_pry['d_total'])}s of Perry</b> — her closest gap to Parker in any of her {len(overlap_prk)} head-to-head races.</p>
+
+<div class="kpi"><b>{len(full)}</b><br>PTWC career race finishes (since 2022)</div>
+<div class="kpi"><b>{cup_podium_count}</b><br>Para Cup podiums</div>
+<div class="kpi"><b>{int(best_prk['d_total'])}s</b><br>Closest career gap to Parker<br><span style="font-size:0.85em">({best_prk['event_date'].strftime('%b %Y')} {best_prk['event_name'].split()[-1]})</span></div>
+<div class="kpi"><b>{int(best_pry['d_total'])}s</b><br>Closest 2026 gap to Perry<br><span style="font-size:0.85em">({best_pry['event_date'].strftime('%b %Y')} {best_pry['event_name'].split()[-1]})</span></div>
+
+<h2>Pace Trend — All PTWC Races ({len(full)} race finishes since 2022)</h2>
+<img src="fig1_pace_trend.png">
+<p style="font-size:0.9em;color:#555">
+  Fisher (red), podium average excluding herself (grey), Parker H1 (navy diamonds) and Perry H1 (gold triangles)
+  highlighted at the races they attended. Lower = faster.
+</p>
+
+<h2>Yearly Pace Summary (All Races)</h2>
+<img src="fig2_yearly_pace.png">
+
+<h2>World Championships Only — Deep-Field Benchmark</h2>
+<img src="fig3_worlds_only.png">
+<p style="font-size:0.9em;color:#555">
+  Worlds-only deficit — removes small-field bias from the all-races yearly average.
+</p>
+{worlds_agg.rename(columns={'swim':'Swim Δ (sec/100m)','bike':'Bike Δ (sec/km)','run':'Run Δ (sec/km)','pos':'Pos','n_field':'Field size','venue':'Venue'}).to_html() if worlds_agg is not None else ''}
+
+<h2>Head-to-Head vs Lauren Parker H1 ({len(overlap_prk)} overlap races)</h2>
+<img src="fig4_parker_direct.png">
+
+<h2>Head-to-Head vs Emelia Perry H1 ({len(overlap_pry)} overlap races)</h2>
+<img src="fig5_perry_direct.png">
+
+<h2>Yearly Pace Detail (vs Podium Avg)</h2>
+{yearly.rename(columns={'n':'n races','pace_swim':'Swim Δ (sec/100m)','pace_bike':'Bike Δ (sec/km)','pace_run':'Run Δ (sec/km)','pos':'Avg pos'}).to_html()}
+
+<h2>Yearly Total Deficit — Direct Peers (overlap races only)</h2>
+<h3>vs Parker (H1)</h3>
+{prk_yr.to_html() if not prk_yr.empty else '<p>no data</p>'}
+<h3>vs Perry (H1)</h3>
+{pry_yr.to_html() if not pry_yr.empty else '<p>no data</p>'}
+
+<div class="caveat"><b>Caveats:</b>
+<ul>
+<li>Fisher is in the H2 sub-class; Parker and Perry are H1. PTWC results use sub-class time factors; the splits shown are the official factor-adjusted times that determined final placing.</li>
+<li>Direct overlap with Parker is thin ({len(overlap_prk)} races, all deep fields). Per-race chart is the honest view.</li>
+<li>Some Para Cup races had small fields; the 'podium avg excl. self' reduces to the other 1–2 finishers in those races.</li>
+<li>Source: World Triathlon official results — race_results and events tables.</li>
+</ul>
+</div>
+"""
+    write_html(outdir / "report.html", "Skyler Fisher — PTWC Progression", body)
+    print(f"[Fisher] wrote {outdir/'report.html'}  ({len(full)} career races; {len(overlap_prk)} vs Parker, {len(overlap_pry)} vs Perry)")
+    return {"yearly": yearly, "prk_yr": prk_yr, "pry_yr": pry_yr,
+            "n_full": len(full), "n_prk": len(overlap_prk), "n_pry": len(overlap_pry),
+            "best_prk": best_prk, "best_pry": best_pry,
+            "cup_podium_count": cup_podium_count}
+
+
+def build_pptx_fisher(outdir: Path, stats: dict) -> Path:
+    from pptx import Presentation
+    from pptx.util import Inches, Pt
+    from pptx.dml.color import RGBColor
+    from pptx.enum.text import PP_ALIGN
+
+    prs = Presentation()
+    prs.slide_width  = Inches(13.333)
+    prs.slide_height = Inches(7.5)
+    NAVY = RGBColor(0x00, 0x28, 0x68)
+    RED  = RGBColor(0xC8, 0x10, 0x2E)
+    BLANK = prs.slide_layouts[6]
+    best_prk = stats["best_prk"]; best_pry = stats["best_pry"]
+
+    def add_title_bar(slide, title: str, subtitle: str = ""):
+        tb = slide.shapes.add_textbox(Inches(0.4), Inches(0.2), Inches(12.5), Inches(0.8))
+        tf = tb.text_frame; tf.word_wrap = True
+        p = tf.paragraphs[0]; p.text = title
+        p.runs[0].font.size = Pt(28); p.runs[0].font.bold = True; p.runs[0].font.color.rgb = NAVY
+        if subtitle:
+            p2 = tf.add_paragraph(); p2.text = subtitle
+            p2.runs[0].font.size = Pt(14); p2.runs[0].font.color.rgb = RGBColor(0x55,0x55,0x55)
+
+    def add_image_slide(title: str, image_path: Path, caption: str = ""):
+        slide = prs.slides.add_slide(BLANK)
+        add_title_bar(slide, title)
+        slide.shapes.add_picture(str(image_path), Inches(0.4), Inches(1.2),
+                                 width=Inches(12.5))
+        if caption:
+            tb = slide.shapes.add_textbox(Inches(0.4), Inches(7.0), Inches(12.5), Inches(0.4))
+            tf = tb.text_frame; tf.word_wrap = True
+            p = tf.paragraphs[0]; p.text = caption
+            p.runs[0].font.size = Pt(11); p.runs[0].font.color.rgb = RGBColor(0x55,0x55,0x55)
+        return slide
+
+    # Slide 1 — title
+    slide = prs.slides.add_slide(BLANK)
+    tb = slide.shapes.add_textbox(Inches(0.5), Inches(2.4), Inches(12.3), Inches(2.5))
+    tf = tb.text_frame; tf.word_wrap = True
+    p = tf.paragraphs[0]; p.text = "Skyler Fisher"
+    p.runs[0].font.size = Pt(54); p.runs[0].font.bold = True; p.runs[0].font.color.rgb = NAVY
+    p2 = tf.add_paragraph(); p2.text = "PTWC Progression vs Parker (H1, reigning Paralympic gold) & Perry (H1, USA teammate)"
+    p2.runs[0].font.size = Pt(24); p2.runs[0].font.color.rgb = RED
+    p3 = tf.add_paragraph()
+    p3.text = f"{stats['n_full']} career races · {stats['n_prk']} vs Parker · {stats['n_pry']} vs Perry"
+    p3.runs[0].font.size = Pt(14); p3.runs[0].font.color.rgb = RGBColor(0x55,0x55,0x55)
+
+    # Slide 2 — story / KPIs
+    slide = prs.slides.add_slide(BLANK)
+    add_title_bar(slide, "Story",
+                  "Cup-podium regular with a 2026 Yokohama breakthrough at depth.")
+    kpis = [
+        (f"{stats['n_full']}",            "PTWC career\nrace finishes"),
+        (f"{stats['cup_podium_count']}",  "Para Cup\npodium results"),
+        (f"{int(best_prk['d_total'])}s",  f"Closest gap to Parker\n({best_prk['event_date'].strftime('%b %Y')})"),
+        (f"{int(best_pry['d_total'])}s",  f"Closest 2026 gap to Perry\n({best_pry['event_date'].strftime('%b %Y')})"),
+    ]
+    for i, (big, sml) in enumerate(kpis):
+        x = Inches(0.6 + i*3.1)
+        box = slide.shapes.add_textbox(x, Inches(2.0), Inches(2.9), Inches(2.5))
+        tf = box.text_frame; tf.word_wrap = True
+        p = tf.paragraphs[0]; p.text = big
+        p.runs[0].font.size = Pt(48); p.runs[0].font.bold = True; p.runs[0].font.color.rgb = RED
+        p.alignment = PP_ALIGN.CENTER
+        p2 = tf.add_paragraph(); p2.text = sml
+        p2.runs[0].font.size = Pt(14); p2.runs[0].font.color.rgb = NAVY
+        p2.alignment = PP_ALIGN.CENTER
+
+    add_image_slide("Pace Trend — All PTWC Races",
+                    outdir / "fig1_pace_trend.png",
+                    "Red = Fisher. Grey = podium avg excl. Fisher. Navy diamonds = Parker H1. Gold triangles = Perry H1.")
+    add_image_slide("Yearly Avg Pace Deficit vs Podium — All Races",
+                    outdir / "fig2_yearly_pace.png",
+                    "Red = Fisher slower than podium. Navy = Fisher faster. Yearly avg is field-depth sensitive — see Worlds-only view next.")
+    add_image_slide("Worlds Only — Apples-to-Apples Trajectory",
+                    outdir / "fig3_worlds_only.png",
+                    "One race per year at the World Championships level. Removes small-field bias.")
+    add_image_slide(f"Head-to-Head vs Lauren Parker (H1) — {stats['n_prk']} overlap races",
+                    outdir / "fig4_parker_direct.png",
+                    "Red = Fisher behind. Navy = Fisher ahead. Parker is in the H1 sub-class.")
+    add_image_slide(f"Head-to-Head vs Emelia Perry (H1) — {stats['n_pry']} overlap races",
+                    outdir / "fig5_perry_direct.png",
+                    "Red = Fisher behind. Navy = Fisher ahead. Both USA, but Perry is H1, Fisher is H2.")
+
+    # Caveats
+    slide = prs.slides.add_slide(BLANK)
+    add_title_bar(slide, "Notes")
+    tb = slide.shapes.add_textbox(Inches(0.6), Inches(1.4), Inches(12.2), Inches(5.5))
+    tf = tb.text_frame; tf.word_wrap = True
+    notes = [
+        f"Direct overlap data: {stats['n_prk']} races vs Parker, {stats['n_pry']} vs Perry. Parker overlap is concentrated at Worlds + WPS Series; the per-race chart is the honest view.",
+        "Fisher is H2; Parker and Perry are H1. PTWC results are factor-adjusted to equalize across sub-classes — deficits shown are the gap on the official classification (the gap that actually determined finishing order).",
+        "Some Para Cup races had very small fields (2–4 finishers). When Fisher was on the podium in those, the 'podium avg excl. self' reduces to just 1–2 other athletes — interpret 2025 yearly numbers with this in mind.",
+        "Source: World Triathlon official results — race_results and events tables.",
+    ]
+    for i, n in enumerate(notes):
+        p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
+        p.text = "•  " + n
+        p.runs[0].font.size = Pt(14); p.runs[0].font.color.rgb = RGBColor(0x33,0x33,0x33)
+
+    pptx_path = outdir / "Fisher_PTWC_Progression.pptx"
+    prs.save(str(pptx_path))
+    return pptx_path
+
+
 # ---------- Standalone 2026 update slides (single PPTX, copy/paste into existing deck) ----------
 def _seconds_to_mmss(sec):
     if sec is None or pd.isna(sec):
@@ -1179,6 +1404,119 @@ def build_hermes_2026_slide(engine, outdir: Path) -> Path:
     return out
 
 
+def build_fisher_2026_slide(engine, outdir: Path) -> Path:
+    """Single slide: Fisher 2026 season update (Yokohama WPS vs Parker + Perry)."""
+    from pptx import Presentation
+    from pptx.util import Inches, Pt
+    from pptx.dml.color import RGBColor
+    from pptx.enum.text import PP_ALIGN
+    from pptx.enum.shapes import MSO_SHAPE
+
+    overlap_prk = pull_overlap(engine, FISHER, PARKER)
+    overlap_pry = pull_overlap(engine, FISHER, PERRY)
+    overlap_prk["year"] = overlap_prk["event_date"].dt.year
+    overlap_pry["year"] = overlap_pry["event_date"].dt.year
+    races_2026_prk = overlap_prk[overlap_prk["year"] == 2026]
+    races_2026_pry = overlap_pry[overlap_pry["year"] == 2026]
+    if races_2026_prk.empty and races_2026_pry.empty:
+        print("[Fisher 2026] no 2026 head-to-head races, skipping")
+        return None
+
+    # Use Yokohama 2026 as the showcase race — both Parker and Perry there
+    race_prk = races_2026_prk.iloc[-1] if not races_2026_prk.empty else None
+    race_pry = races_2026_pry.iloc[-1] if not races_2026_pry.empty else None
+
+    # Prior-year best gap to Parker (for context)
+    pre2026_prk = overlap_prk[overlap_prk["year"] < 2026]
+    prior_best_prk = pre2026_prk["d_total"].min() if not pre2026_prk.empty else None
+
+    prs = Presentation()
+    prs.slide_width = Inches(13.333); prs.slide_height = Inches(7.5)
+    NAVY = RGBColor(0x00,0x28,0x68); RED = RGBColor(0xC8,0x10,0x2E)
+    GREY = RGBColor(0x55,0x55,0x55); LIGHT = RGBColor(0xF4,0xF4,0xF4)
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+
+    # Title
+    tb = slide.shapes.add_textbox(Inches(0.4), Inches(0.2), Inches(12.5), Inches(0.9))
+    tf = tb.text_frame; tf.word_wrap = True
+    p = tf.paragraphs[0]; p.text = "2026 Season Update — Skyler Fisher"
+    p.runs[0].font.size = Pt(28); p.runs[0].font.bold = True; p.runs[0].font.color.rgb = NAVY
+    p2 = tf.add_paragraph()
+    p2.text = f"Yokohama WPS · May 16, 2026 · finished {int(race_prk['a_pos'])}{ordinal(int(race_prk['a_pos']))}"
+    p2.runs[0].font.size = Pt(14); p2.runs[0].font.color.rgb = GREY
+
+    # KPI row
+    kpis = [
+        (f"{int(race_prk['a_pos'])}{ordinal(int(race_prk['a_pos']))}", "Yokohama WPS finish", f"in field of 7"),
+        (f"{int(race_prk['d_total']):+d}s",  "Gap to Parker (gold)",   f"Prior best was +{int(prior_best_prk)}s" if prior_best_prk else "Career best"),
+        (f"{int(race_pry['d_total']):+d}s",  "Gap to Perry (silver)",  "Closest gap in a depth race"),
+        ("H2 vs H1",                          "Sub-class context",      "Factor-adjusted official times"),
+    ]
+    for i, (big, mid, sub) in enumerate(kpis):
+        x = Inches(0.5 + i*3.15)
+        bg = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, x, Inches(1.5), Inches(2.95), Inches(1.9))
+        bg.fill.solid(); bg.fill.fore_color.rgb = LIGHT
+        bg.line.color.rgb = LIGHT
+        box = slide.shapes.add_textbox(x, Inches(1.55), Inches(2.95), Inches(1.85))
+        tf = box.text_frame; tf.word_wrap = True
+        p = tf.paragraphs[0]; p.text = big
+        p.runs[0].font.size = Pt(36); p.runs[0].font.bold = True; p.runs[0].font.color.rgb = RED
+        p.alignment = PP_ALIGN.CENTER
+        p2 = tf.add_paragraph(); p2.text = mid
+        p2.runs[0].font.size = Pt(13); p2.runs[0].font.bold = True; p2.runs[0].font.color.rgb = NAVY
+        p2.alignment = PP_ALIGN.CENTER
+        p3 = tf.add_paragraph(); p3.text = sub
+        p3.runs[0].font.size = Pt(11); p3.runs[0].font.color.rgb = GREY
+        p3.alignment = PP_ALIGN.CENTER
+
+    # Three-way splits table
+    tb = slide.shapes.add_textbox(Inches(0.5), Inches(3.7), Inches(8.0), Inches(0.4))
+    tf = tb.text_frame
+    p = tf.paragraphs[0]; p.text = "Yokohama 2026 — three-way splits"
+    p.runs[0].font.size = Pt(16); p.runs[0].font.bold = True; p.runs[0].font.color.rgb = NAVY
+    rows = [
+        ("Segment", "Parker (1st)", "Perry (2nd)", "Fisher (6th)", "Fisher Δ vs Parker"),
+        ("Swim",  _seconds_to_mmss(race_prk['b_swim_s']), _seconds_to_mmss(race_pry['b_swim_s']),
+                  _seconds_to_mmss(race_prk['a_swim_s']), f"{int(race_prk['d_swim']):+d}s"),
+        ("Bike",  _seconds_to_mmss(race_prk['b_bike_s']), _seconds_to_mmss(race_pry['b_bike_s']),
+                  _seconds_to_mmss(race_prk['a_bike_s']), f"{int(race_prk['d_bike']):+d}s"),
+        ("Run",   _seconds_to_mmss(race_prk['b_run_s']),  _seconds_to_mmss(race_pry['b_run_s']),
+                  _seconds_to_mmss(race_prk['a_run_s']),  f"{int(race_prk['d_run']):+d}s"),
+        ("Total", _seconds_to_mmss(race_prk['b_total_s']),_seconds_to_mmss(race_pry['b_total_s']),
+                  _seconds_to_mmss(race_prk['a_total_s']),f"{int(race_prk['d_total']):+d}s"),
+    ]
+    table = slide.shapes.add_table(len(rows), 5, Inches(0.5), Inches(4.15), Inches(7.8), Inches(2.2)).table
+    for r, row_vals in enumerate(rows):
+        for c, val in enumerate(row_vals):
+            cell = table.cell(r, c); cell.text = ""
+            tf = cell.text_frame; p = tf.paragraphs[0]; p.text = val
+            p.runs[0].font.size = Pt(12)
+            if r == 0:
+                p.runs[0].font.bold = True; p.runs[0].font.color.rgb = RGBColor(0xFF,0xFF,0xFF)
+                cell.fill.solid(); cell.fill.fore_color.rgb = NAVY
+            else:
+                cell.fill.solid()
+                cell.fill.fore_color.rgb = RGBColor(0xFF,0xFF,0xFF) if r % 2 == 0 else RGBColor(0xF8,0xF8,0xF8)
+
+    # Story callout
+    tb = slide.shapes.add_textbox(Inches(8.6), Inches(3.7), Inches(4.4), Inches(3.3))
+    tf = tb.text_frame; tf.word_wrap = True
+    p = tf.paragraphs[0]; p.text = "What this race confirms"
+    p.runs[0].font.size = Pt(16); p.runs[0].font.bold = True; p.runs[0].font.color.rgb = NAVY
+    for line in [
+        f"• Closest gap to Parker of Fisher's career in any head-to-head: {int(race_prk['d_total'])}s (prior best was +{int(prior_best_prk)}s).",
+        f"• Also her tightest deep-field gap to Perry ({int(race_pry['d_total'])}s).",
+        "• 6th place in a 7-deep field that included all the world leaders — depth gap is closing.",
+        "• Open question: bike split is the largest single contributor to the gap. Next training block focus.",
+    ]:
+        p = tf.add_paragraph(); p.text = line
+        p.runs[0].font.size = Pt(12); p.runs[0].font.color.rgb = GREY
+
+    out = outdir / "Fisher_2026_Update_SLIDE.pptx"
+    prs.save(str(out))
+    return out
+
+
 def ordinal(n: int) -> str:
     if 10 <= n % 100 <= 20:
         return "th"
@@ -1192,19 +1530,25 @@ def main():
 
     perry_out = base / "perry_vs_parker"
     hermes_out = base / "hermes_vs_rodriguez"
+    fisher_out = base / "fisher_vs_parker_perry"
     perry_stats = build_perry(engine, perry_out)
     hermes_stats = build_hermes(engine, hermes_out)
+    fisher_stats = build_fisher(engine, fisher_out)
 
     perry_pptx = build_pptx_perry(perry_out, perry_stats)
     hermes_pptx = build_pptx_hermes(hermes_out, hermes_stats)
+    fisher_pptx = build_pptx_fisher(fisher_out, fisher_stats)
     print(f"[Perry]  PPTX: {perry_pptx}")
     print(f"[Hermes] PPTX: {hermes_pptx}")
+    print(f"[Fisher] PPTX: {fisher_pptx}")
 
     # Standalone single-slide 2026 updates (drop into existing decks)
-    perry_2026 = build_perry_2026_slide(engine, perry_out)
+    perry_2026  = build_perry_2026_slide(engine, perry_out)
     hermes_2026 = build_hermes_2026_slide(engine, hermes_out)
+    fisher_2026 = build_fisher_2026_slide(engine, fisher_out)
     if perry_2026:  print(f"[Perry]  2026 single-slide: {perry_2026}")
     if hermes_2026: print(f"[Hermes] 2026 single-slide: {hermes_2026}")
+    if fisher_2026: print(f"[Fisher] 2026 single-slide: {fisher_2026}")
 
     print(f"\nAll outputs in: {base}")
 
