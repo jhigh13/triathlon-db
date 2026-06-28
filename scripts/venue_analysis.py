@@ -736,6 +736,7 @@ VENUE_COORDS_FALLBACK: dict[str, tuple[float, float]] = {
     "abu dhabi": (24.466,  54.367),
     "quiberon":  (47.485,  -3.114),
     "montreal":  (45.503, -73.534),   # Parc Jean-Drapeau, Notre-Dame Island
+    "antofagasta": (-23.651, -70.398),  # Balneario Municipal, Av. República de Croacia
 }
 
 
@@ -1914,9 +1915,10 @@ def add_environmental_risk_slide(
     n_rows = len(unique_rows) + 1
     row_h = min(0.44, 2.7 / n_rows)
 
+    # Section headers (navy bars) sit at 1.20–1.50, tables below at 1.55
     wx_shape = slide.shapes.add_table(
         n_rows, len(wx_cols),
-        Inches(0.3), Inches(1.28),
+        Inches(0.3), Inches(1.55),
         Inches(5.15), Inches(row_h * n_rows),
     )
     wx_tbl = wx_shape.table
@@ -1938,12 +1940,12 @@ def add_environmental_risk_slide(
         for ci, (v, (_, _, align)) in enumerate(zip(vals, wx_cols)):
             _set_cell(wx_tbl.cell(ri, ci), v, font_size=10, align=align, bg_color=bg)
 
-    # Weather section label
-    wx_bar = slide.shapes.add_shape(1, Inches(0.3), Inches(1.18), Inches(5.15), Inches(0.1))
+    # Weather section label (navy header bar, sits above the table)
+    wx_bar = slide.shapes.add_shape(1, Inches(0.3), Inches(1.18), Inches(5.15), Inches(0.32))
     wx_bar.fill.solid(); wx_bar.fill.fore_color.rgb = NAVY; wx_bar.line.fill.background()
     _add_textbox(slide, "RACE-DAY WEATHER (08:00–11:00 local)",
-                 Inches(0.35), Inches(1.19), Inches(5.0), Inches(0.1),
-                 font_size=9.5, bold=True, color=NAVY)
+                 Inches(0.35), Inches(1.22), Inches(5.0), Inches(0.26),
+                 font_size=11, bold=True, color=WHITE, align=PP_ALIGN.CENTER)
 
     # RIGHT: air quality table  (Year | PM2.5 | AQI | UV | Risk)
     def _aqi_label(aqi) -> str:
@@ -1964,7 +1966,7 @@ def add_environmental_risk_slide(
     ]
     aq_shape = slide.shapes.add_table(
         n_rows, len(aq_cols),
-        Inches(5.65), Inches(1.28),
+        Inches(5.65), Inches(1.55),
         Inches(4.45), Inches(row_h * n_rows),
     )
     aq_tbl = aq_shape.table
@@ -1985,17 +1987,20 @@ def add_environmental_risk_slide(
         for ci, (v, (_, _, align)) in enumerate(zip(vals, aq_cols)):
             _set_cell(aq_tbl.cell(ri, ci), v, font_size=10, align=align, bg_color=bg)
 
+    aq_bar = slide.shapes.add_shape(1, Inches(5.65), Inches(1.18), Inches(4.45), Inches(0.32))
+    aq_bar.fill.solid(); aq_bar.fill.fore_color.rgb = NAVY; aq_bar.line.fill.background()
     _add_textbox(slide, "AIR QUALITY (Open-Meteo archive)",
-                 Inches(5.7), Inches(1.19), Inches(4.3), Inches(0.1),
-                 font_size=9.5, bold=True, color=NAVY)
+                 Inches(5.7), Inches(1.22), Inches(4.3), Inches(0.26),
+                 font_size=11, bold=True, color=WHITE, align=PP_ALIGN.CENTER)
 
     # ── Bottom: health / water quality risk section ───────────────────────────
-    tbl_bottom = Inches(1.28 + row_h * n_rows + 0.25)
+    # Tables start at 1.55 + row_h*n_rows; add modest gap then short red bar.
+    tbl_bottom = Inches(1.55 + row_h * n_rows + 0.15)
 
-    risk_bar = slide.shapes.add_shape(1, Inches(0.3), tbl_bottom, Inches(12.73), Inches(0.35))
+    risk_bar = slide.shapes.add_shape(1, Inches(0.3), tbl_bottom, Inches(12.73), Inches(0.28))
     risk_bar.fill.solid(); risk_bar.fill.fore_color.rgb = RED; risk_bar.line.fill.background()
     _add_textbox(slide, "HEALTH & WATER QUALITY RISK FACTORS",
-                 Inches(0.35), tbl_bottom + Inches(0.02), Inches(12.2), Inches(0.3),
+                 Inches(0.35), tbl_bottom + Inches(0.02), Inches(12.2), Inches(0.24),
                  font_size=12, bold=True, color=WHITE)
 
     risk_items = [
@@ -2013,8 +2018,8 @@ def add_environmental_risk_slide(
          "Auto-derived from above table — flag if humidity >70% or air temp >25°C at race time."),
     ]
 
-    y_offset = tbl_bottom + Inches(0.42)
-    item_h = (SLIDE_H - y_offset - Inches(0.2)) / len(risk_items)
+    y_offset = tbl_bottom + Inches(0.36)
+    item_h = (SLIDE_H - y_offset - Inches(0.3)) / len(risk_items)
     for label, text in risk_items:
         _add_textbox(slide, f"• {label}: {text}",
                      Inches(0.4), y_offset, Inches(12.5), item_h,
@@ -2273,6 +2278,27 @@ def add_course_map_slide(
 # be lightly templated.
 
 BIKE_COURSE_PROFILES: dict[str, dict] = {
+    "antofagasta": {
+        "source":        "Americas Triathlon NF Information Package — Antofagasta 4–5 Jul 2026",
+        "loop_km":       5.414,
+        "loops":         8,
+        "total_km":      43.3,
+        "gain_per_lap_m":  None,
+        "loss_per_lap_m":  None,
+        "max_grade_pos":   None,
+        "max_grade_neg":   None,
+        "avg_grade_pct":   None,
+        "wind":           "Coastal Pacific (ocean breeze)",
+        "surface":        "Closed coastal urban — Av República de Croacia ↔ Av Ejército",
+        "key_features": [
+            "Elite/U23 race is Standard distance — 8 × 5.414 km loops = 43.3 km (~3 km longer than a typical 40 km Olympic bike)",
+            "Out-and-back beach corridor: southbound Av República de Croacia → Av Ejército to turnaround at Military Facility Access",
+            "Northbound return on Av Ejército east side → Av República de Croacia to turnaround at Plaza Rotonda Croacia Grecia",
+            "Pacific coastal exposure — Humboldt Current driving cool air + steady ocean breeze on the seaward sections",
+            "Closed urban circuit on a wide multi-lane coastal avenue — fast, low-technical, hammer-friendly",
+            "8 laps = 8 transit passes through the Plaza Rotonda turnaround — bike-handling premium on the lap point",
+        ],
+    },
     "montreal": {
         "source":        "World Triathlon Para Series Montréal Elite Athlete Guide — 27 Jun 2026",
         "loop_km":       4.1,
@@ -2335,6 +2361,30 @@ BIKE_COURSE_PROFILES: dict[str, dict] = {
 }
 
 SWIM_COURSE_PROFILES: dict[str, dict] = {
+    "antofagasta": {
+        "source":            "Americas Triathlon NF Information Package — Antofagasta 4–5 Jul 2026",
+        "total_km":          1.5,
+        "laps":              2,
+        "loop_km":           0.75,
+        "layout":            "Pacific Ocean — Balneario Municipal beach, buoy-marked, counter-clockwise",
+        "format":            "Open ocean — Pacific (Humboldt Current)",
+        "start_type":        "Beach start (with beach exit + re-entry between laps for Standard)",
+        "water_temp_c":      None,
+        "expected_water_temp_range_c": (14.0, 16.0),
+        "wetsuit_note":      "Cold Pacific water (Humboldt Current) — expect 14–16 °C in July. Under WT rules wetsuit is mandatory < 16 °C and optional 16–20 °C — Antofagasta will almost certainly be a wetsuit race.",
+        "key_features": [
+            "Pacific Ocean swim directly off the Balneario Municipal beach — exposed open water",
+            "Buoy-marked rectangular course, counter-clockwise direction",
+            "Standard distance is 2 × 750 m laps with a BEACH EXIT AND RE-ENTRY between laps — Australian-exit format, rare on the WT circuit",
+            "Humboldt Current keeps water cold year-round — July is winter in Southern Hemisphere, water typically 14–16 °C",
+            "Swim cap + neoprene cap + booties / gloves all rules-legal at these temps; many will use them",
+            "Pacific swell and surf entries possible — sighting on rolling surface waves and pack-position discipline at the beach turn",
+        ],
+        "missing": [
+            "Day-of water temperature (Pacific SST will be filled from Open-Meteo Marine forecast / climatology)",
+            "Exact buoy spacing and turn count (visible on race map; not numerically published in the NF package)",
+        ],
+    },
     "montreal": {
         "source":            "World Triathlon Para Series Montréal Elite Athlete Guide — 27 Jun 2026",
         "total_km":          0.75,
@@ -2403,6 +2453,30 @@ SWIM_COURSE_PROFILES: dict[str, dict] = {
 }
 
 RUN_COURSE_PROFILES: dict[str, dict] = {
+    "antofagasta": {
+        "source":            "Americas Triathlon NF Information Package — Antofagasta 4–5 Jul 2026",
+        "total_km":          10.0,
+        "laps":              4,
+        "loop_km":           2.5,
+        "surface":           "Asphalt — Av Grecia coastal road",
+        "gain_per_lap_m":    None,
+        "loss_per_lap_m":    None,
+        "max_grade_pos":     None,
+        "max_grade_neg":     None,
+        "avg_grade_pct":     None,
+        "heat_risk":         "LOW",
+        "key_features": [
+            "Standard distance: 4 × 2.5 km laps along Av Grecia — flat coastal road on the west side",
+            "Out-and-back to turnaround at intersection with Antonio Toro Street; return southbound back to Balneario esplanade",
+            "Cool winter temperatures (~13–18 °C) favour aggressive run pacing — no heat-stress concern",
+            "Wide, smooth asphalt on a multi-lane road — fast surface, no technical sections",
+            "4 laps of the same loop = 4 transitions through the same crowd-noise pocket — strong home-fan factor for Chilean athletes",
+            "Cool ocean breeze along the run — light wind protection (arm sleeves) may help on the back half",
+        ],
+        "missing": [
+            "Elevation profile (course is flat coastal road; no published grade data)",
+        ],
+    },
     "montreal": {
         "source":            "World Triathlon Para Series Montréal Elite Athlete Guide — 27 Jun 2026",
         "total_km":          5.0,
@@ -2478,6 +2552,41 @@ RUN_COURSE_PROFILES: dict[str, dict] = {
 
 # ── Travel & arrival data (per venue, origin = Denver, CO USAT HQ) ───────────
 TRAVEL_PROFILES: dict[str, dict] = {
+    "antofagasta": {
+        "origin":          "Denver, CO → Antofagasta race week",
+        "core_read": (
+            "No direct US → Antofagasta flights — every itinerary connects through Santiago de Chile "
+            "(SCL). Cleanest route: Denver → SCL (overnight via DFW / IAH / MIA / ATL), then a 2-hour "
+            "domestic hop SCL → ANF on LATAM, SKY, or JetSMART. Total door-to-door is typically 18–22 h "
+            "with a layover in Santiago. Only +2 h time-zone shift from Denver to Chile (CLT, UTC-4), "
+            "so jet-lag impact is minimal — but the long overnight leg + altitude (Antofagasta is "
+            "sea-level after a high-altitude Santiago layover) warrants an extra recovery day. Plan to "
+            "land by Wednesday July 1 for the Friday July 3 elite briefing."
+        ),
+        "stats": [
+            ("Primary route",    "DEN → SCL → ANF", "2-stop itinerary"),
+            ("Flight time",      "~14 – 16 h",       "Plus SCL layover"),
+            ("Time zones",       "+2h",              "Chile ahead of Denver"),
+            ("Airport Transfer", "ANF → ENJOY Hotel","LOC-recommended / taxi"),
+            ("Transfer Distance","~25 min by car",   "Andrés Sabella → Av Angamos"),
+        ],
+        "hotel_title": "Host Hotel / Official Accommodation Read",
+        "hotel_bullets": [
+            "Official hotel: ENJOY ANTOFAGASTA, Av Angamos 1455. +56 5 5265 3000.",
+            "Resort + casino property on the beach — pool, gym, full-service amenities; team-friendly for multi-night blocks.",
+            "Alternates (all close to venue): Holiday Inn Express (Av Grecia / Antonio Poupin 1490), Hotel Florencia Suites, NH Antofagasta.",
+            "ENJOY is also the official briefing venue (Elite, Para, Youth, AG) — staying on-property removes shuttle dependence for Fri/Sat briefings.",
+            "Limited official-hotel capacity — book early via LOC contact gerente@fechitri.cl.",
+        ],
+        "food_title": "Food / Grocery Options Near Hotel + Venue",
+        "food_bullets": [
+            "Best stock-up: Líder / Jumbo / Unimarc supermarkets in central Antofagasta — staples, electrolytes, sealed water (do not drink tap water).",
+            "Quick basics: pharmacies (Cruz Verde / Salcobrand) for sports nutrition, sunscreen, electrolyte powders.",
+            "Athlete-friendly restaurants: seafood-heavy Pacific coast town; mariscos / ceviche are local specialties — be selective with raw seafood in race week.",
+            "Hydration note: bottled / filtered water only — Antofagasta tap water is desalinated but variable; stick to sealed bottles for race week to remove GI risk.",
+            "Cool-weather kit: pack warm layers + windbreaker — July is winter; mornings can be 12–13 °C with ocean breeze.",
+        ],
+    },
     "montreal": {
         "origin":          "Denver, CO → Montréal race week",
         "core_read": (
@@ -2544,6 +2653,955 @@ TRAVEL_PROFILES: dict[str, dict] = {
         ],
     },
 }
+
+
+# ── World Triathlon official points formula ──────────────────────────────────
+# From the WT competition rules (Section 1.5–1.6):
+#
+#   points(rank) = base × (1 + QFF) × top5_bonus(rank) × decay(rank)
+#
+# Where:
+#   • base — set by event tier (Continental Champs = 400, Continental Cup = 250,
+#            WTCS = 1000, World Cup = 500, World Para Series = 500, etc.)
+#   • QFF (Quality of Field Factor) — set annually per continent. Top-points
+#            continent gets +30% on Continental Championships and +20% on
+#            Continental Cups. Other continents get a proportional QFF.
+#            Empirical 2025/26: Europe ≈ +30%, Asia ≈ +9%, Oceania ≈ +8%,
+#            Africa ≈ +2%, Americas ≈ +12%.
+#   • top5_bonus — extra points for top-5 finishers at Continental Champs only:
+#            1st +25%, 2nd +20%, 3rd +15%, 4th +10%, 5th +5%.
+#   • decay — universal: 0.925^(rank-1). Each finish position is 92.5% of the
+#            previous one. Verified across WTCS, World Cup, and Continental Champs
+#            data in our DB.
+#
+# Sanity-checks against our breakdown table:
+#   Europe Champs winner: 400 × 1.30 × 1.25 × 1.000 = 650 ✓ (actual: 650)
+#   Americas Cup winner:  250 × 1.12 × 1.00 × 1.000 = 280 ✓ (actual: 280)
+#   WTCS winner:         1000 ×  1.0 × 1.00 × 1.000 = 1000 ✓ (actual: 1000)
+
+POINTS_DECAY_FACTOR  = 0.925
+TOP5_BONUS           = {1: 0.25, 2: 0.20, 3: 0.15, 4: 0.10, 5: 0.05}
+
+TIER_BASE: dict[str, dict] = {
+    # tier_name → {base, top5_bonus, qff_continent_field, default_qff}
+    "World Championship Series": {"base": 1000, "top5": False, "qff_field": False, "default_qff": 0.0},
+    "World Cup":                 {"base": 500,  "top5": False, "qff_field": False, "default_qff": 0.0},
+    # default_qff is the Americas-region fallback; auto-derived per continent at runtime.
+    "Continental Championships": {"base": 400,  "top5": True,  "qff_field": True,  "default_qff": 0.17},
+    "Continental Cup":           {"base": 250,  "top5": False, "qff_field": True,  "default_qff": 0.12},
+    "World Para Series":         {"base": 500,  "top5": False, "qff_field": False, "default_qff": 0.0},
+    "World Para Cup":            {"base": 250,  "top5": False, "qff_field": False, "default_qff": 0.0},
+}
+
+CONTINENT_HINTS = {
+    "americas": ["Americas", "Pan American", "Pan Am", "American", "Americas Triathlon"],
+    "europe":   ["Europe Triathlon", "Europe ", "European"],
+    "asia":     ["Asia Triathlon", "Asian"],
+    "oceania":  ["Oceania Triathlon", "Oceania"],
+    "africa":   ["Africa Triathlon", "Africa "],
+}
+
+
+def _detect_continent(event_name: str | None, venue: str | None = None) -> str | None:
+    """Match an event/venue string to a continent code (americas/europe/asia/oceania/africa)."""
+    hay = f"{event_name or ''}  {venue or ''}".lower()
+    for code, hints in CONTINENT_HINTS.items():
+        if any(h.lower() in hay for h in hints):
+            return code
+    return None
+
+
+def derive_continental_qff(engine, continent: str | None,
+                            tier_name: str = "Continental Championships") -> tuple[float | None, str]:
+    """Empirically derive the QFF for (continent, tier_name) for the CURRENT season.
+
+    Important: WT sets the QFF annually based on the prior year's points (rule 1.5.b).
+    Continental Cup races happen frequently — they're the most reliable signal for
+    the current QFF. Continental Championships happen ~once per continent per year,
+    so for a brand-new event (like Antofagasta '26 before race day) we can only
+    derive from current-year Cups and scale.
+
+    Per rule 1.5.v, the top continent gets +20% on Cups and +30% on Championships
+    (Champs = Cup × 1.5). For other continents, QFF scales proportionally, so the
+    same Cup × 1.5 relationship is assumed when scaling Cup → Championships data.
+
+    Algorithm:
+        1. Query Continental Cup winners from the CURRENT calendar year, same continent.
+        2. Un-discount period=2 rows (×3) to get face-value pts.
+        3. Solve: face_pts = 250 × (1 + cup_qff)  →  cup_qff = face_pts/250 − 1
+        4. If asked for Championships QFF: return cup_qff × 1.5.
+
+    Returns (qff, source_label).
+    """
+    if not continent:
+        return (None, "no continent")
+    spec = TIER_BASE.get(tier_name)
+    if not spec:
+        return (None, f"unknown tier '{tier_name}'")
+
+    hints = CONTINENT_HINTS.get(continent, [])
+    if not hints:
+        return (None, f"unknown continent '{continent}'")
+    where_clauses = " OR ".join(f"ev.event_name ILIKE :h{i}" for i in range(len(hints)))
+    params = {f"h{i}": f"%{h}%" for i, h in enumerate(hints)}
+    current_year = date.today().year
+    params["year_start"] = date(current_year, 1, 1)
+
+    # Always derive from Continental Cup winners — base 250, no top-5 bonus,
+    # decay 1.0 at pos 1. Restrict to current year to capture the current-season QFF.
+    sql = text(f"""
+        SELECT ev.event_id, ev.event_date,
+               MIN(ev.event_name) AS event_name,
+               MAX(b.points * CASE WHEN b.period=2 THEN 3 ELSE 1 END) AS face_pts
+        FROM athlete_ranking_breakdown b
+        JOIN (SELECT DISTINCT event_id, event_date, event_name, cat_name FROM events) ev
+          USING (event_id)
+        WHERE b.ranking_cat_id = 13
+          AND b.position = 1
+          AND ev.cat_name LIKE 'Continental Cup%%'
+          AND ev.event_date >= :year_start
+          AND ({where_clauses})
+        GROUP BY ev.event_id, ev.event_date
+        ORDER BY ev.event_date DESC
+        LIMIT 15
+    """)
+    with engine.connect() as c:
+        rows = c.execute(sql, params).fetchall()
+    if not rows:
+        return (None, f"no {current_year} {continent.title()} Continental Cup data")
+    face_vals = sorted(r[3] for r in rows)
+    median_face = face_vals[len(face_vals) // 2]
+    cup_qff = round((median_face / 250.0) - 1.0, 3)
+
+    if tier_name == "Continental Cup":
+        return (cup_qff,
+                f"derived from {len(rows)} {current_year} {continent.title()} Cup winners "
+                f"(median {median_face:.0f} pts → 250 × (1 + {cup_qff:+.0%}))")
+    elif tier_name == "Continental Championships":
+        champs_qff = round(cup_qff * 1.5, 3)
+        return (champs_qff,
+                f"derived from {len(rows)} {current_year} {continent.title()} Cup winners "
+                f"(Cup QFF {cup_qff:+.0%} × 1.5 per rule 1.5.v → Champs QFF {champs_qff:+.0%})")
+    else:
+        return (cup_qff, f"using Cup QFF {cup_qff:+.0%} for {tier_name}")
+
+
+def compute_points_scheme(tier_name: str, qff: float = 0.0) -> dict[int, int]:
+    """Apply the official WT formula to produce max points by finish position.
+    Returns {1: ..., 3: ..., 5: ..., 10: ..., 15: ..., 20: ...}."""
+    spec = TIER_BASE.get(tier_name)
+    if not spec:
+        return {}
+    base = spec["base"]
+    apply_top5 = spec["top5"]
+    out: dict[int, int] = {}
+    for rank in [1, 3, 5, 10, 15, 20]:
+        bonus = (1 + TOP5_BONUS.get(rank, 0.0)) if (apply_top5 and rank <= 5) else 1.0
+        decay = POINTS_DECAY_FACTOR ** (rank - 1)
+        pts = base * (1 + qff) * bonus * decay
+        out[rank] = int(round(pts))
+    return out
+
+
+def _resolve_points_scheme(cat_name: str | None,
+                           continent: str | None = None,
+                           engine=None,
+                           qff_override: float | None = None) -> tuple[str | None, dict[int, int] | None, dict | None]:
+    """Match a race's cat_name to a points scheme, deriving QFF from continent.
+
+    Returns (tier_label, scheme_dict, derivation_meta).
+    derivation_meta has keys: qff, qff_source, base, top5_bonus_applies.
+    """
+    if not cat_name:
+        return (None, None, None)
+    cat = cat_name.strip()
+    # Resolve tier (exact then substring match)
+    tier_name = None
+    if cat in TIER_BASE:
+        tier_name = cat
+    else:
+        for t in TIER_BASE:
+            if t.lower() in cat.lower():
+                tier_name = t
+                break
+    if not tier_name:
+        return (None, None, None)
+    spec = TIER_BASE[tier_name]
+    # QFF: override > empirical > default
+    qff_source = ""
+    if qff_override is not None:
+        qff = qff_override
+        qff_source = f"CLI override ({qff:+.0%})"
+    elif spec["qff_field"] and continent and engine is not None:
+        derived, src = derive_continental_qff(engine, continent, tier_name)
+        if derived is not None:
+            qff = derived
+            qff_source = src
+        else:
+            qff = spec["default_qff"]
+            qff_source = f"default ({qff:+.0%}) — {src}"
+    else:
+        qff = spec["default_qff"] if spec["qff_field"] else 0.0
+        qff_source = f"non-continental ({qff:+.0%})" if not spec["qff_field"] else f"default ({qff:+.0%})"
+    scheme = compute_points_scheme(tier_name, qff)
+    meta = {"qff": qff, "qff_source": qff_source,
+            "base": spec["base"], "top5_bonus_applies": spec["top5"],
+            "continent": continent}
+    return (tier_name, scheme, meta)
+
+
+def query_usa_ranking_snapshot(engine, ranking_cat_id: int, limit: int = 25) -> pd.DataFrame:
+    """Latest USA ranking snapshot + rank delta vs the previous weekly snapshot.
+
+    ranking_cat_id: 13 = World Men, 14 = World Women, 15 = WTCS Men, 16 = WTCS Women.
+    Returns columns: rank_position, athlete_name, total_points, curr, prev, change.
+    `change` is signed rank delta vs prior snapshot (negative = improved rank).
+    """
+    sql = text("""
+        WITH snaps AS (
+            SELECT retrieved_at,
+                   ROW_NUMBER() OVER (ORDER BY retrieved_at DESC) AS rn
+            FROM (SELECT DISTINCT retrieved_at
+                  FROM athlete_rankings
+                  WHERE ranking_cat_id = :cat) d
+        ),
+        latest AS (SELECT retrieved_at FROM snaps WHERE rn = 1),
+        prior  AS (SELECT retrieved_at FROM snaps WHERE rn = 2)
+        SELECT  ar.rank_position,
+                ar.athlete_name,
+                ar.total_points,
+                ar.events_current_period       AS curr,
+                ar.events_previous_period      AS prev,
+                ar_prior.rank_position         AS prev_rank
+        FROM    athlete_rankings ar
+        JOIN    athlete a USING (athlete_id)
+        LEFT JOIN athlete_rankings ar_prior
+               ON ar_prior.athlete_id      = ar.athlete_id
+              AND ar_prior.ranking_cat_id  = ar.ranking_cat_id
+              AND ar_prior.retrieved_at    = (SELECT retrieved_at FROM prior)
+        WHERE   ar.ranking_cat_id = :cat
+          AND   a.country = 'United States'
+          AND   ar.retrieved_at = (SELECT retrieved_at FROM latest)
+        ORDER BY ar.rank_position
+        LIMIT :limit
+    """)
+    df = pd.read_sql(sql, engine, params={"cat": ranking_cat_id, "limit": limit})
+    if df.empty:
+        return df
+    df["change"] = df["prev_rank"] - df["rank_position"]
+    return df
+
+
+def query_latest_ranking_date(engine, ranking_cat_id: int = 13) -> date | None:
+    with engine.connect() as c:
+        r = c.execute(text(
+            "SELECT MAX(retrieved_at) FROM athlete_rankings WHERE ranking_cat_id = :c"
+        ), {"c": ranking_cat_id}).fetchone()
+    return r[0] if r and r[0] else None
+
+
+def _fmt_change(delta) -> tuple[str, RGBColor]:
+    """Format a signed rank delta as '▲N' (green, improved) / '▼N' (red, dropped) / '—'."""
+    if delta is None or pd.isna(delta) or delta == 0:
+        return ("—", MID_GRAY)
+    delta = int(delta)
+    if delta > 0:
+        return (f"▲{delta}", RGBColor(0x1B, 0x7F, 0x3A))   # rank went up (lower number)
+    return (f"▼{abs(delta)}", RGBColor(0xC0, 0x00, 0x00))   # rank went down
+
+
+def add_usa_rankings_snapshot_slide(prs: Presentation, engine, venue: str,
+                                    race_cat_name: str | None = None,
+                                    race_event_name: str | None = None,
+                                    qff_override: float | None = None,
+                                    limit_per_gender: int = 18,
+                                    ranking_type: str = "world") -> bool:
+    """Two side-by-side tables (USA Men | USA Women) for a ranking snapshot,
+    plus a bottom card showing max points available at this race tier (world only).
+
+    ranking_type:
+      "world"   → cats 13/14 (current World Rankings). Shows max-points card.
+      "olympic" → cats 11/12 (LA 2028 Olympic Qualification). No points card —
+                  Olympic qualification ranking aggregates differently.
+    """
+    cat_men, cat_women = (13, 14) if ranking_type == "world" else (11, 12)
+    title_label = "USA World Rankings Snapshot" if ranking_type == "world" \
+                  else "USA Olympic Qualification Snapshot"
+    type_label  = "World Triathlon Rankings" if ranking_type == "world" \
+                  else "Olympic Qualification Rankings (LA 2028 cycle)"
+
+    men_df   = query_usa_ranking_snapshot(engine, ranking_cat_id=cat_men,   limit=limit_per_gender)
+    women_df = query_usa_ranking_snapshot(engine, ranking_cat_id=cat_women, limit=limit_per_gender)
+    if men_df.empty and women_df.empty:
+        print(f"  [{title_label}] no snapshot data — slide skipped")
+        return False
+
+    snap_date = query_latest_ranking_date(engine, cat_men)
+    tier_label, scheme, meta = (None, None, None)
+    if ranking_type == "world":
+        continent = _detect_continent(race_event_name, venue)
+        tier_label, scheme, meta = _resolve_points_scheme(
+            race_cat_name, continent=continent, engine=engine, qff_override=qff_override
+        )
+
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    add_slide_chrome(slide, title_label, venue)
+
+    # Sub-header
+    sub_top = Inches(1.2)
+    sub_bar = slide.shapes.add_shape(1, Inches(0.3), sub_top, Inches(12.73), Inches(0.42))
+    sub_bar.fill.solid()
+    sub_bar.fill.fore_color.rgb = LIGHT_GRAY
+    sub_bar.line.color.rgb = MID_GRAY
+    snap_txt = f"As of {snap_date.isoformat()}" if snap_date else "Latest snapshot"
+    if ranking_type == "world":
+        tier_txt = f"   •   Race tier: {tier_label}" if tier_label else "   •   Race tier: unknown"
+    else:
+        tier_txt = ""
+    _add_textbox(slide,
+                 f"{snap_txt}   •   {type_label}   •   Heading into {venue}{tier_txt}",
+                 Inches(0.4), sub_top + Inches(0.08),
+                 Inches(12.5), Inches(0.28),
+                 font_size=12, bold=True, color=NAVY, align=PP_ALIGN.CENTER)
+
+    # ── Max Points Available card — MOVED ABOVE tables (was getting cut off) ──
+    tables_top = Inches(1.85)  # default if no Max Points card
+    if ranking_type == "world":
+        pts_top = Inches(1.75)
+        pts_bar = slide.shapes.add_shape(1, Inches(0.3), pts_top, Inches(12.73), Inches(0.32))
+        pts_bar.fill.solid()
+        pts_bar.fill.fore_color.rgb = RED
+        pts_bar.line.fill.background()
+        _add_textbox(slide, "Max Points Available at this Race",
+                     Inches(0.4), pts_top + Inches(0.03),
+                     Inches(12.5), Inches(0.27),
+                     font_size=12, bold=True, color=WHITE)
+
+        cards_top = pts_top + Inches(0.42)
+        if scheme:
+            positions = [(1, "Win"), (3, "Podium"), (5, "Top 5"), (10, "Top 10"),
+                         (15, "Top 15"), (20, "Top 20")]
+            n = len(positions)
+            gap_in = 0.18
+            card_w_in = (12.73 - gap_in * (n - 1)) / n
+            for i, (pos, label) in enumerate(positions):
+                cl = Inches(0.3 + (card_w_in + gap_in) * i)
+                cw = Inches(card_w_in)
+                bx = slide.shapes.add_shape(1, cl, cards_top, cw, Inches(0.55))
+                bx.fill.solid()
+                bx.fill.fore_color.rgb = WHITE
+                bx.line.color.rgb = MID_GRAY
+                _add_textbox(slide, label, cl + Inches(0.05), cards_top + Inches(0.03),
+                             cw - Inches(0.1), Inches(0.2),
+                             font_size=9, bold=True, color=NAVY, align=PP_ALIGN.CENTER)
+                _add_textbox(slide, f"{scheme[pos]:,} pts", cl + Inches(0.05), cards_top + Inches(0.22),
+                             cw - Inches(0.1), Inches(0.32),
+                             font_size=14, bold=True, color=DARK_GRAY, align=PP_ALIGN.CENTER)
+        else:
+            _add_textbox(slide,
+                         "Points scheme unknown for this race tier.",
+                         Inches(0.4), cards_top, Inches(12.5), Inches(0.4),
+                         font_size=10, italic=True, color=MID_GRAY, align=PP_ALIGN.CENTER)
+        tables_top = pts_top + Inches(1.1)   # card spans ~1.0in; leave breathing room
+
+    # ── Two side-by-side tables ──────────────────────────────────────────────
+    col_specs = [
+        ("Rank",    0.65, PP_ALIGN.CENTER),
+        ("Athlete", 2.10, PP_ALIGN.LEFT),
+        ("Points",  0.95, PP_ALIGN.CENTER),
+        ("Curr",    0.55, PP_ALIGN.CENTER),
+        ("Prev",    0.55, PP_ALIGN.CENTER),
+        ("Change",  0.85, PP_ALIGN.CENTER),
+    ]
+    panel_w = Inches(6.35)
+    panel_lefts = [Inches(0.3), Inches(0.3 + 6.35 + 0.05)]
+    # How much vertical space remains for the tables (between tables_top and the footer)
+    tables_top_in = float(tables_top) / 914400  # EMU → inches
+    avail_h_in = 7.0 - tables_top_in - 0.45  # leave ~0.45in for footer + ribbon
+
+    for panel_left, gender_label, df in [(panel_lefts[0], "ELITE MEN", men_df),
+                                          (panel_lefts[1], "ELITE WOMEN", women_df)]:
+        hdr = slide.shapes.add_shape(1, panel_left, tables_top, panel_w, Inches(0.32))
+        hdr.fill.solid()
+        hdr.fill.fore_color.rgb = NAVY
+        hdr.line.fill.background()
+        _add_textbox(slide, gender_label,
+                     panel_left, tables_top + Inches(0.03),
+                     panel_w, Inches(0.26),
+                     font_size=11, bold=True, color=WHITE, align=PP_ALIGN.CENTER)
+
+        if df.empty:
+            _add_textbox(slide, "No USA athletes in current snapshot.",
+                         panel_left, tables_top + Inches(0.5),
+                         panel_w, Inches(0.4),
+                         font_size=11, italic=True, color=MID_GRAY, align=PP_ALIGN.CENTER)
+            continue
+
+        n_rows = len(df) + 1
+        # Shrink rows hard to fit — tables now compete with Max Points card above
+        row_h_in = max(0.20, min(0.28, (avail_h_in - 0.4) / n_rows))
+        tbl_shape = slide.shapes.add_table(
+            n_rows, len(col_specs),
+            panel_left, tables_top + Inches(0.36),
+            panel_w, Inches(row_h_in * n_rows),
+        )
+        tbl = tbl_shape.table
+        total_w_units = sum(c[1] for c in col_specs)
+        for ci, (_, w, _) in enumerate(col_specs):
+            tbl.columns[ci].width = Inches(w / total_w_units * 6.35)
+        for ci, (hdr_t, _, align) in enumerate(col_specs):
+            _set_cell(tbl.cell(0, ci), hdr_t, bold=True, font_size=9,
+                      color=WHITE, align=align, bg_color=NAVY)
+
+        for ri, row in enumerate(df.itertuples(index=False), start=1):
+            bg = LIGHT_GRAY if ri % 2 == 0 else WHITE
+            pts = f"{int(round(row.total_points)):,}"
+            curr = str(int(row.curr)) if row.curr is not None and not pd.isna(row.curr) else "—"
+            prev = str(int(row.prev)) if row.prev is not None and not pd.isna(row.prev) else "—"
+            change_str, change_color = _fmt_change(row.change)
+            cells = [
+                (str(int(row.rank_position)), bg, DARK_GRAY, True,  PP_ALIGN.CENTER),
+                (str(row.athlete_name),       bg, DARK_GRAY, False, PP_ALIGN.LEFT),
+                (pts,                         bg, DARK_GRAY, False, PP_ALIGN.CENTER),
+                (curr,                        bg, DARK_GRAY, False, PP_ALIGN.CENTER),
+                (prev,                        bg, DARK_GRAY, False, PP_ALIGN.CENTER),
+                (change_str,                  bg, change_color, True, PP_ALIGN.CENTER),
+            ]
+            for ci, (val, c_bg, c_color, c_bold, c_align) in enumerate(cells):
+                _set_cell(tbl.cell(ri, ci), val,
+                          font_size=8.5, bold=c_bold, color=c_color,
+                          bg_color=c_bg, align=c_align)
+
+    # ── Footer caption ───────────────────────────────────────────────────────
+    if ranking_type == "world":
+        if meta:
+            base = meta["base"]
+            qff = meta["qff"]
+            t5 = "  •  Top-5 bonus: 1st +25% / 2nd +20% / 3rd +15% / 4th +10% / 5th +5%" \
+                 if meta["top5_bonus_applies"] else ""
+            footer = (
+                f"Formula: base × (1+QFF) × top-5 bonus × 0.925^(rank−1).   "
+                f"Base for {tier_label} = {base}.   QFF = {qff:+.0%} ({meta['qff_source']}).{t5}   "
+                f"Rankings table: latest weekly snapshot (USA filter); Change = rank delta vs prior week."
+            )
+        else:
+            footer = "Rankings: athlete_rankings (USA filter). Max points: scheme unknown for this race tier."
+    else:
+        footer = (
+            "Rankings: athlete_rankings cat 11 (Male) / 12 (Female), USA filter, latest weekly snapshot.   "
+            "Curr / Prev = events scoring in Year 2 vs Year 1 of the LA 2028 OQR cycle (results show as "
+            "Period 'First' in the per-race breakdown). All current results are in Year 1 because we are "
+            "still inside the first year of the qualifying window, so points appear under 'Prev'.   "
+            "Change = rank delta vs prior weekly snapshot."
+        )
+    _add_textbox(slide, footer,
+                 Inches(0.3), Inches(7.05), Inches(12.73), Inches(0.28),
+                 font_size=8, italic=True, color=MID_GRAY, align=PP_ALIGN.CENTER)
+    return True
+
+
+# ── Olympic Qualification Pace constants ─────────────────────────────────────
+# Paris 2024 OQR cutoff: rank 30 finished with 3,626.69 pts. Each athlete's
+# OQR score is capped at their best 8 current-period + 4 previous-period
+# events = 12 events max. So per-event pace target = 3626.69 / 12 ≈ 302 pts.
+PARIS_OQR_CUTOFF_PTS = 3626.69
+OQR_EVENT_CAP        = 12
+OQR_PACE_TARGET      = PARIS_OQR_CUTOFF_PTS / OQR_EVENT_CAP   # ≈ 302.22
+
+
+def _pace_position_for_tier(tier_name: str, qff: float = 0.0,
+                            target_pts: float = OQR_PACE_TARGET) -> tuple[int | None, int | None]:
+    """At what finish position at this tier does an athlete score >= target_pts?
+    Returns (best_qualifying_rank, first_failing_rank). Returns (None, None) if
+    even winning doesn't hit target."""
+    spec = TIER_BASE.get(tier_name)
+    if not spec:
+        return (None, None)
+    base = spec["base"]
+    apply_top5 = spec["top5"]
+    last_qualifying = None
+    for rank in range(1, 31):
+        bonus = (1 + TOP5_BONUS.get(rank, 0.0)) if (apply_top5 and rank <= 5) else 1.0
+        decay = POINTS_DECAY_FACTOR ** (rank - 1)
+        pts = base * (1 + qff) * bonus * decay
+        if pts >= target_pts:
+            last_qualifying = rank
+        else:
+            return (last_qualifying, rank)
+    return (last_qualifying, None)
+
+
+def query_usa_oqr_pace(engine, ranking_cat_id: int) -> pd.DataFrame:
+    """Per-USA-athlete OQR pace: total pts, event count, on/off pace events, projection.
+    pace = total_breakdown_pts / n_events; projected = pace × 12 cap."""
+    sql = text("""
+        WITH latest AS (
+            SELECT MAX(retrieved_at) AS d FROM athlete_rankings WHERE ranking_cat_id = :cat
+        )
+        SELECT ar.rank_position,
+               ar.athlete_name,
+               ar.total_points,
+               COUNT(b.event_id)::int                                  AS n_events,
+               COUNT(*) FILTER (WHERE b.points >= :target)::int        AS on_pace,
+               COUNT(*) FILTER (WHERE b.points <  :target)::int        AS off_pace,
+               COALESCE(SUM(b.points), 0)::float                        AS sum_bd_pts
+        FROM   athlete_rankings ar
+        JOIN   athlete a USING (athlete_id)
+        LEFT JOIN athlete_ranking_breakdown b
+               ON b.athlete_id = ar.athlete_id
+              AND b.ranking_cat_id = ar.ranking_cat_id
+              AND b.included = TRUE
+        WHERE  ar.ranking_cat_id = :cat
+          AND  a.country = 'United States'
+          AND  ar.retrieved_at = (SELECT d FROM latest)
+        GROUP BY ar.rank_position, ar.athlete_name, ar.total_points
+        ORDER BY ar.rank_position
+    """)
+    df = pd.read_sql(sql, engine, params={"cat": ranking_cat_id, "target": OQR_PACE_TARGET})
+    if df.empty:
+        return df
+    # Project current pace across the 12-event cap
+    df["pace_per_event"] = df.apply(
+        lambda r: (r["sum_bd_pts"] / r["n_events"]) if r["n_events"] > 0 else None,
+        axis=1
+    )
+    df["projected_at_12"] = df["pace_per_event"] * OQR_EVENT_CAP
+    return df
+
+
+def query_current_oqr_cutoff(engine, ranking_cat_id: int) -> dict | None:
+    """Return the current rank-30 athlete (the bubble line at this snapshot)."""
+    with engine.connect() as c:
+        r = c.execute(text("""
+            SELECT rank_position, athlete_name, total_points,
+                   events_current_period, events_previous_period
+            FROM athlete_rankings
+            WHERE ranking_cat_id = :cat
+              AND retrieved_at = (SELECT MAX(retrieved_at) FROM athlete_rankings WHERE ranking_cat_id = :cat)
+              AND rank_position = 30
+        """), {"cat": ranking_cat_id}).fetchone()
+    if not r:
+        return None
+    return {"rank": int(r[0]), "name": r[1], "total": float(r[2]),
+            "curr_events": r[3], "prev_events": r[4]}
+
+
+def add_olympic_pace_slide(prs: Presentation, engine, venue: str,
+                            race_continent: str | None = None) -> bool:
+    """Olympic Qualification pace slide:
+        - Header card with Paris 2024 benchmark + per-event pace target
+        - Tier table: position at WTCS / WCup / Continental Champs / Continental Cup needed
+        - Two USA athlete tables (Men | Women) showing pace + projection
+        - Footer card: current rank-30 athlete (early-cycle bubble)
+    """
+    men_df   = query_usa_oqr_pace(engine, ranking_cat_id=11)
+    women_df = query_usa_oqr_pace(engine, ranking_cat_id=12)
+    if men_df.empty and women_df.empty:
+        print("  [Olympic Pace] no OQR data — slide skipped")
+        return False
+
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    add_slide_chrome(slide, "Olympic Qualification Pace", venue)
+
+    # ── Top: benchmark + pace target card ───────────────────────────────────
+    card_top = Inches(1.2)
+    card_h   = Inches(0.95)
+    card = slide.shapes.add_shape(1, Inches(0.3), card_top, Inches(12.73), card_h)
+    card.fill.solid()
+    card.fill.fore_color.rgb = NAVY
+    card.line.fill.background()
+    _add_textbox(slide,
+                 f"Paris 2024 OQR cutoff (30th): {PARIS_OQR_CUTOFF_PTS:,.2f} pts   "
+                 f"÷   {OQR_EVENT_CAP}-event cap (8 best current + 4 best previous)   "
+                 f"=   {OQR_PACE_TARGET:.0f} pts / event on pace",
+                 Inches(0.4), card_top + Inches(0.10),
+                 Inches(12.5), Inches(0.40),
+                 font_size=15, bold=True, color=WHITE, align=PP_ALIGN.CENTER)
+    _add_textbox(slide,
+                 "An athlete who averages ~302 pts per event across their best 12 events "
+                 "is on pace to clear the LA 2028 qualifying threshold.",
+                 Inches(0.4), card_top + Inches(0.52),
+                 Inches(12.5), Inches(0.36),
+                 font_size=11, color=RGBColor(0xAA, 0xBB, 0xDD),
+                 align=PP_ALIGN.CENTER, italic=True)
+
+    # ── Tier breakdown: what position at each tier scores 302+ ──────────────
+    tier_top = card_top + card_h + Inches(0.2)
+    tier_bar = slide.shapes.add_shape(1, Inches(0.3), tier_top, Inches(12.73), Inches(0.32))
+    tier_bar.fill.solid()
+    tier_bar.fill.fore_color.rgb = RED
+    tier_bar.line.fill.background()
+    _add_textbox(slide,
+                 f"FINISH POSITION AT EACH TIER THAT HITS {OQR_PACE_TARGET:.0f}-PT PACE",
+                 Inches(0.4), tier_top + Inches(0.03),
+                 Inches(12.5), Inches(0.26),
+                 font_size=11, bold=True, color=WHITE, align=PP_ALIGN.CENTER)
+
+    # Build the tier rows
+    tier_specs = [
+        ("World Championship Series",         0.0),
+        ("World Cup",                          0.0),
+        ("Continental Championships (Americas)", 0.18),
+        ("Continental Championships (Europe)",  0.30),
+        ("Continental Cup (Americas)",          0.12),
+    ]
+    tier_table_top = tier_top + Inches(0.42)
+    tier_cols = [
+        ("Tier",             4.8, PP_ALIGN.LEFT),
+        ("Win pts",          1.5, PP_ALIGN.CENTER),
+        ("Last on-pace pos", 2.4, PP_ALIGN.CENTER),
+        ("First off-pace pos (pts)", 3.0, PP_ALIGN.CENTER),
+        ("Verdict",          1.0, PP_ALIGN.CENTER),
+    ]
+    n_t_rows = len(tier_specs) + 1
+    tt_shape = slide.shapes.add_table(
+        n_t_rows, len(tier_cols),
+        Inches(0.3), tier_table_top,
+        Inches(12.73), Inches(0.28 * n_t_rows),
+    )
+    tt = tt_shape.table
+    tot_w = sum(c[1] for c in tier_cols)
+    for ci, (_, w, _) in enumerate(tier_cols):
+        tt.columns[ci].width = Inches(w / tot_w * 12.73)
+    for ci, (hdr, _, align) in enumerate(tier_cols):
+        _set_cell(tt.cell(0, ci), hdr, bold=True, font_size=9.5,
+                  color=WHITE, align=align, bg_color=NAVY)
+
+    for ri, (tier_label, qff) in enumerate(tier_specs, start=1):
+        bg = LIGHT_GRAY if ri % 2 == 0 else WHITE
+        # Strip "(Americas)"/"(Europe)" suffix for tier resolution
+        tier_key = tier_label.split(" (")[0]
+        spec = TIER_BASE[tier_key]
+        win_pts = spec["base"] * (1 + qff) * ((1.25) if spec["top5"] else 1.0)
+        last_ok, first_fail = _pace_position_for_tier(tier_key, qff)
+        if last_ok is None:
+            verdict = "Not achievable"
+            v_color = RGBColor(0xC0, 0x00, 0x00)
+            last_str = f"None (win = {win_pts:.0f})"
+            fail_str = "—"
+        else:
+            verdict = f"Top {last_ok}"
+            v_color = RGBColor(0x1B, 0x7F, 0x3A)
+            last_str = f"#{last_ok}"
+            # Compute first-fail pts for context
+            spec_ = TIER_BASE[tier_key]
+            bonus = (1 + TOP5_BONUS.get(first_fail, 0.0)) if (spec_["top5"] and first_fail <= 5) else 1.0
+            fail_pts = spec_["base"] * (1 + qff) * bonus * (POINTS_DECAY_FACTOR ** (first_fail - 1)) if first_fail else None
+            fail_str = f"#{first_fail} ({fail_pts:.0f} pts)" if first_fail else "—"
+        row_cells = [
+            (tier_label,      bg, DARK_GRAY, False, PP_ALIGN.LEFT),
+            (f"{win_pts:.0f}", bg, DARK_GRAY, True,  PP_ALIGN.CENTER),
+            (last_str,        bg, DARK_GRAY, True,  PP_ALIGN.CENTER),
+            (fail_str,        bg, DARK_GRAY, False, PP_ALIGN.CENTER),
+            (verdict,         bg, v_color,   True,  PP_ALIGN.CENTER),
+        ]
+        for ci, (val, c_bg, c_color, c_bold, c_align) in enumerate(row_cells):
+            _set_cell(tt.cell(ri, ci), val, font_size=9.5, bold=c_bold,
+                      color=c_color, bg_color=c_bg, align=c_align)
+
+    # ── USA pace tables ──────────────────────────────────────────────────────
+    usa_top = tier_table_top + Inches(0.28 * n_t_rows + 0.25)
+    panel_w_in = 6.35
+    panel_w    = Inches(panel_w_in)
+    panel_lefts = [Inches(0.3), Inches(0.3 + panel_w_in + 0.05)]
+
+    pace_cols = [
+        ("Rk",        0.45, PP_ALIGN.CENTER),
+        ("Athlete",   2.10, PP_ALIGN.LEFT),
+        ("Total",     0.80, PP_ALIGN.CENTER),
+        ("Races",     0.55, PP_ALIGN.CENTER),
+        ("On",        0.45, PP_ALIGN.CENTER),
+        ("Off",       0.45, PP_ALIGN.CENTER),
+        ("Pace",      0.75, PP_ALIGN.CENTER),
+        ("Proj @12",  0.80, PP_ALIGN.CENTER),
+    ]
+
+    for panel_left, gender_label, df in [(panel_lefts[0], "USA MEN",   men_df),
+                                          (panel_lefts[1], "USA WOMEN", women_df)]:
+        hdr = slide.shapes.add_shape(1, panel_left, usa_top, panel_w, Inches(0.30))
+        hdr.fill.solid()
+        hdr.fill.fore_color.rgb = NAVY
+        hdr.line.fill.background()
+        _add_textbox(slide, gender_label,
+                     panel_left, usa_top + Inches(0.03),
+                     panel_w, Inches(0.24),
+                     font_size=11, bold=True, color=WHITE, align=PP_ALIGN.CENTER)
+
+        if df.empty:
+            _add_textbox(slide, "No USA athletes in OQR snapshot.",
+                         panel_left, usa_top + Inches(0.45),
+                         panel_w, Inches(0.4),
+                         font_size=10, italic=True, color=MID_GRAY, align=PP_ALIGN.CENTER)
+            continue
+
+        n_rows = len(df) + 1
+        row_h_in = 0.23
+        tbl_shape = slide.shapes.add_table(
+            n_rows, len(pace_cols),
+            panel_left, usa_top + Inches(0.35),
+            panel_w, Inches(row_h_in * n_rows),
+        )
+        tbl = tbl_shape.table
+        tot = sum(c[1] for c in pace_cols)
+        for ci, (_, w, _) in enumerate(pace_cols):
+            tbl.columns[ci].width = Inches(w / tot * panel_w_in)
+        for ci, (hdr_t, _, align) in enumerate(pace_cols):
+            _set_cell(tbl.cell(0, ci), hdr_t, bold=True, font_size=8.5,
+                      color=WHITE, align=align, bg_color=NAVY)
+
+        for ri, row in enumerate(df.itertuples(index=False), start=1):
+            bg = LIGHT_GRAY if ri % 2 == 0 else WHITE
+            pace  = row.pace_per_event
+            proj  = row.projected_at_12
+            on_pace_proj = (proj is not None and not pd.isna(proj) and proj >= PARIS_OQR_CUTOFF_PTS)
+            proj_color = RGBColor(0x1B, 0x7F, 0x3A) if on_pace_proj else DARK_GRAY
+            cells = [
+                (str(int(row.rank_position)),      bg, DARK_GRAY,  True,  PP_ALIGN.CENTER),
+                (str(row.athlete_name),            bg, DARK_GRAY,  False, PP_ALIGN.LEFT),
+                (f"{row.total_points:,.0f}",       bg, DARK_GRAY,  True,  PP_ALIGN.CENTER),
+                (str(int(row.n_events)),           bg, DARK_GRAY,  False, PP_ALIGN.CENTER),
+                (str(int(row.on_pace)),            bg, RGBColor(0x1B, 0x7F, 0x3A), True, PP_ALIGN.CENTER),
+                (str(int(row.off_pace)),           bg, RGBColor(0xC0, 0x00, 0x00), True, PP_ALIGN.CENTER),
+                (f"{pace:.0f}" if pace is not None and not pd.isna(pace) else "—",
+                 bg, DARK_GRAY, False, PP_ALIGN.CENTER),
+                (f"{proj:,.0f}" if proj is not None and not pd.isna(proj) else "—",
+                 bg, proj_color, True, PP_ALIGN.CENTER),
+            ]
+            for ci, (val, c_bg, c_color, c_bold, c_align) in enumerate(cells):
+                _set_cell(tbl.cell(ri, ci), val, font_size=8.5, bold=c_bold,
+                          color=c_color, bg_color=c_bg, align=c_align)
+
+    # ── Footer: current OQR cutoff line (early-cycle context) + caption ─────
+    men_30 = query_current_oqr_cutoff(engine, 11)
+    wom_30 = query_current_oqr_cutoff(engine, 12)
+    cutoff_strs = []
+    if men_30:
+        cutoff_strs.append(f"Men #{men_30['rank']}: {men_30['name']} = {men_30['total']:.0f} pts")
+    if wom_30:
+        cutoff_strs.append(f"Women #{wom_30['rank']}: {wom_30['name']} = {wom_30['total']:.0f} pts")
+    cutoff_line = (
+        "Current early-cycle rank-30 line:  " + "   •   ".join(cutoff_strs)
+        + "   (low because LA 2028 cycle is just opening — Paris cutoff 3,627 pts is the 3-year benchmark)"
+    ) if cutoff_strs else ""
+
+    _add_textbox(slide,
+                 cutoff_line + "\n"
+                 "On-pace = events scoring ≥302 pts. Off-pace = events <302 pts. "
+                 "Pace = total breakdown pts ÷ events raced. Proj @12 = pace × 12-event cap (green if ≥ Paris cutoff).",
+                 Inches(0.3), Inches(7.00), Inches(12.73), Inches(0.35),
+                 font_size=8, italic=True, color=MID_GRAY, align=PP_ALIGN.CENTER)
+    return True
+
+
+def add_top_swim_threats_slide(prs: Presentation, engine, venue: str,
+                                upcoming_event_id: int | None,
+                                limit_per_panel: int = 7,
+                                distance_override: str | None = None) -> bool:
+    """Top swim threats on the startlist, ranked by the prediction model's
+    EWMA swim features. Four-panel grid: Elite M | Elite W on top row,
+    U23 M | U23 W on bottom row (so USA U23 athletes on dual-category startlists
+    surface alongside the elite field).
+
+    Uses tri_analysis.prediction.features.build_features_for_program (~30s per
+    program). distance_override forces the same distance category across all
+    programs (useful when DB rows are stale, e.g. Antofagasta Elite is tagged
+    'sprint' in the DB but the LOC's NF guide says Standard).
+    """
+    if not upcoming_event_id:
+        print("  [Swim Threats] no upcoming event id — slide skipped")
+        return False
+
+    # Resolve Elite + U23 prog_ids for this event (Men/Women)
+    with engine.connect() as c:
+        progs = c.execute(text("""
+            SELECT prog_id, prog_name FROM events
+            WHERE event_id = :eid
+              AND (prog_name ILIKE 'Elite%' OR prog_name ILIKE 'U23%')
+            ORDER BY prog_id
+        """), {"eid": upcoming_event_id}).fetchall()
+    if not progs:
+        print(f"  [Swim Threats] no Elite / U23 programs for event_id={upcoming_event_id}")
+        return False
+
+    def _pick(prefix: str, women: bool):
+        for p in progs:
+            n = p[1]
+            if women:
+                if n.startswith(prefix) and "Women" in n:
+                    return p
+            else:
+                if n.startswith(prefix) and "Men" in n and "Women" not in n:
+                    return p
+        return None
+
+    panel_specs = [
+        ("ELITE MEN",   _pick("Elite", women=False)),
+        ("ELITE WOMEN", _pick("Elite", women=True)),
+        ("U23 MEN",     _pick("U23",   women=False)),
+        ("U23 WOMEN",   _pick("U23",   women=True)),
+    ]
+
+    try:
+        from tri_analysis.prediction.features import build_features_for_program
+        from tri_analysis.prediction.sql import ProgramKey
+    except Exception as exc:
+        print(f"  [Swim Threats] prediction package not importable ({exc}) — slide skipped")
+        return False
+
+    override_meta = ({"prog_distance_category": distance_override}
+                     if distance_override else None)
+
+    def _swim_rank(prog_row) -> pd.DataFrame:
+        if prog_row is None:
+            return pd.DataFrame()
+        try:
+            df = build_features_for_program(
+                engine, ProgramKey(event_id=upcoming_event_id, prog_id=prog_row[0]),
+                use_start_list=True, match_distance=True, elite_only=True,
+                event_meta_override=override_meta,
+            )
+        except Exception as exc:
+            print(f"  [Swim Threats] feature build failed for prog_id={prog_row[0]}: {exc}")
+            return pd.DataFrame()
+        if df.empty:
+            return pd.DataFrame()
+        # Need at least 1 prior swim result in same-distance history. The Races
+        # column makes small-sample athletes visible so the reader can discount
+        # accordingly (e.g. an athlete with 1 race + 67% front pack vs 20 races + 50%).
+        if "n_swim_results" in df.columns:
+            df = df[df["n_swim_results"].fillna(0) >= 1].copy()
+        sort_cols, ascending = [], []
+        if "front_pack_rate" in df.columns:
+            sort_cols.append("front_pack_rate"); ascending.append(False)
+        if "avg_swim_gap_leader" in df.columns:
+            sort_cols.append("avg_swim_gap_leader"); ascending.append(True)
+        if "ema_swim_sec_5" in df.columns:
+            sort_cols.append("ema_swim_sec_5"); ascending.append(True)
+        if sort_cols:
+            df = df.sort_values(sort_cols, ascending=ascending, na_position="last")
+        return df.head(limit_per_panel).reset_index(drop=True)
+
+    print(f"  [Swim Threats] building features for {sum(1 for _, p in panel_specs if p)} programs "
+          f"at event_id={upcoming_event_id} (distance override: {distance_override or 'none'})")
+    panel_dfs = []
+    for label, prog in panel_specs:
+        df = _swim_rank(prog) if prog else pd.DataFrame()
+        panel_dfs.append((label, prog, df))
+
+    if all(df.empty for _, _, df in panel_dfs):
+        print("  [Swim Threats] no startlist features computed — slide skipped")
+        return False
+
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    add_slide_chrome(slide, "Top Swim Threats", venue)
+
+    # Sub-header
+    sub_top = Inches(1.18)
+    sub_bar = slide.shapes.add_shape(1, Inches(0.3), sub_top, Inches(12.73), Inches(0.35))
+    sub_bar.fill.solid()
+    sub_bar.fill.fore_color.rgb = LIGHT_GRAY
+    sub_bar.line.color.rgb = MID_GRAY
+    dist_note = f"   •   Distance: {distance_override.title()}" if distance_override else ""
+    _add_textbox(slide,
+                 f"Ranked by EWMA swim features from the elite prediction model   •   "
+                 f"Front Pack % → Avg Gap → EWMA split{dist_note}",
+                 Inches(0.4), sub_top + Inches(0.04),
+                 Inches(12.5), Inches(0.27),
+                 font_size=10.5, bold=True, color=NAVY, align=PP_ALIGN.CENTER)
+
+    # ── Four-panel grid (2 cols × 2 rows) ─────────────────────────────────────
+    col_specs = [
+        ("#",            0.35, PP_ALIGN.CENTER),
+        ("Athlete",      1.95, PP_ALIGN.LEFT),
+        ("Lead Pack %",  1.05, PP_ALIGN.CENTER),
+        ("Avg Gap (s)",  1.05, PP_ALIGN.CENTER),
+        ("EWMA Swim",    1.00, PP_ALIGN.CENTER),
+        ("Races",        0.55, PP_ALIGN.CENTER),
+    ]
+    panel_w_in   = 6.35
+    panel_w      = Inches(panel_w_in)
+    panel_gap_in = 0.05
+    panel_lefts  = [Inches(0.3), Inches(0.3 + panel_w_in + panel_gap_in)]
+    row_tops     = [Inches(1.65), Inches(4.45)]
+    row_h_in     = 0.28
+    hdr_h        = Inches(0.30)
+
+    for idx, (label, _prog, df) in enumerate(panel_dfs):
+        col = idx % 2
+        row = idx // 2
+        panel_left = panel_lefts[col]
+        panel_top  = row_tops[row]
+        # Header bar
+        hdr = slide.shapes.add_shape(1, panel_left, panel_top, panel_w, hdr_h)
+        hdr.fill.solid()
+        hdr.fill.fore_color.rgb = NAVY
+        hdr.line.fill.background()
+        _add_textbox(slide, label,
+                     panel_left, panel_top + Inches(0.03),
+                     panel_w, Inches(0.24),
+                     font_size=11, bold=True, color=WHITE, align=PP_ALIGN.CENTER)
+
+        if df.empty:
+            _add_textbox(slide, "No startlist / insufficient swim history.",
+                         panel_left, panel_top + Inches(0.4),
+                         panel_w, Inches(0.4),
+                         font_size=10, italic=True, color=MID_GRAY, align=PP_ALIGN.CENTER)
+            continue
+
+        n_rows = len(df) + 1
+        tbl_top = panel_top + hdr_h + Inches(0.05)
+        tbl_shape = slide.shapes.add_table(
+            n_rows, len(col_specs),
+            panel_left, tbl_top,
+            panel_w, Inches(row_h_in * n_rows),
+        )
+        tbl = tbl_shape.table
+        total_w_units = sum(c[1] for c in col_specs)
+        for ci, (_, w, _) in enumerate(col_specs):
+            tbl.columns[ci].width = Inches(w / total_w_units * panel_w_in)
+        for ci, (hdr_t, _, align) in enumerate(col_specs):
+            _set_cell(tbl.cell(0, ci), hdr_t, bold=True, font_size=9,
+                      color=WHITE, align=align, bg_color=NAVY)
+
+        for ri, brow in enumerate(df.itertuples(index=False), start=1):
+            bg = LIGHT_GRAY if ri % 2 == 0 else WHITE
+            fpr = getattr(brow, "front_pack_rate", None)
+            gap = getattr(brow, "avg_swim_gap_leader", None)
+            ema = getattr(brow, "ema_swim_sec_5", None)
+            nrace = getattr(brow, "n_swim_results", None)
+            name = getattr(brow, "athlete_full_name", None) or getattr(brow, "athlete_name", "—")
+            # Highlight USA athletes (the team's focus)
+            country = (getattr(brow, "athlete_country_name", None) or "").lower()
+            is_usa = country in ("united states", "usa")
+            name_color = RED if is_usa else DARK_GRAY
+            fpr_str  = f"{fpr * 100:.0f}%" if (fpr is not None and not pd.isna(fpr)) else "—"
+            gap_str  = f"{gap:+.1f}" if (gap is not None and not pd.isna(gap)) else "—"
+            ema_str  = seconds_to_mmss(ema) if (ema is not None and not pd.isna(ema)) else "—"
+            nrace_str = f"{int(nrace)}" if (nrace is not None and not pd.isna(nrace)) else "—"
+            cells = [
+                (str(ri),   bg, NAVY,       True,  PP_ALIGN.CENTER),
+                (str(name), bg, name_color, is_usa, PP_ALIGN.LEFT),
+                (fpr_str,   bg, DARK_GRAY,  True,  PP_ALIGN.CENTER),
+                (gap_str,   bg, DARK_GRAY,  False, PP_ALIGN.CENTER),
+                (ema_str,   bg, DARK_GRAY,  False, PP_ALIGN.CENTER),
+                (nrace_str, bg, MID_GRAY,   False, PP_ALIGN.CENTER),
+            ]
+            for ci, (val, c_bg, c_color, c_bold, c_align) in enumerate(cells):
+                _set_cell(tbl.cell(ri, ci), val,
+                          font_size=8.5, bold=c_bold, color=c_color,
+                          bg_color=c_bg, align=c_align)
+
+    # ── Footer caption ───────────────────────────────────────────────────────
+    _add_textbox(slide,
+                 "Lead Pack % = fraction of recent races finishing the swim in pack 1.   "
+                 "Avg Gap = mean seconds behind the swim leader.   "
+                 "EWMA Swim = exponentially-weighted moving average of the last 5 swim splits.   "
+                 "USA athletes highlighted in red.   "
+                 "Races column = sample size (small samples warrant caution).   "
+                 "Features from tri_analysis.prediction.features.build_features_for_program.",
+                 Inches(0.3), Inches(7.0), Inches(12.73), Inches(0.35),
+                 font_size=8, italic=True, color=MID_GRAY, align=PP_ALIGN.CENTER)
+    return True
 
 
 def add_travel_load_slide(prs: Presentation, venue: str) -> bool:
@@ -2626,6 +3684,25 @@ def add_travel_load_slide(prs: Presentation, venue: str) -> bool:
 # Used to populate the venue intro slide. When a venue has no historical race
 # results, this is the primary way an athlete gets a feel for the course.
 VENUE_PREVIEW: dict[str, dict] = {
+    "antofagasta": {
+        "narrative": (
+            "First-time Americas Triathlon & Para Championships host. Antofagasta sits on Chile's "
+            "northern Pacific coast where the cold Humboldt Current meets the Atacama Desert — "
+            "expect a cool, dry, light-wind race in Southern Hemisphere winter (avg high 18 °C). "
+            "Elite/U23 athletes contest a Standard race on Saturday with a bike circuit slightly "
+            "longer than typical (8 × 5.414 km = 43.3 km), and the swim uses a distinctive "
+            "beach-exit-and-re-entry between laps. Expect a wetsuit race in 14–16 °C ocean water."
+        ),
+        "features": [
+            "Pacific Ocean swim — Humboldt-cold (~14–16 °C) — Standard format swims 2 laps with a beach exit + re-entry between them.",
+            "Bike: 8 × 5.414 km laps (43.3 km — ~3 km longer than standard 40 km) along Av República de Croacia ↔ Av Ejército. Flat, fast, exposed to ocean breeze.",
+            "Run: 4 × 2.5 km laps on Av Grecia coastal road — flat asphalt out-and-back, fast splits in cool conditions.",
+            "First-ever AT Championships in Antofagasta — no prior race-day data; weather climatology + Pacific SST will drive prep.",
+        ],
+        "format_label":   "Standard Triathlon (Elite)",
+        "race_info_url":  "https://events.triathlon.org/2026-americas-triathlon-championships-antofagasta-/race-info",
+        "race_info_text": "Race Info | 2026 Americas Triathlon & Para Championships Antofagasta",
+    },
     "montreal": {
         "narrative": (
             "World Triathlon Para Series Montréal returns to Parc Jean-Drapeau for the 2026 "
@@ -2688,6 +3765,39 @@ VENUE_PREVIEW: dict[str, dict] = {
 # Each row: (time_label, activity_text, is_highlighted). Highlighted rows render
 # in red (used for start times and mandatory meetings).
 EVENT_SCHEDULES: dict[str, dict] = {
+    "antofagasta": {
+        "title":      "2026 Americas Triathlon & Para Championships — Antofagasta",
+        "date_range": "July 3 – 5, 2026",
+        "venue_note": "Balneario Municipal, Av República de Croacia, Antofagasta (CLT, UTC-4)",
+        "race_starts": [("Elite race window", "10:00"), ("Mid-day", "12:00")],
+        "days": [
+            ("Fri • July 3", "Familiarization & Briefing", [
+                ("All day",       "Elite / Junior Cycling familiarization", False),
+                ("All day",       "Elite / Junior Swimming familiarization", False),
+                ("All day",       "Para Triathlon Cycling + Swim familiarizations", False),
+                ("13:00 – 18:00", "Age-Group Registration / Kit delivery — ENJOY Antofagasta", False),
+                ("16:00 – 16:45", "★ Elite / Junior briefing — ENJOY Antofagasta", True),
+                ("16:45 – 18:15", "Elite / Junior Registration / Kit delivery", False),
+            ]),
+            ("Sat • July 4", "CHAMPIONSHIP RACE DAY", [
+                ("AM",            "★ Junior Women Championship — Sprint", True),
+                ("AM",            "★ Junior Men Championship — Sprint", True),
+                ("Late AM",       "★ Elite / U23 Women Championship — STANDARD", True),
+                ("Mid-day",       "★ Elite / U23 Men Championship — STANDARD", True),
+                ("15:00 – 18:00", "Age-Group Registration / Kit delivery", False),
+                ("16:00 – 16:45", "Para Triathlon Championship Briefing", False),
+                ("16:45",         "Youth Championship Briefing", False),
+                ("18:00",         "Age-Group Championship Briefing", False),
+            ]),
+            ("Sun • July 5", "Para + AG + Relay", [
+                ("AM",            "★ Para Triathlon Championship — Sprint", True),
+                ("AM",            "Youth Women Championship — Super Sprint", False),
+                ("AM",            "Youth Men Championship — Super Sprint", False),
+                ("Mid-day",       "Age-Group Championship — Standard", False),
+                ("PM",            "2×2 Mixed Relay — Elite + Juniors", False),
+            ]),
+        ],
+    },
     "montreal": {
         "title":      "2026 World Triathlon Para Series Montréal — Race Week",
         "date_range": "June 24 – 27, 2026",
@@ -3869,14 +4979,16 @@ def add_who_to_watch_slide(prs: Presentation, engine, venue: str,
                      panel_w - Inches(0.2), Inches(0.32),
                      font_size=14, bold=True, color=WHITE, align=PP_ALIGN.CENTER)
 
+        WHO_TO_WATCH_LIMIT = 10
         rankings_df = query_top_by_world_ranking(engine, gender,
                                                  on_startlist_event_id=upcoming_event_id,
-                                                 limit=3)
-        rankings_label = "Top 3 Ranked on Startlist" if (upcoming_event_id and not rankings_df.empty) else "Top 3 by World Ranking"
+                                                 limit=WHO_TO_WATCH_LIMIT)
+        rankings_label = f"Top {WHO_TO_WATCH_LIMIT} Ranked on Startlist" if (upcoming_event_id and not rankings_df.empty) else f"Top {WHO_TO_WATCH_LIMIT} by World Ranking"
         if rankings_df.empty and upcoming_event_id:
             rankings_df = query_top_by_world_ranking(engine, gender,
-                                                     on_startlist_event_id=None, limit=3)
-            rankings_label = "Top 3 by World Ranking (no startlist data yet)"
+                                                     on_startlist_event_id=None,
+                                                     limit=WHO_TO_WATCH_LIMIT)
+            rankings_label = f"Top {WHO_TO_WATCH_LIMIT} by World Ranking (no startlist data yet)"
 
         sub_top = panel_top + Inches(0.5)
         sub_bar = slide.shapes.add_shape(1, left, sub_top, panel_w, Inches(0.3))
@@ -3891,30 +5003,31 @@ def add_who_to_watch_slide(prs: Presentation, engine, venue: str,
         tbl_top = sub_top + Inches(0.35)
         rank_cols = [("Rank", 0.8), ("Athlete", 3.6), ("Points", 1.6)]
         n_rows = 1 + max(len(rankings_df), 1)
+        row_h_in = 0.26  # tighter than the old 0.34 so 11 rows still fit
         tbl_shape = slide.shapes.add_table(n_rows, len(rank_cols), left, tbl_top,
-                                           panel_w, Inches(0.34 * n_rows + 0.1))
+                                           panel_w, Inches(row_h_in * n_rows + 0.05))
         tbl = tbl_shape.table
         for ci, (_, w) in enumerate(rank_cols):
             tbl.columns[ci].width = Inches(w)
         for ci, (hdr, _) in enumerate(rank_cols):
             _set_cell(tbl.cell(0, ci), hdr, bold=True, color=WHITE, bg_color=NAVY, font_size=10)
         if rankings_df.empty:
-            _set_cell(tbl.cell(1, 0), "—", font_size=10, bg_color=WHITE)
-            _set_cell(tbl.cell(1, 1), "No ranking data found", font_size=10, bg_color=WHITE,
+            _set_cell(tbl.cell(1, 0), "—", font_size=9.5, bg_color=WHITE)
+            _set_cell(tbl.cell(1, 1), "No ranking data found", font_size=9.5, bg_color=WHITE,
                       align=PP_ALIGN.LEFT, italic=True)
-            _set_cell(tbl.cell(1, 2), "—", font_size=10, bg_color=WHITE)
+            _set_cell(tbl.cell(1, 2), "—", font_size=9.5, bg_color=WHITE)
         else:
             for ri, r in enumerate(rankings_df.itertuples(index=False), start=1):
                 bg = LIGHT_GRAY if ri % 2 == 0 else WHITE
                 pts = f"{int(r.total_points):,}" if r.total_points else "—"
                 _set_cell(tbl.cell(ri, 0), str(int(r.rank_position)),
-                          font_size=10, bold=True, bg_color=bg)
+                          font_size=9.5, bold=True, bg_color=bg)
                 _set_cell(tbl.cell(ri, 1), str(r.athlete_name),
-                          font_size=10, bg_color=bg, align=PP_ALIGN.LEFT)
-                _set_cell(tbl.cell(ri, 2), pts, font_size=10, bg_color=bg)
+                          font_size=9.5, bg_color=bg, align=PP_ALIGN.LEFT)
+                _set_cell(tbl.cell(ri, 2), pts, font_size=9.5, bg_color=bg)
 
         # Prior-year podium block
-        podium_top = tbl_top + Inches(0.34 * n_rows + 0.4)
+        podium_top = tbl_top + Inches(row_h_in * n_rows + 0.25)
         podium_bar = slide.shapes.add_shape(1, left, podium_top, panel_w, Inches(0.3))
         podium_bar.fill.solid()
         podium_bar.fill.fore_color.rgb = RED
@@ -4017,6 +5130,22 @@ def main():
     parser.add_argument("--preview-only", action="store_true",
                         help="Suppress Elite gender-section slides (e.g. for Para Series venues where "
                              "historical Elite race data is not relevant to the upcoming race).")
+    parser.add_argument("--race-date", default=None,
+                        help="Override the race date (YYYY-MM-DD) used for forecast + SST lookups. "
+                             "Useful when the DB event_date is stale or when no event row exists yet.")
+    parser.add_argument("--race-tier", default=None,
+                        help="Override the race tier label used by the USA Rankings Snapshot slide "
+                             "for max-points lookup. One of: 'World Championship Series', "
+                             "'Continental Championships', 'World Cup', 'Continental Cup', "
+                             "'World Para Series', 'World Para Cup'.")
+    parser.add_argument("--continental-qff", type=float, default=None,
+                        help="Override the Continental Quality-of-Field Factor (e.g. 0.12 for "
+                             "Americas, 0.30 for Europe). If omitted, derived from recent same-region "
+                             "Continental Cup winners.")
+    parser.add_argument("--race-distance", default=None,
+                        choices=["sprint", "standard", "super_sprint", "long"],
+                        help="Override the race's distance category (used by feature build + "
+                             "swim-history matching). Useful when the DB row is stale.")
     args = parser.parse_args()
 
     fname = args.output or f"{args.venue.replace(' ', '_')}_{date.today()}.pptx"
@@ -4098,8 +5227,22 @@ def main():
     # where we have prior race history.
     upcoming = None
     if args.upcoming_event_id:
-        upcoming = {"event_id": int(args.upcoming_event_id), "event_date": None,
-                    "event_name": f"Upcoming event {args.upcoming_event_id}"}
+        # Look up the real event row for the supplied id so cat_name + event_name
+        # are populated (needed for tier / continent detection downstream).
+        eid = int(args.upcoming_event_id)
+        with engine.connect() as _c:
+            _r = _c.execute(text(
+                "SELECT event_id, MIN(event_date) AS event_date, "
+                "MIN(event_name) AS event_name, MIN(cat_name) AS cat_name "
+                "FROM events WHERE event_id = :eid GROUP BY event_id"
+            ), {"eid": eid}).fetchone()
+        if _r:
+            upcoming = {"event_id": eid, "event_date": _r[1],
+                        "event_name": _r[2], "cat_name": _r[3]}
+            print(f"  Upcoming event (CLI override): {upcoming['event_name']} ({upcoming['event_date']})")
+        else:
+            upcoming = {"event_id": eid, "event_date": None,
+                        "event_name": f"Upcoming event {eid}", "cat_name": None}
     else:
         upcoming = find_upcoming_event(engine, args.venue)
         if upcoming:
@@ -4124,8 +5267,13 @@ def main():
     add_course_map_slide(prs, args.venue, all_data, venue_content)
 
     # Sea-surface temp for race day (forecast if in window, else prior-years avg)
-    race_date_str = (str(pd.to_datetime(upcoming["event_date"]).date())
-                     if upcoming and upcoming.get("event_date") else None)
+    # CLI --race-date takes precedence over the DB upcoming-event date.
+    if args.race_date:
+        race_date_str = args.race_date
+        print(f"  Race date override (CLI): {race_date_str}")
+    else:
+        race_date_str = (str(pd.to_datetime(upcoming["event_date"]).date())
+                         if upcoming and upcoming.get("event_date") else None)
     sst_c, sst_src = (None, "unavailable")
     if coords and race_date_str:
         sst_c, sst_src = fetch_sst_for_race_day(coords[0], coords[1], race_date_str)
@@ -4159,6 +5307,38 @@ def main():
             prior_men={"event_id": prior_men["event_id"], "prog_id": prior_men["prog_id"]} if prior_men else None,
             prior_women={"event_id": prior_women["event_id"], "prog_id": prior_women["prog_id"]} if prior_women else None,
         )
+
+    # Top Swim Threats — uses the model's EWMA swim features on the startlist
+    if upcoming and add_top_swim_threats_slide(
+        prs, engine, args.venue,
+        upcoming_event_id=upcoming["event_id"],
+        distance_override=args.race_distance,
+    ):
+        print(f"  Top Swim Threats slide added")
+
+    # USA Rankings Snapshot — current World Triathlon rankings + max points at this race tier
+    race_cat_name = (args.race_tier
+                     or (upcoming.get("cat_name") if upcoming else None)
+                     or (events_df.iloc[0]["cat_name"] if not events_df.empty else None))
+    race_event_name = (upcoming.get("event_name") if upcoming
+                       else (events_df.iloc[0]["event_name"] if not events_df.empty else None))
+    if add_usa_rankings_snapshot_slide(prs, engine, args.venue,
+                                       race_cat_name=race_cat_name,
+                                       race_event_name=race_event_name,
+                                       qff_override=args.continental_qff,
+                                       ranking_type="world"):
+        print(f"  USA World Rankings Snapshot slide added (tier: {race_cat_name or 'unknown'})")
+
+    # USA Olympic Qualification Snapshot — separate slide using cats 11/12
+    if add_usa_rankings_snapshot_slide(prs, engine, args.venue,
+                                       race_cat_name=race_cat_name,
+                                       race_event_name=race_event_name,
+                                       ranking_type="olympic"):
+        print(f"  USA Olympic Qualification Snapshot slide added")
+
+    # Olympic Qualification Pace — Paris benchmark + per-tier finish targets + USA pace
+    if add_olympic_pace_slide(prs, engine, args.venue):
+        print(f"  Olympic Qualification Pace slide added")
 
     gender_sections = []
     if args.preview_only:

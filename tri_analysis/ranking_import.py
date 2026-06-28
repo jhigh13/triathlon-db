@@ -19,6 +19,9 @@ load_dotenv(override=True)
 # 13-16: Current World Triathlon global/series rankings used in the prediction stack.
 # 35-44: Continental Points Lists (Europe, Americas, Africa, Asia, Oceania x Men/Women)
 RANKING_CATEGORIES = {
+    # Olympic qualification window (LA 2028 cycle)
+    11: "Olympic Qualification - Male",
+    12: "Olympic Qualification - Female",
     # Global
     13: "World Rankings - Male",
     14: "World Rankings - Female",

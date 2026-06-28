@@ -1,0 +1,53 @@
+Database tables and conflict index ensured.
+Fetching event IDs...
+Found 29 events from 2026-05-17 to 2026-06-22.
+Fetching program IDs for each event concurrently...
+Processing program data and race results concurrently...
+C:\Users\jhigh\Projects\triathlon-db\tri_analysis\build_database.py:172: FutureWarning: The behavior of DataFrame concatenation with empty or all-NA entries is deprecated. In a future version, this will no longer exclude empty or all-NA columns when determining the result dtypes. To retain the old behavior, exclude the relevant entries before the concat operation.
+  event_df = pd.concat(event_df, ignore_index=True) if event_df else pd.DataFrame()
+Processed 75 programs and 1866 race results.
+Recovering athlete-level relay results for 1 relay programs...
+Scanning athlete history for 102 same-event relay candidates...
+C:\Users\jhigh\Projects\triathlon-db\.venv\Lib\site-packages\urllib3\connectionpool.py:1097: InsecureRequestWarning: Unverified HTTPS request is being made to host 'api.triathlon.org'. Adding certificate verification is strongly advised. See: https://urllib3.readthedocs.io/en/latest/advanced-usage.html#tls-warnings
+  warnings.warn(
+C:\Users\jhigh\Projects\triathlon-db\.venv\Lib\site-packages\urllib3\connectionpool.py:1097: InsecureRequestWarning: Unverified HTTPS request is being made to host 'api.triathlon.org'. Adding certificate verification is strongly advised. See: https://urllib3.readthedocs.io/en/latest/advanced-usage.html#tls-warnings
+  warnings.warn(
+C:\Users\jhigh\Projects\triathlon-db\.venv\Lib\site-packages\urllib3\connectionpool.py:1097: InsecureRequestWarning: Unverified HTTPS request is being made to host 'api.triathlon.org'. Adding certificate verification is strongly advised. See: https://urllib3.readthedocs.io/en/latest/advanced-usage.html#tls-warnings
+  warnings.warn(
+C:\Users\jhigh\Projects\triathlon-db\.venv\Lib\site-packages\urllib3\connectionpool.py:1097: InsecureRequestWarning: Unverified HTTPS request is being made to host 'api.triathlon.org'. Adding certificate verification is strongly advised. See: https://urllib3.readthedocs.io/en/latest/advanced-usage.html#tls-warnings
+  warnings.warn(
+C:\Users\jhigh\Projects\triathlon-db\.venv\Lib\site-packages\urllib3\connectionpool.py:1097: InsecureRequestWarning: Unverified HTTPS request is being made to host 'api.triathlon.org'. Adding certificate verification is strongly advised. See: https://urllib3.readthedocs.io/en/latest/advanced-usage.html#tls-warnings
+  warnings.warn(
+C:\Users\jhigh\Projects\triathlon-db\.venv\Lib\site-packages\urllib3\connectionpool.py:1097: InsecureRequestWarning: Unverified HTTPS request is being made to host 'api.triathlon.org'. Adding certificate verification is strongly advised. See: https://urllib3.readthedocs.io/en/latest/advanced-usage.html#tls-warnings
+  warnings.warn(
+C:\Users\jhigh\Projects\triathlon-db\.venv\Lib\site-packages\urllib3\connectionpool.py:1097: InsecureRequestWarning: Unverified HTTPS request is being made to host 'api.triathlon.org'. Adding certificate verification is strongly advised. See: https://urllib3.readthedocs.io/en/latest/advanced-usage.html#tls-warnings
+  warnings.warn(
+Recovered 55 athlete-level relay result rows from athlete history.
+Fetching athlete information concurrently...
+Skipping athlete_id=160627 due to error: HTTPSConnectionPool(host='api.triathlon.org', port=443): Max retries exceeded with url: /v1/athletes/160627?output=basic (Caused by SSLError(SSLCertVerificationError(1, '[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate (_ssl.c:1028)')))
+Skipping athlete_id=170998 due to error: HTTPSConnectionPool(host='api.triathlon.org', port=443): Max retries exceeded with url: /v1/athletes/170998?output=basic (Caused by SSLError(SSLCertVerificationError(1, '[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate (_ssl.c:1028)')))
+C:\Users\jhigh\Projects\triathlon-db\.venv\Lib\site-packages\urllib3\connectionpool.py:1097: InsecureRequestWarning: Unverified HTTPS request is being made to host 'api.triathlon.org'. Adding certificate verification is strongly advised. See: https://urllib3.readthedocs.io/en/latest/advanced-usage.html#tls-warnings
+  warnings.warn(
+C:\Users\jhigh\Projects\triathlon-db\.venv\Lib\site-packages\urllib3\connectionpool.py:1097: InsecureRequestWarning: Unverified HTTPS request is being made to host 'api.triathlon.org'. Adding certificate verification is strongly advised. See: https://urllib3.readthedocs.io/en/latest/advanced-usage.html#tls-warnings
+  warnings.warn(
+C:\Users\jhigh\Projects\triathlon-db\.venv\Lib\site-packages\urllib3\connectionpool.py:1097: InsecureRequestWarning: Unverified HTTPS request is being made to host 'api.triathlon.org'. Adding certificate verification is strongly advised. See: https://urllib3.readthedocs.io/en/latest/advanced-usage.html#tls-warnings
+  warnings.warn(
+Skipping athlete_id=143310 due to error: HTTPSConnectionPool(host='api.triathlon.org', port=443): Max retries exceeded with url: /v1/athletes/143310?output=basic (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x000001AAB0E77110>, 'Connection to api.triathlon.org timed out. (connect timeout=None)'))
+Skipping athlete_id=170914 due to error: HTTPSConnectionPool(host='api.triathlon.org', port=443): Max retries exceeded with url: /v1/athletes/170914?output=basic (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x000001AAB0E75E50>, 'Connection to api.triathlon.org timed out. (connect timeout=None)'))
+Skipping athlete_id=137273 due to error: HTTPSConnectionPool(host='api.triathlon.org', port=443): Max retries exceeded with url: /v1/athletes/137273?output=basic (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x000001AAB0F9F9D0>, 'Connection to api.triathlon.org timed out. (connect timeout=None)'))
+Skipping athlete_id=129529 due to error: HTTPSConnectionPool(host='api.triathlon.org', port=443): Max retries exceeded with url: /v1/athletes/129529?output=basic (Caused by ConnectTimeoutError(<urllib3.connection.HTTPSConnection object at 0x000001AAB0F9C7D0>, 'Connection to api.triathlon.org timed out. (connect timeout=None)'))
+C:\Users\jhigh\Projects\triathlon-db\.venv\Lib\site-packages\urllib3\connectionpool.py:1097: InsecureRequestWarning: Unverified HTTPS request is being made to host 'api.triathlon.org'. Adding certificate verification is strongly advised. See: https://urllib3.readthedocs.io/en/latest/advanced-usage.html#tls-warnings
+  warnings.warn(
+C:\Users\jhigh\Projects\triathlon-db\.venv\Lib\site-packages\urllib3\connectionpool.py:1097: InsecureRequestWarning: Unverified HTTPS request is being made to host 'api.triathlon.org'. Adding certificate verification is strongly advised. See: https://urllib3.readthedocs.io/en/latest/advanced-usage.html#tls-warnings
+  warnings.warn(
+C:\Users\jhigh\Projects\triathlon-db\.venv\Lib\site-packages\urllib3\connectionpool.py:1097: InsecureRequestWarning: Unverified HTTPS request is being made to host 'api.triathlon.org'. Adding certificate verification is strongly advised. See: https://urllib3.readthedocs.io/en/latest/advanced-usage.html#tls-warnings
+  warnings.warn(
+Skipping athlete_id=124761 due to error: HTTPSConnectionPool(host='api.triathlon.org', port=443): Max retries exceeded with url: /v1/athletes/124761?output=basic (Caused by SSLError(SSLCertVerificationError(1, '[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate (_ssl.c:1028)')))
+Skipping athlete_id=195916 due to error: HTTPSConnectionPool(host='api.triathlon.org', port=443): Max retries exceeded with url: /v1/athletes/195916?output=basic (Caused by SSLError(SSLCertVerificationError(1, '[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: unable to get local issuer certificate (_ssl.c:1028)')))
+Warning: Dropped 1 rows from race_results_df due to null total_time.
+Writing DataFrames to database...
+Wrote 1319 rows to athlete
+  Enriched 6 events with Open-Meteo weather data
+Wrote 75 rows to events
+Wrote 1919 rows to race_results
+Database build complete.
