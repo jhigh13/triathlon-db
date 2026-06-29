@@ -1,8 +1,25 @@
 import json
+import re
 import time
 import requests
 import pandas as pd
 from datetime import datetime
+
+# Para sport-class tokens across both classification eras:
+#   2016+ : PTWC, PTS2-PTS5, PTVI
+#   pre-2016 (WPE era) : PT1-PT6 and the older TRI1-TRI6 (e.g. "Men's PT1")
+_PARA_CLASS_RE = re.compile(r"\b(PTWC|PTS[2-5]|PTVI|PT[1-6]|TRI[1-6])\b", re.IGNORECASE)
+
+
+def is_para_program_name(name: str | None) -> bool:
+    """True if a program name denotes a Para sport class (either era) or is
+    otherwise marked Para. Guides/handlers are intentionally excluded."""
+    if not name:
+        return False
+    up = name.upper()
+    if "GUIDE" in up or "HANDLER" in up:
+        return False
+    return bool(_PARA_CLASS_RE.search(name)) or " PARA" in up
 try:
     from tri_analysis.config import (
         HEADERS,
@@ -276,6 +293,7 @@ def fetch_program_ids(event_id, relay_only: bool = False) -> list:
             name in target_names
             or name in para_exact_names
             or name.startswith(para_prefixes)
+            or is_para_program_name(name)
         ):
             prog_ids.append(p.get("prog_id"))
     return prog_ids if prog_ids else []
@@ -312,17 +330,9 @@ def process_program_data(event_id, program_id) -> pd.DataFrame:
         elif "Olympic" in spec_names:
             row["prog_distance_category"] = "olympic"
 
-    # Derive is_para from program name (robust to variations)
-    prog_name = (row.get("prog_name") or "").upper()
-    row["is_para"] = (
-        prog_name.startswith("PTWC")
-        or prog_name.startswith("PTS2")
-        or prog_name.startswith("PTS3")
-        or prog_name.startswith("PTS4")
-        or prog_name.startswith("PTS5")
-        or prog_name.startswith("PTVI")
-        or " PARA" in prog_name
-    )
+    # Derive is_para from program name — covers both the 2016+ classification
+    # (PTWC/PTS2-5/PTVI) and the pre-2016 WPE era (PT1-6 / TRI1-6).
+    row["is_para"] = is_para_program_name(row.get("prog_name"))
 
     # prog_distances: extract laps and distance for Swim, Bike, Run
     seg_map = {"Swim": ("Swim_laps", "Swim_distance"),

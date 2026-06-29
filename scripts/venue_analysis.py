@@ -136,6 +136,23 @@ def adjust_outlier(series: pd.Series, threshold: float = 2.0) -> pd.Series:
     return s
 
 
+# World Triathlon appends a sport-class sub-code to Para athlete names:
+#   PTWC -> "... H1" / "... H2" (handcycle sub-class)
+#   PTVI -> "... B1" / "... B2" / "... B3" (vision sub-class)
+# Strip it so the displayed surname is the athlete, not the code.
+_PARA_SUBCLASS_RE = re.compile(r"\s+[HBT]\d\s*$", re.IGNORECASE)
+
+
+def _para_surname(full_name: str | None) -> str:
+    """Return a display surname for a Para athlete, stripping any trailing
+    sport-class sub-code (H1/H2/B1/B2/B3)."""
+    if not full_name:
+        return "—"
+    cleaned = _PARA_SUBCLASS_RE.sub("", str(full_name)).strip()
+    parts = cleaned.split()
+    return parts[-1] if parts else "—"
+
+
 def seconds_to_mmss(s: float | None, always_hours: bool = False) -> str:
     if s is None:
         return "—"
@@ -175,6 +192,49 @@ def query_venue_events(engine, venue: str, years_back: int, gender_filter: str) 
           AND ({gender_sql})
           AND (e.is_para IS NULL OR e.is_para IS NOT TRUE)
         ORDER BY e.event_date ASC
+    """)
+    with engine.connect() as conn:
+        df = pd.read_sql(sql, conn, params={
+            "venue_pat": f"%{venue}%",
+            "cutoff": cutoff,
+            "today": date.today(),
+        })
+    return df
+
+
+def query_venue_para_events(engine, venue: str, years_back: int,
+                             para_classes: list[str] | None = None) -> pd.DataFrame:
+    """Query Para Series events at a venue.
+
+    para_classes: optional list of class names to filter, e.g. ['PTS5', 'PTVI'].
+    If None, returns all Para sport classes.
+    Excludes future events (event_date <= today).
+    """
+    cutoff = date.today() - timedelta(days=years_back * 365)
+    class_clause = ""
+    if para_classes:
+        # Build an OR clause: prog_name ILIKE '%PTS5%' OR prog_name ILIKE '%PTVI%' ...
+        parts = " OR ".join(f"e.prog_name ILIKE '%{c}%'" for c in para_classes)
+        class_clause = f"AND ({parts})"
+
+    sql = text(f"""
+        SELECT
+            e.event_id, e.prog_id,
+            e.event_name, e.event_date, e.event_venue,
+            e.cat_name, e.prog_name, e.prog_distance_category,
+            e.swim_distance, e.bike_distance, e.run_distance,
+            e.swim_laps, e.bike_laps, e.run_laps,
+            e.temperature_air, e.temperature_water,
+            e.wind, e.wetsuit, e.weather,
+            e.wind_speed_kmh, e.wind_gust_kmh,
+            e.apparent_temp, e.precipitation_mm
+        FROM events e
+        WHERE (e.event_venue ILIKE :venue_pat OR e.event_name ILIKE :venue_pat)
+          AND e.event_date >= :cutoff
+          AND e.event_date <= :today
+          AND e.is_para = TRUE
+          {class_clause}
+        ORDER BY e.event_date ASC, e.prog_name ASC
     """)
     with engine.connect() as conn:
         df = pd.read_sql(sql, conn, params={
@@ -736,6 +796,7 @@ VENUE_COORDS_FALLBACK: dict[str, tuple[float, float]] = {
     "abu dhabi": (24.466,  54.367),
     "quiberon":  (47.485,  -3.114),
     "montreal":  (45.503, -73.534),   # Parc Jean-Drapeau, Notre-Dame Island
+    "antofagasta": (-23.684, -70.411),  # Balneario Municipal, Av. República de Croacia
 }
 
 
@@ -1279,9 +1340,37 @@ def fig_to_image(fig) -> io.BytesIO:
     return buf
 
 
+# ── Bullet helpers ─────────────────────────────────────────────────────────────
+
+def _clean_bullet(s: str) -> str:
+    """Drop em/en/hyphen dashes used as separators inside bullet text — they read
+    as AI-generated. Spaced dashes become commas; numeric ranges like 06:15–06:45
+    (no surrounding spaces) are left intact."""
+    out = re.sub(r"\s+[—–-]\s+", ", ", str(s))
+    out = re.sub(r",\s*,", ",", out)   # collapse any accidental double commas
+    return out.strip()
+
+
+def _render_tactical_notes(slide, notes, left_in: float, top_in: float,
+                           width_in: float, bottom_in: float,
+                           font_size: float = 12.0):
+    """Render bullet notes evenly distributed between top_in and bottom_in."""
+    notes = [n for n in (notes or []) if n]
+    if not notes:
+        return
+    avail = max(0.3, bottom_in - top_in)
+    step = max(0.34, min(0.72, avail / len(notes)))
+    for i, note in enumerate(notes):
+        _add_textbox(slide, f"•  {_clean_bullet(note)}",
+                     Inches(left_in), Inches(top_in + i * step),
+                     Inches(width_in), Inches(step - 0.02),
+                     font_size=font_size, color=DARK_GRAY)
+
+
 # ── Slide builders ─────────────────────────────────────────────────────────────
 
-def add_title_slide(prs: Presentation, venue: str, years_back: int):
+def add_title_slide(prs: Presentation, venue: str, years_back: int,
+                    analysis_label: str = "Elite Analysis"):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
 
     # Full navy background
@@ -1318,7 +1407,7 @@ def add_title_slide(prs: Presentation, venue: str, years_back: int):
         when_str = date.today().strftime("%B %Y")
     elif when_str.isdigit():  # year-only
         when_str = sched.get("date_range", date.today().strftime("%B %Y"))
-    _add_textbox(slide, f"Elite Analysis  ·  {when_str}",
+    _add_textbox(slide, f"{analysis_label}  ·  {when_str}",
                  Inches(0.5), Inches(4.3), Inches(11.8), Inches(0.6),
                  font_size=18, color=RGBColor(0xAA, 0xBB, 0xDD), align=PP_ALIGN.CENTER)
 
@@ -1327,7 +1416,7 @@ def add_title_slide(prs: Presentation, venue: str, years_back: int):
                  font_size=14, color=RGBColor(0x80, 0x90, 0xB0), align=PP_ALIGN.CENTER)
 
 
-def add_section_divider(prs: Presentation, gender: str):
+def add_section_divider(prs: Presentation, gender: str, prefix: str = "ELITE "):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     bg = slide.shapes.add_shape(1, Inches(0), Inches(0), SLIDE_W, SLIDE_H)
     bg.fill.solid()
@@ -1344,7 +1433,7 @@ def add_section_divider(prs: Presentation, gender: str):
     rule.fill.fore_color.rgb = WHITE
     rule.line.fill.background()
 
-    _add_textbox(slide, f"ELITE {gender.upper()}",
+    _add_textbox(slide, f"{prefix}{gender.upper()}",
                  Inches(0.8), Inches(2.3), Inches(11.5), Inches(1.8),
                  font_size=60, bold=True, color=WHITE, align=PP_ALIGN.CENTER)
 
@@ -1894,6 +1983,197 @@ def add_weather_slide(prs: Presentation, rows: list[dict], gender: str, venue: s
                  font_size=9, color=MID_GRAY, italic=True)
 
 
+# Sport-class display order for Para tables/charts.
+_PARA_CLASS_ORDER = ["PTWC", "PTS2", "PTS3", "PTS4", "PTS5", "PTVI"]
+
+
+def _para_class_sort_key(label: str) -> int:
+    up = label.upper()
+    for i, c in enumerate(_PARA_CLASS_ORDER):
+        if c in up:
+            return i
+    return 99
+
+
+def _para_gender_progs(para_events_df: pd.DataFrame, gender: str,
+                       para_classes: list[str] | None) -> list[tuple[str, str]]:
+    """Ordered list of (class_label, full_prog_name) for a single gender.
+
+    Matches the gender on the final program-name token so 'Women' is not caught
+    by an 'endswith("men")' test. Honours an optional para_classes filter.
+    """
+    progs: set[tuple[str, str]] = set()
+    for pn in para_events_df["prog_name"].dropna().unique():
+        parts = pn.rsplit(" ", 1)
+        if len(parts) != 2 or parts[1].lower() != gender.lower():
+            continue
+        label = parts[0].strip()
+        if para_classes and not any(pc.upper() in label.upper() for pc in para_classes):
+            continue
+        progs.add((label, pn))
+    return sorted(progs, key=lambda t: _para_class_sort_key(t[0]))
+
+
+def add_para_results_summary_slide(prs: Presentation, para_events_df: pd.DataFrame,
+                                   engine, venue: str, gender: str,
+                                   para_classes: list[str] | None):
+    """Para Series results summary for one gender — one row per event-year, one
+    column per sport class, cell = winning athlete surname + total time."""
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    add_slide_chrome(slide, f"Para Series Results  —  {gender}", venue)
+
+    progs = _para_gender_progs(para_events_df, gender, para_classes)
+    prog_names = [pn for _, pn in progs]
+    sub = para_events_df[para_events_df.prog_name.isin(prog_names)]
+    if not progs or sub.empty:
+        _add_textbox(slide, f"No Para {gender} results found for this venue in the selected period.",
+                     Inches(0.3), Inches(3.5), Inches(12.73), Inches(0.5),
+                     font_size=14, color=DARK_GRAY, italic=True, align=PP_ALIGN.CENTER)
+        return
+
+    # Winner per (event_id, prog_name)
+    winners: dict[tuple, dict] = {}
+    for _, row in sub.iterrows():
+        winners[(int(row.event_id), row.prog_name)] = query_winner(
+            engine, int(row.event_id), int(row.prog_id))
+
+    # One row per event-year, dropping years where no class produced a winner
+    events = (sub.drop_duplicates(subset=["event_id"])
+                 .sort_values("event_date")[["event_id", "event_date"]]
+                 .to_dict("records"))
+    def _ev_has_data(eid: int) -> bool:
+        for pn in prog_names:
+            w = winners.get((eid, pn)) or {}
+            if w.get("winner_name") or w.get("winner_time"):
+                return True
+        return False
+
+    events = [ev for ev in events if _ev_has_data(int(ev["event_id"]))]
+    if not events:
+        _add_textbox(slide, f"No completed Para {gender} races found for this venue.",
+                     Inches(0.3), Inches(3.5), Inches(12.73), Inches(0.5),
+                     font_size=14, color=DARK_GRAY, italic=True, align=PP_ALIGN.CENTER)
+        return
+
+    # Columns: Year | Date | <one per class>
+    fixed_cols = [("Year", 0.7), ("Date", 0.95)]
+    class_w = (12.73 - sum(w for _, w in fixed_cols)) / max(len(progs), 1)
+    all_cols = fixed_cols + [(label, class_w) for label, _ in progs]
+
+    n_rows = 1 + len(events)
+    row_h = min(0.65, 5.6 / n_rows)
+    total_w = sum(w for _, w in all_cols)
+    scale = 12.73 / total_w
+
+    tbl_shape = slide.shapes.add_table(
+        n_rows, len(all_cols), Inches(0.3), Inches(1.25),
+        Inches(12.73), Inches(row_h * n_rows))
+    tbl = tbl_shape.table
+    for ci, (_, w) in enumerate(all_cols):
+        tbl.columns[ci].width = Inches(w * scale)
+
+    for ci, (name, _) in enumerate(all_cols):
+        _set_cell(tbl.cell(0, ci), name, bold=True, font_size=11,
+                  color=WHITE, align=PP_ALIGN.CENTER, bg_color=NAVY)
+
+    for ri, ev in enumerate(events, start=1):
+        bg = LIGHT_GRAY if ri % 2 == 0 else WHITE
+        eid = int(ev["event_id"])
+        _set_cell(tbl.cell(ri, 0), str(pd.to_datetime(ev["event_date"]).year),
+                  bold=True, font_size=11, bg_color=bg)
+        _set_cell(tbl.cell(ri, 1), pd.to_datetime(ev["event_date"]).strftime("%b %d"),
+                  font_size=10.5, bg_color=bg)
+        for ci_offset, (_, pn) in enumerate(progs):
+            ci = len(fixed_cols) + ci_offset
+            w = winners.get((eid, pn)) or {}
+            name_raw = w.get("winner_name")
+            t_str = str(w.get("winner_time") or "")
+            t_mm = seconds_to_mmss(parse_time_to_seconds(t_str)) if t_str else None
+            if not name_raw and not t_mm:
+                _set_cell(tbl.cell(ri, ci), "—", font_size=9, color=MID_GRAY, bg_color=bg)
+                continue
+            # Name may be absent in older Para records — still surface the
+            # winning time so the course record / trend stays readable.
+            surname = _para_surname(name_raw) if name_raw else "n/a"
+            _set_cell(tbl.cell(ri, ci), f"{surname}\n{t_mm or '—'}",
+                      font_size=9, bg_color=bg)
+
+    _add_textbox(
+        slide,
+        f"World Para Series {gender} winners by sport class. Surname + winning total time. "
+        "Years with no completed racing are omitted.",
+        Inches(0.3), Inches(7.08), Inches(12.73), Inches(0.25),
+        font_size=9, italic=True, color=MID_GRAY, align=PP_ALIGN.CENTER,
+    )
+
+
+def add_para_split_trend_slide(prs: Presentation, para_events_df: pd.DataFrame,
+                               engine, venue: str, gender: str,
+                               para_classes: list[str] | None,
+                               split: str = "total", split_label: str = "Winning Time"):
+    """Per-gender trend chart: fastest <split> by sport class across years."""
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    add_slide_chrome(slide, f"{split_label} Trends  —  Para {gender}", venue)
+
+    progs = _para_gender_progs(para_events_df, gender, para_classes)
+    if not progs:
+        _add_textbox(slide, f"No Para {gender} split data available.",
+                     Inches(0.3), Inches(3.5), Inches(12.73), Inches(0.5),
+                     font_size=14, color=DARK_GRAY, italic=True, align=PP_ALIGN.CENTER)
+        return
+
+    fast_key = f"{split}_fastest"
+    # class_label -> {year: fastest_split_seconds}
+    class_data: dict[str, dict[int, float]] = {}
+    for label, pn in progs:
+        match = para_events_df[para_events_df.prog_name == pn]
+        per_year: dict[int, float] = {}
+        for _, row in match.iterrows():
+            splits = query_splits(engine, int(row.event_id), int(row.prog_id))
+            val = splits.get(fast_key)
+            if val:
+                yr = pd.to_datetime(row.event_date).year
+                per_year[yr] = min(val, per_year.get(yr, val))
+        if per_year:
+            class_data[label] = per_year
+
+    all_years = sorted({yr for d in class_data.values() for yr in d})
+    if not all_years:
+        _add_textbox(slide, f"No {split_label.lower()} data available for Para {gender}.",
+                     Inches(0.3), Inches(3.5), Inches(12.73), Inches(0.5),
+                     font_size=14, color=DARK_GRAY, italic=True, align=PP_ALIGN.CENTER)
+        return
+
+    ordered_labels = [label for label, _ in progs if label in class_data]
+    fig, ax = plt.subplots(figsize=(12, 5.6), dpi=150)
+    fig.patch.set_facecolor("white")
+    palette = [C_NAVY, C_RED, C_LIGHT_BLUE, C_ORANGE, C_GREEN, C_GOLD, C_VIOLET, C_GRAY]
+    x = np.arange(len(all_years))
+    for i, label in enumerate(ordered_labels):
+        vals = [class_data[label].get(yr) for yr in all_years]
+        color = palette[i % len(palette)]
+        ax.plot(x, vals, marker="o", label=label, color=color, linewidth=1.8, markersize=6)
+        for xi, v in zip(x, vals):
+            if v is not None:
+                ax.annotate(seconds_to_mmss(v), (xi, v), xytext=(0, 8),
+                            textcoords="offset points", ha="center", fontsize=7.5,
+                            color=color, fontweight="bold")
+
+    ax.set_xticks(x)
+    ax.set_xticklabels([str(y) for y in all_years], rotation=45, fontsize=10)
+    ax.set_title(f"Fastest {split_label} by Sport Class per Year — {gender}",
+                 fontsize=13, pad=8, fontweight="bold")
+    ax.set_ylabel("Time (h:mm:ss)" if split == "total" else "Time (min:sec)", fontsize=11)
+    ax.yaxis.set_major_formatter(
+        mticker.FuncFormatter(lambda v, _: seconds_to_mmss(v))
+    )
+    ax.legend(fontsize=9, loc="upper right", ncols=min(3, max(1, len(ordered_labels) // 2)))
+    ax.grid(axis="y", alpha=0.3, linestyle="--")
+    ax.set_facecolor("white")
+    plt.tight_layout(pad=1.5)
+    slide.shapes.add_picture(fig_to_image(fig), Inches(0.3), Inches(1.25), Inches(12.73), Inches(5.95))
+
+
 def add_environmental_risk_slide(
     prs: Presentation, venue: str, unique_rows: list[dict]
 ):
@@ -1916,7 +2196,7 @@ def add_environmental_risk_slide(
 
     wx_shape = slide.shapes.add_table(
         n_rows, len(wx_cols),
-        Inches(0.3), Inches(1.28),
+        Inches(0.3), Inches(1.62),
         Inches(5.15), Inches(row_h * n_rows),
     )
     wx_tbl = wx_shape.table
@@ -1938,12 +2218,10 @@ def add_environmental_risk_slide(
         for ci, (v, (_, _, align)) in enumerate(zip(vals, wx_cols)):
             _set_cell(wx_tbl.cell(ri, ci), v, font_size=10, align=align, bg_color=bg)
 
-    # Weather section label
-    wx_bar = slide.shapes.add_shape(1, Inches(0.3), Inches(1.18), Inches(5.15), Inches(0.1))
-    wx_bar.fill.solid(); wx_bar.fill.fore_color.rgb = NAVY; wx_bar.line.fill.background()
-    _add_textbox(slide, "RACE-DAY WEATHER (08:00–11:00 local)",
-                 Inches(0.35), Inches(1.19), Inches(5.0), Inches(0.1),
-                 font_size=9.5, bold=True, color=NAVY)
+    # Weather section label (sits clearly above the table)
+    _add_textbox(slide, "RACE-DAY WEATHER (08:00 to 11:00 local)",
+                 Inches(0.3), Inches(1.24), Inches(5.15), Inches(0.3),
+                 font_size=11, bold=True, color=NAVY)
 
     # RIGHT: air quality table  (Year | PM2.5 | AQI | UV | Risk)
     def _aqi_label(aqi) -> str:
@@ -1964,7 +2242,7 @@ def add_environmental_risk_slide(
     ]
     aq_shape = slide.shapes.add_table(
         n_rows, len(aq_cols),
-        Inches(5.65), Inches(1.28),
+        Inches(5.65), Inches(1.62),
         Inches(4.45), Inches(row_h * n_rows),
     )
     aq_tbl = aq_shape.table
@@ -1986,11 +2264,11 @@ def add_environmental_risk_slide(
             _set_cell(aq_tbl.cell(ri, ci), v, font_size=10, align=align, bg_color=bg)
 
     _add_textbox(slide, "AIR QUALITY (Open-Meteo archive)",
-                 Inches(5.7), Inches(1.19), Inches(4.3), Inches(0.1),
-                 font_size=9.5, bold=True, color=NAVY)
+                 Inches(5.65), Inches(1.24), Inches(4.45), Inches(0.3),
+                 font_size=11, bold=True, color=NAVY)
 
     # ── Bottom: health / water quality risk section ───────────────────────────
-    tbl_bottom = Inches(1.28 + row_h * n_rows + 0.25)
+    tbl_bottom = Inches(1.62 + row_h * n_rows + 0.25)
 
     risk_bar = slide.shapes.add_shape(1, Inches(0.3), tbl_bottom, Inches(12.73), Inches(0.35))
     risk_bar.fill.solid(); risk_bar.fill.fore_color.rgb = RED; risk_bar.line.fill.background()
@@ -2016,13 +2294,14 @@ def add_environmental_risk_slide(
     y_offset = tbl_bottom + Inches(0.42)
     item_h = (SLIDE_H - y_offset - Inches(0.2)) / len(risk_items)
     for label, text in risk_items:
-        _add_textbox(slide, f"• {label}: {text}",
+        _add_textbox(slide, _clean_bullet(f"• {label}: {text}"),
                      Inches(0.4), y_offset, Inches(12.5), item_h,
                      font_size=10, color=DARK_GRAY)
         y_offset += item_h
 
     _add_textbox(slide,
-                 "Weather and AQ data: Open-Meteo historical archive (archive-api.open-meteo.com). "
+                 "Weather: Open-Meteo ERA5 archive (1940+). Air quality: Open-Meteo CAMS archive "
+                 "(coverage from ~Aug 2022; earlier years show blank). "
                  "EU AQI: Good ≤20, Fair ≤40, Moderate ≤60, Poor ≤80, Very Poor >80.",
                  Inches(0.3), Inches(7.18), Inches(12.73), Inches(0.22),
                  font_size=8, color=MID_GRAY, italic=True)
@@ -2056,8 +2335,8 @@ def add_course_differentiators_slide(
         "geography, setting, and character.]"
     )
     _add_textbox(slide, narrative,
-                 Inches(0.3), Inches(1.78), Inches(6.6), Inches(1.35),
-                 font_size=11, color=DARK_GRAY)
+                 Inches(0.3), Inches(1.78), Inches(6.6), Inches(1.4),
+                 font_size=14, color=DARK_GRAY)
 
     # Feature bullets header bar
     feat_bar = slide.shapes.add_shape(1, Inches(0.3), Inches(3.25), Inches(6.6), Inches(0.35))
@@ -2074,10 +2353,7 @@ def add_course_differentiators_slide(
         f"[PLACEHOLDER: Feature 3 — run character]",
         f"[PLACEHOLDER: Feature 4 — conditions]",
     ]
-    for i, feat in enumerate(features[:4]):
-        _add_textbox(slide, f"•  {feat}",
-                     Inches(0.4), Inches(3.7 + i * 0.72), Inches(6.4), Inches(0.7),
-                     font_size=11, color=DARK_GRAY)
+    _render_tactical_notes(slide, features[:5], 0.4, 3.72, 6.4, 7.05, font_size=12.5)
 
     # ── Right column: course at a glance ───────────────────────────────────────
     glance_bar = slide.shapes.add_shape(1, Inches(7.2), Inches(1.2), Inches(5.8), Inches(0.35))
@@ -2103,9 +2379,9 @@ def add_course_differentiators_slide(
         if not d:
             return "—"
         if laps and laps > 1 and p.get("loop_km"):
-            return f"{_fmt_d(d)} – {laps} laps × {_fmt_d(p['loop_km'])}"
+            return f"{_fmt_d(d)}, {laps} laps × {_fmt_d(p['loop_km'])}"
         if laps == 1:
-            return f"{_fmt_d(d)} – 1 lap"
+            return f"{_fmt_d(d)}, 1 lap"
         return _fmt_d(d)
 
     def _fmt_multi(p: dict) -> str:
@@ -2115,9 +2391,9 @@ def add_course_differentiators_slide(
         if not d:
             return "—"
         if laps and loop_km:
-            return f"{_fmt_d(d)} – {laps} laps × {loop_km:g} km"
+            return f"{_fmt_d(d)}, {laps} laps × {loop_km:g} km"
         if laps:
-            return f"{_fmt_d(d)} – {laps} laps"
+            return f"{_fmt_d(d)}, {laps} laps"
         return _fmt_d(d)
 
     # Prefer profile data; fall back to historical row for venues without profiles
@@ -2314,6 +2590,26 @@ BIKE_COURSE_PROFILES: dict[str, dict] = {
             "Slightly longer than standard sprint — 22 km total over 4 × 5.5 km laps",
         ],
     },
+    "antofagasta": {
+        "source":        "2026 Americas Triathlon Championships Antofagasta — NF Information Package",
+        "loop_km":       5.41,
+        "loops":         8,
+        "total_km":      43.3,
+        "gain_per_lap_m":  None,
+        "loss_per_lap_m":  None,
+        "max_grade_pos":   None,
+        "max_grade_neg":   None,
+        "avg_grade_pct":   None,
+        "wind":           "Pacific coast (sea breeze)",
+        "surface":        "Closed coastal avenues, Av. República de Croacia and Av. Ejército",
+        "key_features": [
+            "Standard bike is 43.3 km, eight laps of 5.41 km on closed seafront avenues",
+            "Southbound on Av. República de Croacia then Av. Ejército to the turnaround at the Military Facility access",
+            "Northbound return on Av. Ejército then Av. República de Croacia to the turnaround at Plaza Rotonda Croacia Grecia",
+            "Pancake-flat coastal road; the two turnarounds each lap reward bike handling and repeated re-accelerations",
+            "Exposed oceanfront means a sea breeze can build through the morning and reshape the lead group",
+        ],
+    },
     "huatulco": {
         "source":        "asdeporte 2026 Elite Cycling course map",
         "loop_km":       5.0,
@@ -2379,6 +2675,29 @@ SWIM_COURSE_PROFILES: dict[str, dict] = {
         "missing": [
             "Buoy configuration and turn structure (not in race brief)",
             "Day-of water temperature (Atlantic SST will be filled from Open-Meteo Marine forecast)",
+        ],
+    },
+    "antofagasta": {
+        "source":            "2026 Americas Triathlon Championships Antofagasta — NF Information Package",
+        "total_km":          1.5,
+        "laps":              2,
+        "loop_km":           0.75,
+        "layout":            "Pacific Ocean off the Balneario Municipal, buoy-marked, counter-clockwise",
+        "format":            "Open ocean, Pacific coast cooled by the Humboldt Current",
+        "start_type":        "Beach start on the Balneario Municipal esplanade",
+        "water_temp_c":      None,
+        "expected_water_temp_range_c": (15.0, 17.0),
+        "wetsuit_note":      "Cold Pacific. Humboldt Current keeps July water near 15 to 17 C, so expect a wetsuit race (mandatory below 16 C, optional 16 to 20 C)",
+        "key_features": [
+            "Standard swim is two laps of 750 m with a beach exit and re-entry between laps",
+            "Counter-clockwise, buoy-marked rectangle directly in front of the Balneario Municipal",
+            "Cold Humboldt-cooled water near 15 to 17 C makes wetsuits and a strong first 100 m breath plan important",
+            "Pacific swell and sea state can build off the open coast, so practice sighting on larger surface waves",
+            "Short beach run from the water into a transition that lines the seafront esplanade",
+        ],
+        "missing": [
+            "Exact buoy count and turn layout (confirmed at familiarisation)",
+            "Day-of water temperature (filled from Open-Meteo Marine when available)",
         ],
     },
     "huatulco": {
@@ -2451,6 +2770,29 @@ RUN_COURSE_PROFILES: dict[str, dict] = {
             "Exact turnaround coordinates (route map TBD in the guide PDF)",
         ],
     },
+    "antofagasta": {
+        "source":            "2026 Americas Triathlon Championships Antofagasta — NF Information Package",
+        "total_km":          10.0,
+        "laps":              4,
+        "loop_km":           2.5,
+        "surface":           "Paved seafront, Avenida Grecia along the Balneario",
+        "gain_per_lap_m":    None,
+        "loss_per_lap_m":    None,
+        "max_grade_pos":     None,
+        "max_grade_neg":     None,
+        "avg_grade_pct":     None,
+        "heat_risk":         "LOW",
+        "key_features": [
+            "Standard run is 10 km, four laps of 2.5 km on a flat paved seafront",
+            "Heads north on Avenida Grecia, west-side lane, to the turnaround at Antonio Toro Street",
+            "Returns south on Avenida Grecia to the esplanade in front of the Balneario Municipal",
+            "Flat and fast with eight passes through the turnaround zones over the four laps",
+            "Cool Atacama winter air near 18 C keeps heat stress low even for the midday fields",
+        ],
+        "missing": [
+            "Aid-station spacing and penalty-box location (confirmed in the athlete guide)",
+        ],
+    },
     "huatulco": {
         "source":            "asdeporte 2026 Elite Run course map (Carrera Elite — Boulevard Santa Cruz)",
         "total_km":          5.0,
@@ -2478,6 +2820,39 @@ RUN_COURSE_PROFILES: dict[str, dict] = {
 
 # ── Travel & arrival data (per venue, origin = Denver, CO USAT HQ) ───────────
 TRAVEL_PROFILES: dict[str, dict] = {
+    "antofagasta": {
+        "origin":          "Denver, CO → Antofagasta race week",
+        "core_read": (
+            "Denver to Antofagasta is a long-haul with no nonstop option. The cleanest athlete "
+            "route runs through a US gateway to Santiago (SCL), then a domestic Chilean flight to "
+            "Andrés Sabella Gálvez Airport (ANF), about 2 hours. Total door-to-door is typically a "
+            "full day with an overnight long-haul leg. The time-zone shift is small (Antofagasta is "
+            "2 hours ahead of Denver), so jet lag is mild, but arrive several days early to absorb "
+            "the travel and use the Friday familiarisation windows."
+        ),
+        "stats": [
+            ("Primary route",     "DEN → SCL → ANF", "2 stops likely"),
+            ("Flight time",       "~16 to 20h",      "Plus layovers"),
+            ("Time zones",        "+2h",             "Antofagasta ahead of Denver"),
+            ("Arrival airport",   "ANF (A. Sabella)","~25 km north of city"),
+            ("Transfer Distance", "ANF → venue",     "~30 min by car"),
+        ],
+        "hotel_title": "Host Hotel / Official Accommodation Read",
+        "hotel_bullets": [
+            "Official hotel: Enjoy Antofagasta, Av. Angamos 1455 (+56 55 265 3000), the venue for all briefings.",
+            "Recommended overflow: Holiday Inn Express Antofagasta (Av. Grecia esq. Antonio Poupin 1490).",
+            "Also recommended: Hotel Florencia Suites & Apartments, and NH Antofagasta.",
+            "All recommended hotels sit close to the Balneario Municipal race venue with easy access to the course.",
+        ],
+        "food_title": "Food / Grocery Options Near Hotel + Venue",
+        "food_bullets": [
+            "Best stock-up: large supermarkets (Jumbo, Líder, Unimarc) and the Mall Plaza Antofagasta near the coast road.",
+            "Quick basics: pharmacies (Cruz Verde, Salcobrand) for electrolytes and sports nutrition; convenience stores along Av. Grecia.",
+            "Restaurant read: seafront restaurants line the Balneario; plan simple athlete meals and be cautious with raw shellfish.",
+            "Venue note: the race precinct is compact and walkable from the beachfront hotels, so bring race-morning food from the hotel.",
+            "Climate note: dry Atacama winter air is comfortable but dehydrating; keep fluids and lip/skin protection topped up.",
+        ],
+    },
     "montreal": {
         "origin":          "Denver, CO → Montréal race week",
         "core_read": (
@@ -2664,6 +3039,26 @@ VENUE_PREVIEW: dict[str, dict] = {
         "race_info_url":  "https://events.triathlon.org/2026-world-triathlon-championship-series-quiberon",
         "race_info_text": "Race Info | 2026 World Triathlon Championship Series Quiberon",
     },
+    "antofagasta": {
+        "narrative": (
+            "The 2026 Americas Triathlon Championships bring continental title racing to Antofagasta "
+            "on Chile's northern desert coast. Racing is staged at the Balneario Municipal on Avenida "
+            "República de Croacia, where the elite and U23 fields contest the standard distance on "
+            "Saturday 4 July. Expect a cold Pacific swim cooled by the Humboldt Current, a flat, fast "
+            "multi-lap bike on closed coastal avenues, and a flat seafront run. July is dry Atacama "
+            "winter: mild highs near 18 C, cool mornings, and almost no rain."
+        ),
+        "features": [
+            "Cold Pacific swim off the Balneario Municipal; the Humboldt Current holds water near 15 to 17 C, so plan for a wetsuit",
+            "Standard bike of 43.3 km over eight closed-road laps with a turnaround at each end; flat but technical on the U-turns",
+            "Flat 10 km seafront run, four laps on Avenida Grecia, with cool winter air keeping heat stress low",
+            "Compact, spectator-friendly venue with transition, finish, and athlete services along the beachfront esplanade",
+            "Continental title race; Elite and U23 contest the standard distance on Saturday 4 July",
+        ],
+        "format_label":   "Standard-Distance Triathlon",
+        "race_info_url":  "https://events.triathlon.org/2026-americas-triathlon-championships-antofagasta-",
+        "race_info_text": "Race Info | 2026 Americas Triathlon Championships Antofagasta",
+    },
     "huatulco": {
         "narrative": (
             "Huatulco's World Cup returns to the Bahía de Santa Cruz on Mexico's Pacific coast. "
@@ -2688,6 +3083,36 @@ VENUE_PREVIEW: dict[str, dict] = {
 # Each row: (time_label, activity_text, is_highlighted). Highlighted rows render
 # in red (used for start times and mandatory meetings).
 EVENT_SCHEDULES: dict[str, dict] = {
+    "antofagasta": {
+        "title":      "2026 Americas Triathlon Championships Antofagasta",
+        "date_range": "July 3 to 5, 2026",
+        "venue_note": "Balneario Municipal, Av. República de Croacia, Antofagasta, Chile (CLT, UTC-4)",
+        "race_date":  "2026-07-04",   # Elite / U23 standard race day
+        "days": [
+            ("Fri • July 3", "Familiarization & Briefing", [
+                ("Morning",       "Elite and Junior swim and bike familiarisation", False),
+                ("Morning",       "Para triathlon swim and bike familiarisation", False),
+                ("13:00 – 18:00", "Age-Group registration and kit collection", False),
+                ("16:00",         "★ Elite and Junior pre-race briefing", True),
+                ("16:45 – 18:15", "Elite and Junior registration and kit collection", False),
+            ]),
+            ("Sat • July 4", "CHAMPIONSHIP RACE DAY", [
+                ("TBD", "Junior Women Championship, Sprint", False),
+                ("TBD", "Junior Men Championship, Sprint", False),
+                ("TBD", "★ Elite / U23 Women Championship, Standard", True),
+                ("TBD", "★ Elite / U23 Men Championship, Standard", True),
+                ("16:00", "Para triathlon briefing", False),
+                ("18:00", "Age-Group briefing", False),
+            ]),
+            ("Sun • July 5", "Para / Youth / AG / Relay", [
+                ("TBD", "Para Triathlon Championship, Sprint", False),
+                ("TBD", "Youth Women Championship, Super Sprint", False),
+                ("TBD", "Youth Men Championship, Super Sprint", False),
+                ("TBD", "Age-Group Championship, Standard", False),
+                ("TBD", "2x2 Mixed Relay, Elite and Juniors", False),
+            ]),
+        ],
+    },
     "montreal": {
         "title":      "2026 World Triathlon Para Series Montréal — Race Week",
         "date_range": "June 24 – 27, 2026",
@@ -2982,33 +3407,13 @@ def add_bike_course_profile_slide(prs: Presentation, venue: str, all_rows: list[
                  stats_w - Inches(0.2), Inches(0.26),
                  font_size=12, bold=True, color=WHITE)
 
-    body_top = notes_top + Inches(0.4)
-    for i, note in enumerate(profile.get("key_features", [])):
-        _add_textbox(slide, f"•  {note}",
-                     stats_left + Inches(0.1),
-                     body_top + Inches(0.32 * i),
-                     stats_w - Inches(0.2), Inches(0.34),
-                     font_size=10.5, color=DARK_GRAY)
-
-    # ── Bottom: synthesized elevation profile chart (skip for flat courses) ───
     has_elev = profile.get("gain_per_lap_m") is not None
-    if not has_elev:
-        chart_left   = Inches(0.3)
-        chart_top    = Inches(5.6)
-        chart_width  = Inches(12.73)
-        chart_height = Inches(1.55)
-        ph = slide.shapes.add_shape(1, chart_left, chart_top, chart_width, chart_height)
-        ph.fill.solid()
-        ph.fill.fore_color.rgb = LIGHT_GRAY
-        ph.line.color.rgb = MID_GRAY
-        _add_textbox(slide,
-                     "Flat course — published profile shows no significant climbs.\n"
-                     "No elevation chart synthesized; if a race GPS FIT becomes available, "
-                     "real contours will replace this block.",
-                     chart_left, chart_top + Inches(0.5),
-                     chart_width, Inches(0.6),
-                     font_size=11, italic=True, color=MID_GRAY, align=PP_ALIGN.CENTER)
-    else:
+    notes_bottom = 5.3 if has_elev else 6.95
+    _render_tactical_notes(slide, profile.get("key_features", []),
+                           6.2, 4.45, 6.7, notes_bottom, font_size=12.0)
+
+    # ── Bottom: synthesized elevation profile chart (only for hilly courses) ──
+    if has_elev:
         try:
             chart_buf = build_bike_profile_chart(profile)
             chart_left   = Inches(0.3)
@@ -3017,7 +3422,7 @@ def add_bike_course_profile_slide(prs: Presentation, venue: str, all_rows: list[
             chart_height = Inches(1.85)
             slide.shapes.add_picture(chart_buf, chart_left, chart_top, chart_width, chart_height)
             _add_textbox(slide,
-                         "Stylised — exact contours from a GPS-recorded race FIT would refine this.",
+                         "Stylised view; exact contours from a GPS-recorded race FIT would refine this.",
                          chart_left, chart_top + chart_height - Inches(0.05),
                          chart_width, Inches(0.22),
                          font_size=8.5, italic=True, color=MID_GRAY, align=PP_ALIGN.CENTER)
@@ -3196,13 +3601,10 @@ def _add_discipline_profile_slide(prs: Presentation, venue: str, discipline: str
                  right_w - Inches(0.2), Inches(0.26),
                  font_size=12, bold=True, color=WHITE)
 
-    body_top = notes_top + Inches(0.4)
-    for i, note in enumerate(profile.get("key_features", [])):
-        _add_textbox(slide, f"•  {note}",
-                     right_left + Inches(0.1),
-                     body_top + Inches(0.32 * i),
-                     right_w - Inches(0.2), Inches(0.34),
-                     font_size=10.5, color=DARK_GRAY)
+    # Distribute notes between the header and the 'missing' caveat strip (6.6).
+    notes_bottom = 6.5 if profile.get("missing") else 6.95
+    _render_tactical_notes(slide, profile.get("key_features", []),
+                           6.2, 4.35, 6.7, notes_bottom, font_size=12.0)
 
     # ── Bottom: 'Missing from race brief' caveat strip ───────────────────────
     missing = profile.get("missing") or []
@@ -4017,19 +4419,52 @@ def main():
     parser.add_argument("--preview-only", action="store_true",
                         help="Suppress Elite gender-section slides (e.g. for Para Series venues where "
                              "historical Elite race data is not relevant to the upcoming race).")
+    parser.add_argument("--para", action="store_true",
+                        help="Query Para Series events instead of (or in addition to) Elite events. "
+                             "Adds Para-specific results summary and run analysis slides.")
+    parser.add_argument("--para-class", default=None,
+                        help="Comma-separated Para sport classes to show, e.g. 'PTS5,PTVI,PTWC'. "
+                             "When omitted all classes found at the venue are included.")
+    parser.add_argument("--include-elite", action="store_true",
+                        help="In --para mode, also append the Elite gender-section slides. "
+                             "By default Para mode is Para-focused and suppresses Elite sections "
+                             "when Para data is present.")
     args = parser.parse_args()
 
     fname = args.output or f"{args.venue.replace(' ', '_')}_{date.today()}.pptx"
     if not os.path.isabs(fname):
-        os.makedirs(DEFAULT_OUTPUT_DIR, exist_ok=True)
-        fname = os.path.join(DEFAULT_OUTPUT_DIR, fname)
+        if os.path.dirname(fname):
+            # Relative path already includes a directory — just ensure it exists
+            os.makedirs(os.path.dirname(fname), exist_ok=True)
+        else:
+            # Bare filename — place it in the default output directory
+            os.makedirs(DEFAULT_OUTPUT_DIR, exist_ok=True)
+            fname = os.path.join(DEFAULT_OUTPUT_DIR, fname)
 
     print(f"Connecting to database...")
     engine = get_engine()
 
+    # Parse Para class filter
+    para_classes: list[str] | None = None
+    if args.para_class:
+        para_classes = [c.strip() for c in args.para_class.split(",") if c.strip()]
+
     print(f"Querying events at '{args.venue}' (past {args.years} years)...")
     events_df = query_venue_events(engine, args.venue, args.years, args.gender)
-    if events_df.empty:
+
+    # Para mode: also query Para events
+    para_events_df = pd.DataFrame()
+    if args.para:
+        para_events_df = query_venue_para_events(engine, args.venue, args.years, para_classes)
+        if not para_events_df.empty:
+            print(f"Found {len(para_events_df)} Para program(s) at '{args.venue}':")
+            for cls in sorted(para_events_df.prog_name.unique()):
+                count = len(para_events_df[para_events_df.prog_name == cls])
+                print(f"  {cls}: {count} editions")
+        else:
+            print(f"No Para events found for '{args.venue}'")
+
+    if events_df.empty and para_events_df.empty:
         # No prior race history. Continue in preview-only mode iff we have
         # static profile data + an upcoming event at this venue; otherwise abort.
         venue_key = args.venue.lower().strip()
@@ -4042,8 +4477,8 @@ def main():
             sys.exit(1)
         print(f"No prior race history for '{args.venue}' — building preview-only deck "
               f"from course profile data.")
-    else:
-        print(f"Found {len(events_df)} program(s):")
+    elif not events_df.empty:
+        print(f"Found {len(events_df)} Elite program(s):")
         for _, r in events_df.iterrows():
             print(f"  {r.event_date}  {r.event_name}  ({r.prog_name})")
 
@@ -4071,6 +4506,26 @@ def main():
         if row["event_id"] not in seen_eids:
             seen_eids.add(row["event_id"])
             unique_env_rows.append(row)
+
+    if args.para and not para_events_df.empty and not unique_env_rows:
+        # For Para-only decks with no Elite data: build minimal env rows from
+        # para event dates so the weather + env slides still render.
+        for _, ev_row in para_events_df.drop_duplicates("event_id").iterrows():
+            if int(ev_row.event_id) not in seen_eids:
+                seen_eids.add(int(ev_row.event_id))
+                unique_env_rows.append({
+                    "event_id": int(ev_row.event_id),
+                    "year": pd.to_datetime(ev_row.event_date).year,
+                    "date": ev_row.event_date,
+                    "event_name": ev_row.event_name,
+                    "temp_air": ev_row.temperature_air,
+                    "temp_water": ev_row.temperature_water,
+                    "wind_kmh": ev_row.wind_speed_kmh, "wind_raw": ev_row.wind,
+                    "humidity": None, "precip": None,
+                    "pm25": None, "aqi": None, "uv_index": None,
+                })
+        unique_env_rows.sort(key=lambda r: r["year"])
+        enrich_rows_with_openmeteo(unique_env_rows, coords)
 
     # ── Deep-dive trigger ─────────────────────────────────────────────────────
     n_men   = len(men_data)
@@ -4117,7 +4572,10 @@ def main():
     prs.slide_height = SLIDE_H
 
     all_data = men_data + women_data
-    add_title_slide(prs, args.venue, args.years)
+    title_label = ("Para Series Analysis"
+                   if (args.para and not para_events_df.empty)
+                   else "Elite Analysis")
+    add_title_slide(prs, args.venue, args.years, analysis_label=title_label)
     if add_race_week_schedule_slide(prs, args.venue):
         print(f"  Race-week schedule slide added (venue: {args.venue})")
     add_course_differentiators_slide(prs, args.venue, all_data, events_df, venue_content)
@@ -4126,6 +4584,12 @@ def main():
     # Sea-surface temp for race day (forecast if in window, else prior-years avg)
     race_date_str = (str(pd.to_datetime(upcoming["event_date"]).date())
                      if upcoming and upcoming.get("event_date") else None)
+    if not race_date_str:
+        # Preview venues have no DB event; fall back to the schedule's race_date
+        # so the race-day climatology slide can still render.
+        _sched = EVENT_SCHEDULES.get(args.venue.lower().strip())
+        if _sched and _sched.get("race_date"):
+            race_date_str = _sched["race_date"]
     sst_c, sst_src = (None, "unavailable")
     if coords and race_date_str:
         sst_c, sst_src = fetch_sst_for_race_day(coords[0], coords[1], race_date_str)
@@ -4152,6 +4616,21 @@ def main():
 
     add_environmental_risk_slide(prs, args.venue, unique_env_rows)
 
+    # ── Para-specific historical analysis (per-gender sections) ───────────────
+    if args.para and not para_events_df.empty:
+        print(f"  Adding Para Series historical sections ({len(para_events_df)} programs)...")
+        for gender_label in ("Men", "Women"):
+            progs = _para_gender_progs(para_events_df, gender_label, para_classes)
+            if not progs:
+                continue
+            print(f"    Para {gender_label}: {len(progs)} sport class(es)")
+            add_section_divider(prs, f"Para {gender_label}", prefix="")
+            add_para_results_summary_slide(prs, para_events_df, engine, args.venue,
+                                           gender_label, para_classes)
+            add_para_split_trend_slide(prs, para_events_df, engine, args.venue,
+                                       gender_label, para_classes,
+                                       split="total", split_label="Winning Time")
+
     if prior_men or prior_women or upcoming:
         add_who_to_watch_slide(
             prs, engine, args.venue,
@@ -4160,8 +4639,15 @@ def main():
             prior_women={"event_id": prior_women["event_id"], "prog_id": prior_women["prog_id"]} if prior_women else None,
         )
 
+    # Para mode is Para-focused: suppress Elite gender sections unless the user
+    # opts in with --include-elite (or there is simply no Para data to show).
+    para_focus = args.para and not para_events_df.empty and not args.include_elite
+    preview_only = (args.preview_only
+                    or para_focus
+                    or (args.para and not men_data and not women_data))
+
     gender_sections = []
-    if args.preview_only:
+    if preview_only:
         print("  Preview-only mode — skipping Elite gender-section slides")
     else:
         if men_data   and args.gender in ("men",   "both"): gender_sections.append(("Men",   men_data))
