@@ -133,9 +133,31 @@ def main():
         print("Dropped existing tables")'''
     initialize_database()
 
-    # Allow overriding the date window via environment variables for backfills (e.g., para-only last 4 years)
-    start_date = os.environ.get("START_DATE") or datetime.date(2026, 4, 1).strftime("%Y-%m-%d")
-    end_date = os.environ.get("END_DATE") or datetime.date(2026, 5, 20).strftime("%Y-%m-%d")
+    # Date window — by default auto-detect from existing data so the script
+    # always pulls forward to "now" without needing manual updates.
+    # Override with START_DATE / END_DATE env vars for backfills.
+    if os.environ.get("START_DATE"):
+        start_date = os.environ["START_DATE"]
+    else:
+        try:
+            with engine.connect() as conn:
+                latest = conn.execute(text(
+                    "SELECT MAX(e.event_date) FROM events e "
+                    "JOIN race_results rr USING (event_id, prog_id)"
+                )).scalar()
+            if latest:
+                # Re-fetch a 7-day overlap to catch late-arriving results from
+                # races that were synced before they were fully scored.
+                start_date = (latest - datetime.timedelta(days=7)).strftime("%Y-%m-%d")
+                print(f"Auto-detected START_DATE={start_date} (latest race in DB: {latest}, minus 7-day overlap)")
+            else:
+                start_date = "2021-01-01"  # fresh DB fallback
+                print(f"No existing race_results found; defaulting START_DATE={start_date}")
+        except Exception as e:
+            start_date = datetime.date.today().replace(day=1).strftime("%Y-%m-%d")
+            print(f"Could not auto-detect start date ({e}); defaulting to start of this month: {start_date}")
+
+    end_date = os.environ.get("END_DATE") or datetime.date.today().strftime("%Y-%m-%d")
     relay_only = os.environ.get("RELAY_ONLY", "0").strip().lower() in {"1", "true", "yes", "y"}
 
     # Initialize as an empty list to collect DataFrames from each process_program_data call

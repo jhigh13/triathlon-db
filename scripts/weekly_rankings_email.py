@@ -41,12 +41,15 @@ from tri_analysis.ranking_import import import_rankings
 
 # Categories to include in the email
 EMAIL_CATEGORIES = {
+    11: "Olympic Qualification — Men",
+    12: "Olympic Qualification — Women",
     13: "World Rankings — Men",
     14: "World Rankings — Women",
     15: "WTCS Rankings — Men",
     16: "WTCS Rankings — Women",
 }
 WTCS_CATEGORIES = {15, 16}
+OLYMPIC_CATEGORIES = {11, 12}
 
 COUNTRY = "United States"
 
