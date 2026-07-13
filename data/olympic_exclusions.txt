@@ -1,0 +1,7 @@
+# Athletes to exclude from the virtual Olympic start list (retired / moved on / not contending).
+# One entry per line. Match by name (case-insensitive) or "id:<athlete_id>".
+# Blank lines and lines starting with '#' are ignored.
+# Edit this list as athletes retire or return.
+
+Summer Rappaport
+Flora Duffy

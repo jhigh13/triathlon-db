@@ -44,6 +44,10 @@ from tri_analysis.prediction.features import (
     get_feature_columns,
     classify_event_tier,
 )
+from tri_analysis.prediction.virtual_startlist import (
+    build_virtual_olympic_startlist,
+    format_country_summary,
+)
 from tri_analysis.prediction.train import load_model_bundle
 from tri_analysis.prediction.predict import predict_splits_and_total, format_prediction_output
 from tri_analysis.prediction.simulate import (
@@ -64,6 +68,320 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger(__name__)
+
+# Template (event_id, prog_id) used to source standard/Olympic-distance context
+# for the *virtual* Olympic start list. These are the Paris 2024 Olympic Elite
+# races (standard distance, draft-legal, tier 1). Only distance/tier context is
+# borrowed; the athlete list and event date/venue are overridden.
+VIRTUAL_TEMPLATE = {
+    "men": ProgramKey(event_id=163893, prog_id=655047),
+    "women": ProgramKey(event_id=163893, prog_id=655048),
+}
+
+
+def build_virtual_inputs(engine, args):
+    """Build (key, event_meta, features_df, virtual) for a virtual Olympic start list."""
+    from datetime import date as _date
+
+    gender = args.gender
+    if gender is None:
+        logger.error("--virtual_olympic requires --gender men|women")
+        sys.exit(1)
+
+    as_of = args.as_of_date or _date.today().isoformat()
+
+    exclude_names = {n.strip() for n in (args.exclude or "").split(",") if n.strip()}
+    virtual = build_virtual_olympic_startlist(
+        engine,
+        gender=gender,
+        field_size=args.field_size,
+        max_per_country=args.max_per_country,
+        top_n_for_third=args.top_n_for_third,
+        ranking=args.ranking,
+        exclude_names=exclude_names or None,
+        exclusion_file=args.exclusion_file,
+        min_top_races=args.min_top_races,
+        history_window_months=args.history_window_months,
+        as_of=as_of,
+    )
+    selected = virtual["selected"]
+    if selected.empty:
+        logger.error("Virtual start list is empty — check ranking data / filters.")
+        sys.exit(1)
+
+    # Template event supplies distance/tier context; override date, venue, names.
+    key = VIRTUAL_TEMPLATE[gender] if args.event_id is None else ProgramKey(args.event_id, args.prog_id)
+    template_meta = fetch_event_metadata(engine, key)
+    if template_meta is None:
+        logger.error(f"Template event not found: {key}")
+        sys.exit(1)
+
+    prog_label = "Elite Men" if gender == "men" else "Elite Women"
+    event_meta = dict(template_meta)
+    event_meta.update({
+        "event_id": key.event_id,
+        "prog_id": key.prog_id,
+        "event_date": as_of,
+        "event_name": f"LA28 Olympic Games (virtual, if raced {as_of})",
+        "prog_name": prog_label,
+        "event_venue": args.venue,
+        "event_country": "United States",
+        # Clear real weather so the virtual race uses climatological defaults.
+        "temperature_air": None, "apparent_temp": None, "humidity": None,
+        "wbgt": None, "wind_speed_kmh": None, "wind_gust_kmh": None,
+        "precipitation_mm": None, "cloud_cover_pct": None,
+        "event_latitude": None, "event_longitude": None,
+    })
+
+    _print_virtual_field(virtual, gender)
+
+    athlete_ids = [int(a) for a in selected["athlete_id"].tolist()]
+    features_df = build_features_for_program(
+        engine, key,
+        athlete_ids_override=athlete_ids,
+        event_meta_override=event_meta,
+        match_distance=True,
+        elite_only=True,
+    )
+    return key, event_meta, features_df, virtual
+
+
+def build_live_inputs(engine, args):
+    """Build (key, event_meta, features_df) from a live program start list."""
+    if args.event_id is None or args.prog_id is None:
+        logger.error("--event_id and --prog_id are required (or use --virtual_olympic --gender).")
+        sys.exit(1)
+
+    key = ProgramKey(event_id=args.event_id, prog_id=args.prog_id)
+    logger.info(f"Predicting for {key}")
+
+    event_meta = fetch_event_metadata(engine, key)
+    if event_meta is None:
+        logger.error(f"Event not found: {key}")
+        sys.exit(1)
+
+    logger.info(f"Event: {event_meta.get('prog_name', 'Unknown')} - {event_meta.get('event_date')}")
+    logger.info(f"Location: {event_meta.get('event_venue', 'Unknown')}, {event_meta.get('event_country', 'Unknown')}")
+
+    # Fetch weather if missing — geocode if needed
+    has_weather = event_meta.get("temperature_air") is not None
+    has_coords = event_meta.get("event_latitude") is not None and event_meta.get("event_longitude") is not None
+
+    if not has_coords and event_meta.get("event_venue"):
+        try:
+            from tri_analysis.weather import geocode_venue
+            venue = event_meta["event_venue"]
+            country = event_meta.get("event_country")
+            logger.info(f"Geocoding venue '{venue}' ({country})...")
+            coords = geocode_venue(venue, country)
+            if coords:
+                lat, lon = coords
+                event_meta["event_latitude"] = lat
+                event_meta["event_longitude"] = lon
+                has_coords = True
+                logger.info(f"Geocoded to {lat}, {lon}")
+                from sqlalchemy import text as sa_text
+                with engine.begin() as conn:
+                    conn.execute(sa_text(
+                        "UPDATE events SET event_latitude = :lat, event_longitude = :lon "
+                        "WHERE event_id = :eid AND event_latitude IS NULL"
+                    ), {"lat": lat, "lon": lon, "eid": key.event_id})
+            else:
+                logger.warning(f"Could not geocode venue '{venue}'")
+        except Exception as e:
+            logger.warning(f"Geocoding failed: {e}")
+
+    if not has_weather and has_coords:
+        try:
+            from tri_analysis.weather import fetch_weather_smart
+            event_date = event_meta.get("event_date")
+            lat = event_meta["event_latitude"]
+            lon = event_meta["event_longitude"]
+
+            logger.info("Fetching weather from Open-Meteo (smart routing)...")
+            weather = fetch_weather_smart(lat, lon, event_date)
+
+            if weather:
+                source = weather.get("weather_source", "unknown")
+                for k, v in weather.items():
+                    if v is not None:
+                        event_meta[k] = v
+                logger.info(
+                    f"Weather ({source}): {weather.get('temperature_air')}°C, "
+                    f"wind {weather.get('wind_speed_kmh')} km/h, "
+                    f"precip {weather.get('precipitation_mm')} mm"
+                )
+            else:
+                logger.warning("No weather data available (no source returned data)")
+        except Exception as e:
+            logger.warning(f"Could not fetch weather: {e}")
+
+    logger.info("Building features for start list...")
+    features_df = build_features_for_program(
+        engine, key, use_start_list=True, event_meta_override=event_meta
+    )
+    return key, event_meta, features_df
+
+
+def _print_virtual_field(virtual: dict, gender: str):
+    meta = virtual["meta"]
+    selected, bumped = virtual["selected"], virtual["bumped"]
+    print("\n" + "=" * 80)
+    print(f"VIRTUAL OLYMPIC START LIST — {gender.upper()} "
+          f"({meta['ranking']} ranking, field={meta['field_size']}, "
+          f"max {meta['max_per_country']}/country, 3rd needs top-{meta['top_n_for_third']})")
+    print("=" * 80)
+    if meta["n_excluded"]:
+        print(f"Excluded (retired/moved on): {', '.join(meta['excluded_names'])}")
+    if meta.get("min_top_races", 0) > 0:
+        print(f"Cold-start gate: require >={meta['min_top_races']} WTCS/WC/Olympic starts in last "
+              f"{meta['history_window_months']}mo -> {meta['n_gated']} athletes dropped from the pool")
+    print(f"Selected {meta['n_selected']} athletes.  Countries with 3: ", end="")
+    cs = format_country_summary(selected)
+    threes = cs[cs["athletes"] >= 3]["country"].tolist()
+    print(", ".join(threes) if threes else "none")
+    # Notable near-misses: top-ranked athletes bumped by the quota
+    if not bumped.empty:
+        near = bumped.sort_values("rank_position").head(8)
+        print("\nNotable athletes bumped by the country quota:")
+        for _, r in near.iterrows():
+            print(f"  #{int(r['rank_position']):>3} {r['athlete_name']:<28} {r['country']:<16} — {r['reason']}")
+    print("=" * 80 + "\n")
+
+
+def _zscore(s: pd.Series) -> pd.Series:
+    s = pd.to_numeric(s, errors="coerce")
+    mu, sd = s.mean(), s.std(ddof=0)
+    return (s - mu) / sd if sd and sd > 0 else s * 0.0
+
+
+def project_with_prior(engine, output_df: pd.DataFrame, virtual: dict, gender: str | None,
+                       prior_weight: float, noise: float, n_boot: int = 20000, top_n: int = 15):
+    """Blend the model's deterministic ranking with an ability prior (Elo + world ranking),
+    then derive P(win)/P(medal) from a rank-perturbation bootstrap.
+
+    The MC sim ranks by sum-of-split-times, which over-rates weak-field athletes. The
+    deterministic ensemble ranks better, and Elo/world-ranking anchor it against cold-start
+    inflation. `prior_weight` (0..1) sets how much the Elo/ranking prior pulls the order.
+    """
+    from tri_analysis.prediction.sql import fetch_elo_ratings
+
+    keep = [c for c in ["athlete_id", "country", "rank_position", "n_top_races"] if c in virtual["selected"].columns]
+    df = output_df.merge(virtual["selected"][keep], on="athlete_id", how="left").copy()
+
+    # Drop any Elo already on the frame (it flows through from features) to avoid a merge
+    # collision, then attach a fresh pull from athlete_elo_ratings.
+    df = df.drop(columns=[c for c in ["elo_rating", "elo_peak", "elo_races"] if c in df.columns], errors="ignore")
+    elo = fetch_elo_ratings(engine, df["athlete_id"].astype(int).tolist())
+    if not elo.empty:
+        df = df.merge(elo[["athlete_id", "elo_rating"]], on="athlete_id", how="left")
+    if "elo_rating" not in df.columns:
+        df["elo_rating"] = np.nan
+    # Athletes with no rating (thin history) get the field minimum, i.e. treated as weakest.
+    _valid_elo = pd.to_numeric(df["elo_rating"], errors="coerce")
+    df["elo_rating"] = _valid_elo.fillna(_valid_elo.min() if _valid_elo.notna().any() else 1400.0)
+
+    # Ability = blend of model strength and prior (Elo weighted over world ranking).
+    z_model = _zscore(-df["predicted_rank"])                     # lower predicted rank = stronger
+    prior_z = 0.6 * _zscore(df["elo_rating"]) + 0.4 * _zscore(-df["rank_position"])
+    df["ability"] = (1.0 - prior_weight) * z_model + prior_weight * prior_z
+
+    # Rank-perturbation bootstrap -> medal probabilities.
+    rng = np.random.default_rng(42)
+    A = df["ability"].to_numpy()[None, :] + rng.normal(0.0, noise, size=(n_boot, len(df)))
+    ranks = (-A).argsort(axis=1).argsort(axis=1) + 1
+    df["p_win"] = (ranks == 1).mean(axis=0) * 100
+    df["p_medal"] = (ranks <= 3).mean(axis=0) * 100
+
+    df = df.sort_values("ability", ascending=False).reset_index(drop=True)
+    df["proj"] = range(1, len(df) + 1)
+
+    print("\n" + "=" * 84)
+    print(f"MEDAL PROJECTION — {(gender or '').upper()}  (\"if LA were today\", "
+          f"deterministic + Elo/ranking prior w={prior_weight:.2f})")
+    print("=" * 84)
+    hdr = (f"{'Proj':>4} {'WRank':>5} {'Elo':>5} {'TopRc':>5}  {'Athlete':<26} {'Country':<18} "
+           f"{'P(win)':>7} {'P(medal)':>9}")
+    print(hdr)
+    print("-" * len(hdr))
+    for _, r in df.head(top_n).iterrows():
+        name = str(r.get("athlete_full_name", "?"))[:26]
+        country = str(r.get("country", "") or "")[:18]
+        wrank = int(r["rank_position"]) if pd.notna(r.get("rank_position")) else 0
+        elo_v = int(r["elo_rating"]) if pd.notna(r.get("elo_rating")) else 0
+        toprc = int(r["n_top_races"]) if pd.notna(r.get("n_top_races")) else 0
+        print(f"{int(r['proj']):>4} {wrank:>5} {elo_v:>5} {toprc:>5}  {name:<26} {country:<18} "
+              f"{r['p_win']:>6.1f}% {r['p_medal']:>8.1f}%")
+
+    outlook = (df.groupby("country")
+               .agg(exp_medals=("p_medal", lambda s: s.sum() / 100.0),
+                    best=("p_medal", "max"), athletes=("athlete_id", "count"))
+               .sort_values("exp_medals", ascending=False))
+    outlook = outlook[outlook["exp_medals"] > 0.02]
+    print("\n--- Country medal outlook (expected medals = Σ P(medal)) ---")
+    print(f"{'Country':<18} {'ExpMedals':>9} {'BestP(medal)':>13} {'InField':>8}")
+    for c, row in outlook.head(12).iterrows():
+        print(f"{str(c)[:18]:<18} {row['exp_medals']:>9.2f} {row['best']:>12.1f}% {int(row['athletes']):>8}")
+
+    usa = df[df["country"] == "United States"].sort_values("proj")
+    if not usa.empty:
+        print(f"\n--- USA spotlight ---  Expected USA medals: {usa['p_medal'].sum()/100:.2f}")
+        for _, r in usa.iterrows():
+            print(f"    Proj #{int(r['proj']):>2}  {str(r.get('athlete_full_name',''))[:26]:<26} "
+                  f"P(medal)={r['p_medal']:.1f}%  P(win)={r['p_win']:.1f}%")
+    print("=" * 84 + "\n")
+    return df
+
+
+def print_medal_projection(output_df: pd.DataFrame, virtual: dict, gender: str | None, top_n: int = 15):
+    """Print the 'if LA were today' medal projection: finish order + P(win)/P(medal),
+    plus a country-level medal outlook (expected medals = sum of podium probabilities)."""
+    keep = [c for c in ["athlete_id", "country", "rank_position", "n_top_races"] if c in virtual["selected"].columns]
+    proj = output_df.merge(virtual["selected"][keep], on="athlete_id", how="left").copy()
+
+    # output_df is already ordered by the model's projected finish; number it.
+    proj["proj"] = range(1, len(proj) + 1)
+    proj["p_win"] = proj.get("prob_win", 0.0) * 100
+    proj["p_medal"] = proj.get("prob_podium", 0.0) * 100
+
+    print("\n" + "=" * 80)
+    print(f"MEDAL PROJECTION — {(gender or '').upper()}  (\"if LA were today\")")
+    print("=" * 80)
+    hdr = (f"{'Proj':>4} {'WRank':>5} {'TopRc':>5}  {'Athlete':<26} {'Country':<18} "
+           f"{'P(win)':>7} {'P(medal)':>9}")
+    print(hdr)
+    print("-" * len(hdr))
+    for _, r in proj.head(top_n).iterrows():
+        name = str(r.get("athlete_full_name", "?"))[:26]
+        country = str(r.get("country", "") or "")[:18]
+        wrank = int(r["rank_position"]) if pd.notna(r.get("rank_position")) else 0
+        toprc = int(r["n_top_races"]) if pd.notna(r.get("n_top_races")) else 0
+        print(f"{int(r['proj']):>4} {wrank:>5} {toprc:>5}  {name:<26} {country:<18} "
+              f"{r['p_win']:>6.1f}% {r['p_medal']:>8.1f}%")
+
+    # Country medal outlook: expected medals = sum of podium probabilities (capped display)
+    outlook = (proj.groupby("country")
+               .agg(exp_medals=("prob_podium", "sum"),
+                    best_p_medal=("prob_podium", "max"),
+                    athletes=("athlete_id", "count"))
+               .sort_values("exp_medals", ascending=False))
+    outlook = outlook[outlook["exp_medals"] > 0.02]
+    print("\n--- Country medal outlook (expected medals = Σ podium probability) ---")
+    print(f"{'Country':<18} {'ExpMedals':>9} {'BestP(medal)':>13} {'InField':>8}")
+    for c, row in outlook.head(12).iterrows():
+        print(f"{str(c)[:18]:<18} {row['exp_medals']:>9.2f} {row['best_p_medal']*100:>12.1f}% "
+              f"{int(row['athletes']):>8}")
+
+    # USA spotlight
+    usa = proj[proj["country"] == "United States"].sort_values("proj")
+    if not usa.empty:
+        exp = usa["prob_podium"].sum()
+        print(f"\n--- USA spotlight ---")
+        print(f"  USA athletes in field: {len(usa)}  |  Expected USA medals: {exp:.2f}")
+        for _, r in usa.iterrows():
+            print(f"    Proj #{int(r['proj']):>2}  {str(r.get('athlete_full_name',''))[:26]:<26} "
+                  f"P(medal)={r['p_medal']:.1f}%  P(win)={r['p_win']:.1f}%")
+    print("=" * 80 + "\n")
 
 
 def print_race_context(
@@ -480,8 +798,47 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
-    parser.add_argument("--event_id", type=int, required=True, help="Event ID")
-    parser.add_argument("--prog_id", type=int, required=True, help="Program ID")
+    parser.add_argument("--event_id", type=int, default=None,
+                        help="Event ID (required unless --virtual_olympic)")
+    parser.add_argument("--prog_id", type=int, default=None,
+                        help="Program ID (required unless --virtual_olympic)")
+
+    # ── Virtual Olympic start list options ──
+    parser.add_argument("--virtual_olympic", action="store_true",
+                        help="Build a virtual Olympic field from world rankings (quota-limited) "
+                             "instead of a live start list. Requires --gender.")
+    parser.add_argument("--gender", type=str, choices=["men", "women"], default=None,
+                        help="Gender for --virtual_olympic.")
+    parser.add_argument("--ranking", type=str, choices=["world", "olympic", "wtcs"], default="world",
+                        help="Ranking source for the virtual field (default: world).")
+    parser.add_argument("--field_size", type=int, default=60,
+                        help="Virtual Olympic field size (default 60).")
+    parser.add_argument("--max_per_country", type=int, default=3,
+                        help="Max athletes per country in the virtual field (default 3).")
+    parser.add_argument("--top_n_for_third", type=int, default=30,
+                        help="A country's 3rd athlete needs a world rank inside this cutoff (default 30).")
+    parser.add_argument("--min_top_races", type=int, default=0,
+                        help="Cold-start gate: drop athletes with fewer than this many recent "
+                             "WTCS/World Cup/Olympic elite starts (0 = off). The model over-rates "
+                             "athletes who only race weaker fields; ~5 gives a credible medal field.")
+    parser.add_argument("--history_window_months", type=int, default=36,
+                        help="Window (months) for the --min_top_races history count (default 36).")
+    parser.add_argument("--ranking_prior", type=float, default=0.5,
+                        help="Blend weight (0..1) pulling the medal projection toward an Elo+world-ranking "
+                             "prior, away from the split-sum MC that over-rates weak-field athletes. "
+                             "0 = pure MC projection, 0.5 = balanced (default), 1 = pure prior.")
+    parser.add_argument("--prior_noise", type=float, default=0.8,
+                        help="Race-day noise (z-units) for the prior-blend medal-probability bootstrap "
+                             "(default 0.8; lower = favorites dominate, higher = more upsets).")
+    parser.add_argument("--exclude", type=str, default=None,
+                        help="Comma-separated athlete names to exclude (retired/moved on). "
+                             "Stacks on data/olympic_exclusions.txt.")
+    parser.add_argument("--exclusion_file", type=str, default=None,
+                        help="Path to an exclusions file (default: data/olympic_exclusions.txt).")
+    parser.add_argument("--as_of_date", type=str, default=None,
+                        help="Date to evaluate form as-of (YYYY-MM-DD, default: today).")
+    parser.add_argument("--venue", type=str, default="Los Angeles",
+                        help="Virtual event venue label (default: Los Angeles).")
     parser.add_argument(
         "--model_path",
         type=str,
@@ -535,91 +892,24 @@ def main():
     # Create output directory if needed
     os.makedirs(args.output_dir, exist_ok=True)
 
-    # Initialize
-    key = ProgramKey(event_id=args.event_id, prog_id=args.prog_id)
-    logger.info(f"Predicting for {key}")
-
     # Connect to database
     engine = get_engine()
 
-    # Get event metadata for display
-    event_meta = fetch_event_metadata(engine, key)
-    if event_meta is None:
-        logger.error(f"Event not found: {key}")
+    # Assemble entrants + event context (virtual Olympic field vs. live start list)
+    if args.virtual_olympic:
+        key, event_meta, features_df, virtual = build_virtual_inputs(engine, args)
+    else:
+        key, event_meta, features_df = build_live_inputs(engine, args)
+        virtual = None
+
+    if features_df.empty:
+        logger.error("No athletes found. Check start list / ranking filters.")
         sys.exit(1)
-
-    logger.info(f"Event: {event_meta.get('prog_name', 'Unknown')} - {event_meta.get('event_date')}")
-    logger.info(f"Location: {event_meta.get('event_venue', 'Unknown')}, {event_meta.get('event_country', 'Unknown')}")
-
-    # Fetch weather if missing — geocode if needed
-    has_weather = event_meta.get("temperature_air") is not None
-    has_coords = event_meta.get("event_latitude") is not None and event_meta.get("event_longitude") is not None
-
-    # Try to geocode if we have a venue but no coordinates
-    if not has_coords and event_meta.get("event_venue"):
-        try:
-            from tri_analysis.weather import geocode_venue
-            venue = event_meta["event_venue"]
-            country = event_meta.get("event_country")
-            logger.info(f"Geocoding venue '{venue}' ({country})...")
-            coords = geocode_venue(venue, country)
-            if coords:
-                lat, lon = coords
-                event_meta["event_latitude"] = lat
-                event_meta["event_longitude"] = lon
-                has_coords = True
-                logger.info(f"Geocoded to {lat}, {lon}")
-                # Persist to DB so we don't re-geocode next time
-                from sqlalchemy import text as sa_text
-                with engine.begin() as conn:
-                    conn.execute(sa_text(
-                        "UPDATE events SET event_latitude = :lat, event_longitude = :lon "
-                        "WHERE event_id = :eid AND event_latitude IS NULL"
-                    ), {"lat": lat, "lon": lon, "eid": key.event_id})
-            else:
-                logger.warning(f"Could not geocode venue '{venue}'")
-        except Exception as e:
-            logger.warning(f"Geocoding failed: {e}")
-
-    if not has_weather and has_coords:
-        try:
-            from tri_analysis.weather import fetch_weather_smart
-            event_date = event_meta.get("event_date")
-            lat = event_meta["event_latitude"]
-            lon = event_meta["event_longitude"]
-
-            logger.info("Fetching weather from Open-Meteo (smart routing)...")
-            weather = fetch_weather_smart(lat, lon, event_date)
-
-            if weather:
-                source = weather.get("weather_source", "unknown")
-                # Merge into event_meta for feature building
-                for k, v in weather.items():
-                    if v is not None:
-                        event_meta[k] = v
-                logger.info(
-                    f"Weather ({source}): {weather.get('temperature_air')}°C, "
-                    f"wind {weather.get('wind_speed_kmh')} km/h, "
-                    f"precip {weather.get('precipitation_mm')} mm"
-                )
-            else:
-                logger.warning("No weather data available (no source returned data)")
-        except Exception as e:
-            logger.warning(f"Could not fetch weather: {e}")
+    logger.info(f"Found {len(features_df)} athletes")
 
     # Load model bundle
     logger.info(f"Loading model from {args.model_path}")
     bundle = load_model_bundle(args.model_path)
-
-    # Build features for entrants
-    logger.info("Building features for start list...")
-    features_df = build_features_for_program(engine, key, use_start_list=True, event_meta_override=event_meta)
-
-    if features_df.empty:
-        logger.error("No athletes found in start list. Check program_entries table.")
-        sys.exit(1)
-
-    logger.info(f"Found {len(features_df)} athletes in start list")
 
     # Fill missing features
     feature_cols = bundle.feature_columns or get_feature_columns()
@@ -716,16 +1006,33 @@ def main():
         # Print MC simulation diagnostics (per-split bias, pack rates, etc.)
         print_sim_diagnostics(sim_df)
 
+    # Medal projection table + country outlook (virtual Olympic mode, with MC)
+    if virtual is not None and not args.no_mc:
+        if args.ranking_prior > 0:
+            proj_df = project_with_prior(engine, output_df, virtual, args.gender,
+                                         prior_weight=args.ranking_prior, noise=args.prior_noise)
+            proj_cols = [c for c in ["proj", "athlete_full_name", "country", "rank_position",
+                                     "elo_rating", "n_top_races", "predicted_rank", "ability",
+                                     "p_win", "p_medal"] if c in proj_df.columns]
+            proj_path = os.path.join(args.output_dir, f"projection_LA_{args.gender}.csv")
+            proj_df[proj_cols].to_csv(proj_path, index=False)
+            logger.info(f"Saved medal projection to {proj_path}")
+        else:
+            print_medal_projection(output_df, virtual, args.gender)
+
     # Save full results to CSV
-    output_file = os.path.join(
-        args.output_dir,
-        f"predictions_{args.event_id}_{args.prog_id}.csv"
-    )
+    if virtual is not None:
+        output_file = os.path.join(args.output_dir, f"predictions_virtual_LA_{args.gender}.csv")
+    else:
+        output_file = os.path.join(
+            args.output_dir, f"predictions_{args.event_id}_{args.prog_id}.csv"
+        )
     output_df.to_csv(output_file, index=False)
     logger.info(f"Saved predictions to {output_file}")
 
-    # Print summary statistics
-    if not args.no_mc:
+    # Print summary statistics. Skip for the prior-blended virtual projection, whose
+    # favorites come from project_with_prior — the raw-MC top 3 here would contradict it.
+    if not args.no_mc and not (virtual is not None and args.ranking_prior > 0):
         print("\n--- Summary ---")
         top_3 = output_df.head(3)
         print("Top 3 favorites:")
