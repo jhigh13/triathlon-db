@@ -799,7 +799,7 @@ VENUE_COORDS_FALLBACK: dict[str, tuple[float, float]] = {
     "quiberon":  (47.485,  -3.114),
     "montreal":  (45.503, -73.534),   # Parc Jean-Drapeau, Notre-Dame Island
     "hamburg":   (53.554,   9.994),   # Binnenalster / Rathausmarkt, city center
-    "edmonton":  (53.546, -113.499),  # Louise McKinney Riverfront Park, North Saskatchewan River
+    "edmonton":  (53.527, -113.547),  # William Hawrelak Park, 9330 Groat Rd NW (race venue)
 }
 
 
@@ -2608,6 +2608,27 @@ BIKE_COURSE_PROFILES: dict[str, dict] = {
             "Wheel station on each lap — mark position early; packs do not slow for late changes",
         ],
     },
+    "edmonton": {
+        "source":        "2026 World Triathlon Cup Edmonton Athlete Guide v2 (Do North Events) — July 18-19, 2026",
+        "loop_km":       6.8,
+        "loops":         3,
+        "total_km":      20.4,
+        "gain_per_lap_m":  85.0,
+        "loss_per_lap_m":  87.0,
+        "max_grade_pos":   None,
+        "max_grade_neg":   None,
+        "avg_grade_pct":   None,
+        "wind":           "River valley setting — generally sheltered, variable on the Saskatchewan Dr exposure",
+        "surface":        "Closed road circuit — Groat Rd, Saskatchewan Dr NW, William Hawrelak Park Rd",
+        "key_features": [
+            "3 × 6.8 km laps (20.4 km total) out of Hawrelak Park up Groat Rd and along Saskatchewan Dr NW",
+            "One sustained climb/descent per lap out of the river valley (+85 m / -87 m per lap per the athlete guide profile) — first true elevation test on this venue since 2021",
+            "Course map lists overall elevation gain as 76.5 m — legs will feel the repeated valley climb across all 3 laps",
+            "Team Wheel station just outside transition (both-side access); Neutral Wheel station at the loop's south end on Saskatchewan Dr, before the right turn back toward the park",
+            "Neutral wheels: 700c front/rear, 11/12-speed, 140/160mm rotor options, 28mm tires at 65/70 psi (front/rear)",
+            "Newly renovated venue ahead of the 2027 World Triathlon Multisport Championships — this is the first elite race on the rebuilt course",
+        ],
+    },
 }
 
 SWIM_COURSE_PROFILES: dict[str, dict] = {
@@ -2693,6 +2714,26 @@ SWIM_COURSE_PROFILES: dict[str, dict] = {
             "Fresh water lake in city center — no ocean chop, swell, or current; pure positioning swim",
             "July morning water mid-to-high teens Celsius — bring both wetsuit options; decision made day-of per WT measurement",
             "Short run into T1 from the Alster exit ramp — transition area directly adjacent to city hall",
+        ],
+        "missing": [],
+    },
+    "edmonton": {
+        "source":            "2026 World Triathlon Cup Edmonton Athlete Guide v2 (Do North Events) — July 18-19, 2026",
+        "total_km":          0.75,
+        "laps":              1,
+        "loop_km":           0.75,
+        "layout":            "Hawrelak Park Lake — single clockwise loop",
+        "format":            "Sheltered park lake — fresh water, calm conditions",
+        "start_type":        "In-water start off the swim start platform",
+        "water_temp_c":      19.0,
+        "expected_water_temp_range_c": (17.0, 21.0),
+        "wetsuit_note":      "Guide lists average July water ~19 °C (66 °F) — under WT rules (mandatory <16 °C, optional 16–20 °C) this sits in optional-wetsuit territory; final call posted at the Friday pre-race briefing",
+        "key_features": [
+            "Single 750 m clockwise loop on Hawrelak Park's lake — calm, sheltered, no current or chop",
+            "First (yellow) buoy passed on the left shoulder at 200 m; all subsequent orange buoys passed on the right shoulder",
+            "Run to T1 is 220 m from the swim exit — longer transition run than most sprint venues",
+            "Swim familiarization Friday July 17, 14:00-15:00 only — no other in-water access permitted for safety",
+            "Elite Men warm-up 13:00-13:45, Elite Women warm-up 15:00-15:45 on race day",
         ],
         "missing": [],
     },
@@ -2788,6 +2829,27 @@ RUN_COURSE_PROFILES: dict[str, dict] = {
             "Wide avenues on most of the loop allow for tactical racing and late-race surges",
             "13:15 / 15:00 summer starts — July Hamburg averages ~22 °C, manageable but warm; aid stations every lap",
             "Penalty box positioned at the finish area — drafting tickets from the bike carry into the run",
+        ],
+        "missing": [],
+    },
+    "edmonton": {
+        "source":            "2026 World Triathlon Cup Edmonton Athlete Guide v2 (Do North Events) — July 18-19, 2026",
+        "total_km":          5.0,
+        "laps":              3,
+        "loop_km":           1.66,
+        "surface":           "Paved park paths — loop sits next to the transition area",
+        "gain_per_lap_m":    17.0,
+        "loss_per_lap_m":    20.0,
+        "max_grade_pos":     None,
+        "max_grade_neg":     None,
+        "avg_grade_pct":     None,
+        "heat_risk":         "LOW–MODERATE",
+        "key_features": [
+            "3 × 1.66 km laps (5 km total), counter-clockwise, run next to the transition area by design to avoid a first-runner/last-biker clash",
+            "Aid station passed 6 times total (out and back per lap) — sealed water bottles at 400 m, 850 m, 2000 m, 2450 m, 3600 m, 4050 m, served on the athlete's right",
+            "Littering zones marked green (start) / red (end) at each aid and wheel station — time penalties apply outside them",
+            "Run penalty box on the left side of the road, 200 m before the finish — passed every lap",
+            "July averages a 23 °C high / 12 °C low with a late sunset (21:32) — moderate heat risk for the 14:00/16:00 Elite starts, well short of Huatulco-level heat stress",
         ],
         "missing": [],
     },
@@ -2890,6 +2952,37 @@ TRAVEL_PROFILES: dict[str, dict] = {
             "Quick basics: dm (pharmacy/snack), Starbucks, Backwerk, and bakeries throughout the Rathausmarkt pedestrian zone.",
             "Athlete-friendly meals: Zum Alten Rathaus, Block House (Hamburg chain, reliable protein), and Superkitchen near the Alster area.",
             "Race-morning note: T1 / transition area is surrounded by city center — café and bakery options open early for race-morning breakfast.",
+        ],
+    },
+    "edmonton": {
+        "origin":          "Denver, CO → Edmonton race week",
+        "core_read": (
+            "Denver → Edmonton is a same-zone trip — both cities run Mountain Time (MDT in July), so there is "
+            "zero jet-lag adjustment. No historical nonstop DEN-YEG service; typical itineraries connect through "
+            "Calgary (YYC), Vancouver (YVR), or Seattle (SEA) on WestJet, Air Canada, Alaska, or United. LOC-provided "
+            "shuttles run Wednesday July 15 through Monday July 20 between the airport and the Westin Hotel only — "
+            "submit arrival/departure details by July 5, 2026 or transportation is not guaranteed. A visitor visa or "
+            "eTA is required for most nationalities entering Canada; contact Triathlon Canada for a visa support letter."
+        ),
+        "stats": [
+            ("Primary route",    "DEN → YEG",        "1 stop typical (YYC/YVR/SEA)"),
+            ("Time zones",       "+0h",              "Both Mountain Time (MDT)"),
+            ("Airport Transfer", "YEG → The Westin", "LOC shuttle, ~30 km / 40 min"),
+            ("Venue Transfer",   "Westin → Hawrelak Park", "LOC shuttle, 4.5 km / 7-10 min"),
+            ("Arrival deadline", "July 5, 2026",     "Submit itinerary form or fees may apply"),
+        ],
+        "hotel_title": "Host Hotel / Official Accommodation",
+        "hotel_bullets": [
+            "Official host hotel: The Westin Edmonton, 10135 100 St NW, Edmonton, AB T5J 0N7 — 4.5 km / 7-10 min from the venue by car or bike.",
+            "Alternative discounted block: Lister Hall, 11613 87 Ave NW — 2.0 km / 5 min from the venue; book via front desk 780-492-6056, reference \"2026 World Triathlon Cup.\"",
+            "LOC free shuttle covers Westin ↔ Hawrelak Park for familiarization and race day only — athletes staying elsewhere arrange their own transport.",
+            "Underground parking available at the Westin for a fee, managed directly by the hotel.",
+        ],
+        "food_title": "Food / Grocery Options Near Hotel + Venue",
+        "food_bullets": [
+            "Not itemized in the athlete guide — the Westin sits downtown with typical hotel-district dining and grocery access within a few blocks.",
+            "Lister Hall option is on the University of Alberta campus — Whyte Ave (109 St / 82 Ave) strip is a short ride away for groceries and casual dining.",
+            "Kinsmen Sports Centre (swim training venue) and Hawrelak Park both sit along the river valley bike path connecting the Westin, Lister Hall, and the U of A.",
         ],
     },
 }
@@ -3049,6 +3142,27 @@ VENUE_PREVIEW: dict[str, dict] = {
         "race_info_url":  "https://events.triathlon.org/2026-wtcs-hamburg/race-info",
         "race_info_text": "Race Info | 2026 World Triathlon Championship Series Hamburg",
     },
+    "edmonton": {
+        "narrative": (
+            "The 2026 World Triathlon Cup Edmonton returns elite racing to William Hawrelak Park, newly renovated "
+            "ahead of the 2027 World Triathlon Multisport Championships — this race is the first elite test of the "
+            "rebuilt course. Edmonton has a long elite history at this tier and above: WTS races in 2018 and 2019, "
+            "and the 2021 World Triathlon Championship Finals, where Kristian Blummenfelt and Flora Duffy clinched "
+            "world titles on this same lake. The last two editions (2023-24) stepped down to Americas Triathlon Cup "
+            "level, so this World Cup marks a return to a stronger international field. Format is standard sprint: "
+            "750 m lake swim, 20.4 km bike (3 laps, valley climb each lap), 5 km run (3 laps). Elite Men go off at "
+            "14:00 and Elite Women at 16:00 on Saturday July 18; Mixed Relay follows Sunday July 19."
+        ),
+        "features": [
+            "750 m Hawrelak Park lake swim — sheltered fresh water, single clockwise loop, ~19 °C (optional wetsuit).",
+            "20.4 km bike — 3 × 6.8 km laps with a repeated river-valley climb/descent (+85 m/-87 m per lap).",
+            "5 km run — 3 × 1.66 km laps on paved park paths, moderate heat risk (July highs ~23 °C).",
+            "Elite Men 14:00 / Elite Women 16:00, Saturday July 18. Mixed Relay 14:30, Sunday July 19.",
+        ],
+        "format_label":   "Sprint Triathlon (World Cup)",
+        "race_info_url":  "https://events.triathlon.org/2026-world-triathlon-cup-edmonton",
+        "race_info_text": "Race Info | 2026 World Triathlon Cup Edmonton",
+    },
 }
 
 
@@ -3196,6 +3310,50 @@ EVENT_SCHEDULES: dict[str, dict] = {
                 ("17:30",         "★ MIXED RELAY START", True),
                 ("~18:45",        "Mixed Relay projected finish", False),
                 ("Post-finish",   "Mixed Relay medals ceremony", False),
+            ]),
+        ],
+    },
+    "edmonton": {
+        "title":      "2026 World Triathlon Cup Edmonton — Race Week",
+        "date_range": "July 15 – 19, 2026",
+        "venue_note": "William Hawrelak Park, 9330 Groat Rd NW, Edmonton, AB (MDT, UTC-6)",
+        "race_date":  "2026-07-18",
+        "race_starts": [("Elite Men", "14:00"), ("Elite Women", "16:00")],
+        "days": [
+            ("Wed-Thu • July 15-16", "Open Swim Training", [
+                ("10:30 – 12:30", "Swim Training — Kinsmen Sport Centre (Wed)", False),
+                ("18:00 – 20:00", "Swim Training — Kinsmen Sport Centre (Wed)", False),
+                ("11:45 – 13:45", "Swim Training — Kinsmen Sport Centre (Thu)", False),
+                ("18:00 – 20:00", "Swim Training — Kinsmen Sport Centre (Thu)", False),
+            ]),
+            ("Fri • July 17", "Familiarization & Briefing", [
+                ("7:45 – 9:45",   "Swim Training — Kinsmen Sport Centre", False),
+                ("13:00 – 14:00", "Bike Familiarization — Hawrelak Park (police-escorted)", False),
+                ("14:00 – 15:00", "Swim Familiarization — Hawrelak Park lake", False),
+                ("16:00 – 16:45", "★ Elite & Mixed Relay Athletes' Briefing — Heritage Amphitheatre", True),
+                ("16:45 – 17:15", "Elite Race Package Distribution — Heritage Amphitheatre", False),
+            ]),
+            ("Sat • July 18", "ELITE SPRINT RACE DAY", [
+                ("12:30 – 13:30", "Elite Athlete Lounge open — Men", False),
+                ("13:00 – 13:45", "Transition check-in + swim warm-up — Men", False),
+                ("13:50 – 13:58", "Elite Men introductions", False),
+                ("14:00",         "★ ELITE MEN — SPRINT TRIATHLON START", True),
+                ("15:15",         "Elite Men medals ceremony", False),
+                ("14:30 – 15:30", "Elite Athlete Lounge open — Women", False),
+                ("15:00 – 15:45", "Transition check-in + swim warm-up — Women", False),
+                ("15:30",         "Mixed Relay — online team declaration", False),
+                ("15:50 – 15:58", "Elite Women introductions", False),
+                ("16:00",         "★ ELITE WOMEN — SPRINT TRIATHLON START", True),
+                ("17:15",         "Elite Women medals ceremony", False),
+                ("17:30 – 18:00", "Mixed Relay — team declaration (Athletes' Lounge)", False),
+            ]),
+            ("Sun • July 19", "Mixed Relay Day", [
+                ("12:30 – 12:45", "Mixed Relay final team declaration", False),
+                ("13:00 – 14:00", "Elite Mixed Relay athlete lounge open", False),
+                ("13:30 – 14:15", "Transition check-in + swim warm-up", False),
+                ("14:20 – 14:28", "Mixed Relay team introductions", False),
+                ("14:30",         "★ ELITE MIXED RELAY START", True),
+                ("16:00",         "Elite Mixed Relay medals ceremony", False),
             ]),
         ],
     },
