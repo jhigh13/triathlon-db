@@ -708,9 +708,14 @@ def query_wtcs_season_splits(engine, athlete_ids: list[int], venue_date,
 
 
 def find_upcoming_event(engine, venue: str) -> dict | None:
-    """Find the upcoming/most-recent-future event_id at this venue (men's prog as anchor)."""
+    """Find the upcoming/most-recent-future event_id at this venue (men's prog as anchor).
+    Includes cat_name so downstream tier detection uses the UPCOMING event's tier
+    (e.g. 'World Cup') rather than falling back to an old historical event's tier."""
     sql = text("""
-        SELECT event_id, MIN(event_date) AS event_date, MIN(event_name) AS event_name
+        SELECT event_id,
+               MIN(event_date) AS event_date,
+               MIN(event_name) AS event_name,
+               MIN(cat_name)   AS cat_name
         FROM events
         WHERE (event_venue ILIKE :v OR event_name ILIKE :v)
           AND event_date >= CURRENT_DATE
@@ -788,6 +793,41 @@ _GEOCODE_CACHE: dict = {}
 _WEATHER_CACHE: dict = {}
 _AQI_CACHE:     dict = {}
 
+# Weather sampling window (start_hour, end_hour) inclusive, in local time.
+# Defaults to a morning window but is widened to cover the actual race start
+# times via set_weather_window() so afternoon/evening races (e.g. WTCS London
+# at 14:30 / 16:15) are captured — not just morning races.
+_WEATHER_WINDOW: tuple[int, int] = (8, 12)
+
+
+def set_weather_window(race_starts) -> tuple[int, int]:
+    """Set the global weather sampling window from a venue's race start times.
+    Window spans the earliest start to ~2 h after the latest start (to cover the
+    race duration). Falls back to (8, 12) when no start times are available."""
+    global _WEATHER_WINDOW
+    hours = []
+    for _lbl, hhmm in (race_starts or []):
+        try:
+            hours.append(int(str(hhmm)[:2]))
+        except (ValueError, IndexError):
+            continue
+    if hours:
+        lo = max(0, min(hours))
+        hi = min(23, max(hours) + 2)
+        _WEATHER_WINDOW = (lo, hi)
+    else:
+        _WEATHER_WINDOW = (8, 12)
+    return _WEATHER_WINDOW
+
+
+def _in_weather_window(hh: str) -> bool:
+    """True if a 2-char hour string falls in the current weather window."""
+    try:
+        h = int(hh)
+    except (ValueError, TypeError):
+        return False
+    return _WEATHER_WINDOW[0] <= h <= _WEATHER_WINDOW[1]
+
 
 # Hardcoded fallback for venues that have been geocoded historically. Avoids
 # relying on Nominatim when local SSL certs / network are unavailable.
@@ -800,6 +840,7 @@ VENUE_COORDS_FALLBACK: dict[str, tuple[float, float]] = {
     "montreal":  (45.503, -73.534),   # Parc Jean-Drapeau, Notre-Dame Island
     "hamburg":   (53.554,   9.994),   # Binnenalster / Rathausmarkt, city center
     "edmonton":  (53.527, -113.547),  # William Hawrelak Park, 9330 Groat Rd NW (race venue)
+    "london":    (51.508,   0.029),   # ExCeL London, Royal Victoria Dock
 }
 
 
@@ -834,10 +875,11 @@ def geocode_venue(venue: str) -> tuple | None:
 
 
 def _ometa_race_avg(hourly: dict, times: list, col: str) -> float | None:
-    """Average an Open-Meteo hourly field over the 08:00–11:59 race window."""
-    idxs = [i for i, t in enumerate(times) if len(t) >= 13 and "08" <= t[11:13] <= "11"]
+    """Average an Open-Meteo hourly field over the current race window
+    (set via set_weather_window() — covers the actual race start times)."""
+    idxs = [i for i, t in enumerate(times) if len(t) >= 13 and _in_weather_window(t[11:13])]
     if not idxs:
-        idxs = list(range(8, 12))
+        idxs = list(range(_WEATHER_WINDOW[0], _WEATHER_WINDOW[1] + 1))
     vals = [hourly[col][i] for i in idxs
             if i < len(hourly.get(col, [])) and hourly[col][i] is not None]
     return round(sum(vals) / len(vals), 1) if vals else None
@@ -998,8 +1040,12 @@ def fetch_openmeteo_forecast(lat: float, lon: float, race_date: str) -> dict:
         # Confirm race_date is actually present in the returned series
         if not any(t.startswith(race_date) for t in times):
             return {}
+        # Chart window: one hour of lead-in before the earliest start, through
+        # the end of the race window (covers afternoon/evening starts too).
+        lo = max(0, _WEATHER_WINDOW[0] - 1)
+        hi = _WEATHER_WINDOW[1]
         keep_idx = [i for i, t in enumerate(times)
-                    if t.startswith(race_date) and "04" <= t[11:13] <= "12"]
+                    if t.startswith(race_date) and lo <= int(t[11:13]) <= hi]
         if not keep_idx:
             return {}
         out: dict = {"time": [times[i][11:16] for i in keep_idx]}
@@ -1044,9 +1090,11 @@ def fetch_openmeteo_climatology(lat: float, lon: float, race_date: str,
                 continue
             hrs = r.json().get("hourly", {})
             times = hrs.get("time", [])
+            lo = max(0, _WEATHER_WINDOW[0] - 1)
+            hi = _WEATHER_WINDOW[1]
             for i, t in enumerate(times):
                 hour = t[11:16]
-                if not ("04" <= t[11:13] <= "12"):
+                if not (lo <= int(t[11:13]) <= hi):
                     continue
                 bucket = rows_per_hour.setdefault(hour, {f: [] for f in fields})
                 for f in fields:
@@ -1952,7 +2000,7 @@ def add_weather_slide(prs: Presentation, rows: list[dict], gender: str, venue: s
 
     _add_textbox(slide,
                  "Air temp, humidity, wind, and precipitation sourced from Open-Meteo historical archive "
-                 "(race window 08:00–11:00 local) where WT API data is absent. "
+                 f"(race window {_WEATHER_WINDOW[0]:02d}:00–{_WEATHER_WINDOW[1]:02d}:00 local) where WT API data is absent. "
                  "Values marked * are Open-Meteo estimates. "
                  "Water temp and wetsuit ruling are from the World Triathlon API per program.",
                  Inches(0.3), Inches(6.6), Inches(12.73), Inches(0.72),
@@ -2197,7 +2245,7 @@ def add_environmental_risk_slide(
     # Weather section label
     wx_bar = slide.shapes.add_shape(1, Inches(0.3), Inches(1.18), Inches(5.15), Inches(0.1))
     wx_bar.fill.solid(); wx_bar.fill.fore_color.rgb = NAVY; wx_bar.line.fill.background()
-    _add_textbox(slide, "RACE-DAY WEATHER (08:00–11:00 local)",
+    _add_textbox(slide, f"RACE-DAY WEATHER ({_WEATHER_WINDOW[0]:02d}:00–{_WEATHER_WINDOW[1]:02d}:00 local)",
                  Inches(0.35), Inches(1.19), Inches(5.0), Inches(0.1),
                  font_size=9.5, bold=True, color=NAVY)
 
@@ -2529,6 +2577,27 @@ def add_course_map_slide(
 # be lightly templated.
 
 BIKE_COURSE_PROFILES: dict[str, dict] = {
+    "london": {
+        "source":        "2026 WTCS London Elite Athlete's Guide (ExCeL, Royal Docks)",
+        "loop_km":       2.64,
+        "loops":         7,
+        "total_km":      20.64,
+        "gain_per_lap_m":  None,
+        "loss_per_lap_m":  None,
+        "max_grade_pos":   None,
+        "max_grade_neg":   None,
+        "avg_grade_pct":   None,
+        "wind":           "Royal Docks — exposed dockside straights, variable",
+        "surface":        "Closed private roads + national highways (contraflow) — Royal Albert Way",
+        "key_features": [
+            "Flat and fast: 7 × 2.64 km out-and-back laps on Royal Albert Way (+0.75 km bike-out, +1.23 km bike-in) = 20.64 km",
+            "Anti-clockwise; short 2.64 km laps mean lapped athletes are allowed to stay on course (WT rule exception)",
+            "Dead-flat dockside course — pure power/aero; the race will very likely come down to the run",
+            "Out-and-back on a wide highway in contraflow — big lead packs form easily; positioning into the U-turns is key",
+            "Course uses private roads/highways only open during official familiarization (Sat 09:00–09:20) — no race-direction preview otherwise",
+            "Wheel stations on the Lorry Way / dockside; mark position early on the short laps",
+        ],
+    },
     "montreal": {
         "source":        "World Triathlon Para Series Montréal Elite Athlete Guide — 27 Jun 2026",
         "loop_km":       4.1,
@@ -2632,6 +2701,29 @@ BIKE_COURSE_PROFILES: dict[str, dict] = {
 }
 
 SWIM_COURSE_PROFILES: dict[str, dict] = {
+    "london": {
+        "source":            "2026 WTCS London Elite Athlete's Guide (Royal Docks, ExCeL)",
+        "total_km":          0.75,
+        "laps":              1,
+        "loop_km":           0.75,
+        "layout":            "Royal Victoria Dock — sheltered dockside, 315 m to first buoy",
+        "format":            "Enclosed freshwater dock — no current, urban dock water",
+        "start_type":        "Pontoon start, anti-clockwise",
+        "water_temp_c":      None,
+        "expected_water_temp_range_c": (18.0, 21.0),
+        "wetsuit_note":      "Late-July London dock water typically ~18–21 °C — borderline; wetsuit likely optional (mandatory < 16 °C, forbidden > 22 °C). Confirm at the pre-race water-temp reading.",
+        "key_features": [
+            "Single 750 m anti-clockwise loop in the Royal Victoria Dock, off the ExCeL dockside",
+            "Long 315 m leg to the first buoy — a hard, honest opening straight that stretches the field before any turn",
+            "Enclosed dock = flat water, no current or chop; a pure swim-fitness course with no navigation tricks",
+            "Pontoon start; last-minute gear bagged at the start and ferried to the athlete lounge",
+            "Dock is closed to swimming outside the Friday 14:00–14:30 familiarization window",
+            "Afternoon starts (W 14:30 / M 16:15) — water will be at its warmest of the day",
+        ],
+        "missing": [
+            "Confirmed race-day water temperature (published at the pre-race reading)",
+        ],
+    },
     "montreal": {
         "source":            "World Triathlon Para Series Montréal Elite Athlete Guide — 27 Jun 2026",
         "total_km":          0.75,
@@ -2740,6 +2832,30 @@ SWIM_COURSE_PROFILES: dict[str, dict] = {
 }
 
 RUN_COURSE_PROFILES: dict[str, dict] = {
+    "london": {
+        "source":            "2026 WTCS London Elite Athlete's Guide (ExCeL, Royal Docks)",
+        "total_km":          4.92,
+        "laps":              3,
+        "loop_km":           1.64,
+        "surface":           "Mixed indoor/outdoor — through the ExCeL venue hub each lap",
+        "gain_per_lap_m":    None,
+        "loss_per_lap_m":    None,
+        "max_grade_pos":     None,
+        "max_grade_neg":     None,
+        "avg_grade_pct":     None,
+        "heat_risk":         "LOW",
+        "key_features": [
+            "3 anti-clockwise laps (1.76 + 1.76 + 1.34 km = 4.92 km) routed through the main ExCeL venue hub each lap",
+            "Flat and fast; the run runs partly indoors through the venue — crowd-loud and atmospheric, a signature London feature",
+            "2 aid stations per lap (sealed water only); litter zones 20 m before / 80 m after each",
+            "Penalty box sits just ahead of the finish chute on the right — easy to see, no excuse for a missed stand-down",
+            "Lap counter at transition exit; finish chute is a left-hand turn on lap 3 (final 62 m)",
+            "Cool UK summer conditions + partly-indoor route = negligible heat stress; expect very fast run splits to decide the race",
+        ],
+        "missing": [
+            "Elevation profile (course is flat — no published grade data)",
+        ],
+    },
     "montreal": {
         "source":            "World Triathlon Para Series Montréal Elite Athlete Guide — 27 Jun 2026",
         "total_km":          5.0,
@@ -2857,6 +2973,40 @@ RUN_COURSE_PROFILES: dict[str, dict] = {
 
 # ── Travel & arrival data (per venue, origin = Denver, CO USAT HQ) ───────────
 TRAVEL_PROFILES: dict[str, dict] = {
+    "london": {
+        "origin":          "Denver, CO → London race week",
+        "core_read": (
+            "Denver → London is a single long-haul leg — British Airways runs a DEN → LHR nonstop, "
+            "plus many one-stop options via ORD / EWR / JFK into LHR or LGW. Overnight eastbound, "
+            "~9 h flight + 7 h time-zone shift (MDT → BST). Land at least 3–4 days early to adapt to "
+            "the +7 h shift AND the unusual afternoon race times (W 14:30 / M 16:15) — body-clock "
+            "management is a real factor here. From Heathrow, the ExCeL is ~1 h by taxi or the "
+            "Elizabeth Line (change to DLR at Custom House). No LOC airport shuttle — self-arrange."
+        ),
+        "stats": [
+            ("Primary route",    "DEN → LHR",        "BA nonstop / 1-stop"),
+            ("Flight time",      "~9 h",             "Overnight eastbound"),
+            ("Time zones",       "+7 h",             "London ahead of Denver"),
+            ("Airport → Venue",  "LHR → ExCeL",      "Elizabeth Line + DLR"),
+            ("Transfer Distance","~40 km / 60–75 min","Custom House stn = venue"),
+        ],
+        "hotel_title": "Host Hotel / Accommodation Read",
+        "hotel_bullets": [
+            "Venue is the ExCeL London (Royal Docks) — athlete access via Door S5, South Halls.",
+            "On-site / adjacent hotels: Aloft, Novotel, Sunborn Yacht, CopperBox and Premier Inn ExCeL — walkable to transition, ideal for an afternoon race (no early commute).",
+            "Custom House (Elizabeth Line + DLR) is the venue station — anything on those lines is a fast, low-stress commute.",
+            "Late-July London is peak season — book early; the Docklands fills up around ExCeL events.",
+            "UK entry: US athletes need an ETA (Electronic Travel Authorisation) before travel — apply well in advance.",
+        ],
+        "food_title": "Food / Grocery Options Near Venue",
+        "food_bullets": [
+            "Grocery: Waitrose / Tesco / Sainsbury's around Canary Wharf (2 DLR stops) for staples, water, and room food.",
+            "On-site: the ExCeL boulevard has cafés and chains, but options thin outside event hours — stock the room.",
+            "Athlete-friendly: Canary Wharf (Crossrail Place / Jubilee Place) has extensive protein-forward and quick-serve options a short DLR hop away.",
+            "Afternoon-race fueling note: with a 14:30 / 16:15 start, plan a full breakfast + measured lunch — this is not a dawn race; the pre-race timeline is longer than usual.",
+            "Water is tap-safe throughout London.",
+        ],
+    },
     "montreal": {
         "origin":          "Denver, CO → Montréal race week",
         "core_read": (
@@ -3068,6 +3218,25 @@ def add_travel_load_slide(prs: Presentation, venue: str) -> bool:
 # Used to populate the venue intro slide. When a venue has no historical race
 # results, this is the primary way an athlete gets a feel for the course.
 VENUE_PREVIEW: dict[str, dict] = {
+    "london": {
+        "narrative": (
+            "WTCS London moves to the ExCeL in the Royal Docks — a sprint-distance, "
+            "stadium-style race with an afternoon start (Women 14:30, Men 16:15). The swim is "
+            "a single 750 m loop in the enclosed Royal Victoria Dock, followed by a dead-flat, "
+            "fast 20.64 km bike (7 short out-and-back laps on Royal Albert Way) and a 4.92 km run "
+            "that weaves through the ExCeL venue hall on each of 3 laps. Cool UK-summer conditions "
+            "and a flat, fast layout mean this race is decided on the run."
+        ),
+        "features": [
+            "750 m single-loop swim in the enclosed Royal Victoria Dock — flat freshwater, 315 m to the first buoy, pontoon start.",
+            "Flat & fast bike: 7 × 2.64 km out-and-back laps (20.64 km) on Royal Albert Way — pure power, big lead packs.",
+            "4.92 km run, 3 laps partly indoors through the ExCeL hall — atmospheric and very fast.",
+            "Afternoon start (W 14:30 / M 16:15) — unusual for WTCS; weather + water are at the day's warmest.",
+        ],
+        "format_label":   "Sprint Triathlon (WTCS)",
+        "race_info_url":  "https://events.triathlon.org/2026-wtcs-london/race-info",
+        "race_info_text": "Race Info | 2026 WTCS London",
+    },
     "montreal": {
         "narrative": (
             "World Triathlon Para Series Montréal returns to Parc Jean-Drapeau for the 2026 "
@@ -3170,6 +3339,36 @@ VENUE_PREVIEW: dict[str, dict] = {
 # Each row: (time_label, activity_text, is_highlighted). Highlighted rows render
 # in red (used for start times and mandatory meetings).
 EVENT_SCHEDULES: dict[str, dict] = {
+    "london": {
+        "title":      "2026 WTCS London — Race Week",
+        "date_range": "July 24 – 25, 2026",
+        "venue_note": "ExCeL London, Royal Docks (BST, UTC+1)",
+        "race_starts": [("Elite Women", "14:30"), ("Elite Men", "16:15")],
+        "days": [
+            ("Fri • July 24", "Familiarization & Briefing", [
+                ("13:30 – 15:30", "Athlete lounge open — ExCeL South Halls", False),
+                ("14:00 – 14:30", "Swim course familiarization — Dockside (via Elite Transition)", False),
+                ("15:30 – 16:00", "Athlete sign-in for race briefing — South Halls 23/24", False),
+                ("16:00 – 16:30", "★ Mandatory Elite Athletes' race briefing — South Halls 23/24", True),
+                ("16:30 – 17:00", "Race pack + accreditation distribution", False),
+                ("16:30 – 17:00", "WTCS Team Medical Meeting", False),
+            ]),
+            ("Sat • July 25", "WTCS SPRINT RACE DAY", [
+                ("08:30",         "Bike course familiarization check-in — Elite Transition", False),
+                ("09:00 – 09:20", "Bike course familiarization (escorted)", False),
+                ("12:30 – 14:00", "Elite Women — Athletes' lounge check-in", False),
+                ("13:45 – 14:15", "Elite Women — Transition check-in + swim warm-up", False),
+                ("14:23",         "Elite Women — Athlete introductions", False),
+                ("14:30",         "★ ELITE WOMEN WTCS START", True),
+                ("14:45 – 15:45", "Elite Men — Athletes' lounge check-in", False),
+                ("15:30 – 16:00", "Elite Men — Transition check-in + swim warm-up", False),
+                ("16:08",         "Elite Men — Athlete introductions", False),
+                ("16:15",         "★ ELITE MEN WTCS START", True),
+                ("17:15",         "Elite Men awards ceremony", False),
+                ("17:30 – 17:40", "Elite Women awards (immediately after men)", False),
+            ]),
+        ],
+    },
     "montreal": {
         "title":      "2026 World Triathlon Para Series Montréal — Race Week",
         "date_range": "June 24 – 27, 2026",
@@ -4553,10 +4752,37 @@ def _wtcs_pts(pos: int, win: float = 1000.0) -> float:
     return round(win * (0.925 ** (pos - 1)), 2)
 
 
-def _tier_pts_scale(event_name: str | None) -> tuple[float, str]:
+def _tier_pts_scale(event_name: str | None,
+                    cat_name: str | None = None) -> tuple[float, str]:
+    """Return (winner base points, tier label) for the max-points scheme.
+
+    Prefers the authoritative World Triathlon `cat_name` field; falls back to
+    event-name keyword matching. Note WT brands World Cups as "World Triathlon
+    Cup", so the naive `"world cup" in name` check MISSES them (there's a
+    'triathlon' in between) — we match 'triathlon cup' explicitly.
+    """
+    c = (cat_name or "").lower()
     n = (event_name or "").lower()
-    if "world cup" in n:
+
+    # 1. Authoritative cat_name (most specific first)
+    if "championship series" in c or "wtcs" in c:
+        return (1000.0, "WTCS")
+    if "world cup" in c:
         return (500.0, "World Cup")
+    if "continental championships" in c:
+        return (400.0, "Continental Champs")
+    if "continental cup" in c:
+        return (250.0, "Continental Cup")
+    if "major games" in c or "olympic" in c:
+        return (1000.0, "Olympic Games")
+
+    # 2. Event-name fallback (handles the "World Triathlon Cup" branding)
+    if "world triathlon cup" in n or "triathlon cup" in n or "world cup" in n:
+        return (500.0, "World Cup")
+    if "continental" in n and "championship" in n:
+        return (400.0, "Continental Champs")
+    if "continental" in n or "americas triathlon cup" in n:
+        return (250.0, "Continental Cup")
     if "olympic" in n:
         return (1000.0, "Olympic Games")
     return (1000.0, "WTCS")
@@ -4577,6 +4803,7 @@ def query_swim_threats(engine, prog_regex: str,
          AND pe.entry_type = 'start'"""
     sql = text(f"""
         SELECT pm.athlete_id, rr.athlete_full_name, a.country, e.event_date,
+               e.prog_distance_category AS dist,
                pm.elapsedswim, pm.behindswim
         FROM position_metrics pm
         JOIN events e ON e.event_id = pm.event_id AND e.prog_id = pm.prog_id
@@ -4586,48 +4813,106 @@ def query_swim_threats(engine, prog_regex: str,
         LEFT JOIN athlete a ON a.athlete_id = pm.athlete_id
         {startlist_join}
         WHERE e.event_date >= :since
-          AND e.event_name ~* 'World Triathlon Championship (Series|Finals)'
+          AND (e.cat_name ILIKE '%Championship Series%'
+               OR e.cat_name ILIKE '%World Cup%'
+               OR e.cat_name ILIKE '%Continental%'
+               OR e.event_name ~* 'World Triathlon Championship (Series|Finals)')
           AND e.prog_name  ~* :prog
-          AND pm.finish_status = 'FINISH'
+          AND rr.finish_status = 'FINISH'
           AND pm.elapsedswim IS NOT NULL
+          -- Plausibility filter: exclude relay legs / super-sprint / zero-time
+          -- contamination. No real 750 m swim is faster than ~6:40 (400 s);
+          -- no real standard swim is slower than ~40 min (2400 s).
+          AND pm.elapsedswim BETWEEN 400 AND 2400
+          AND e.prog_distance_category IN ('sprint', 'standard')
         ORDER BY pm.athlete_id, e.event_date ASC
     """)
     return pd.read_sql(sql, engine, params={"since": since, "prog": prog_regex})
 
 
-def _compute_swim_metrics(raw: pd.DataFrame, top_n: int = 6) -> pd.DataFrame:
+def _compute_swim_metrics(raw: pd.DataFrame, top_n: int = 6,
+                          rank_by: str = "sprint") -> pd.DataFrame:
+    """Per-athlete swim metrics with EWMA computed SEPARATELY for sprint vs
+    standard distance (they aren't comparable — a 750 m and 1500 m swim differ
+    by ~7 minutes). Ranks by the race's own distance (`rank_by`), falling back
+    to the other distance when an athlete has no history at the race distance.
+
+    Lead Pack % and Avg Gap are gap-based (distance-independent) so they stay
+    pooled across all races.
+    """
     LEAD_GAP = 15
+    rank_by = (rank_by or "sprint").lower()
+    other = "standard" if rank_by == "sprint" else "sprint"
+
+    def _ewma(sub: pd.DataFrame):
+        if sub.empty:
+            return None
+        return sub.sort_values("event_date")["elapsedswim"].ewm(
+            span=5, min_periods=1).mean().iloc[-1]
+
     results = []
     for aid, grp in raw.groupby("athlete_id"):
         grp = grp.sort_values("event_date")
-        if len(grp) < 2:
+        if len(grp) < 3:  # need a few races so front-pack % isn't a 1-2 race fluke
             continue
-        ewma_swim = grp["elapsedswim"].ewm(span=5, min_periods=1).mean().iloc[-1]
-        avg_gap   = grp["behindswim"].mean()
-        lead_pct  = (grp["behindswim"] <= LEAD_GAP).mean() * 100
-        country   = grp["country"].iloc[-1] if "country" in grp else None
+        d = grp["dist"].astype(str).str.lower() if "dist" in grp else pd.Series(["standard"] * len(grp))
+        spr = grp[d == "sprint"]
+        std = grp[d == "standard"]
+        ewma_sprint = _ewma(spr)
+        ewma_std    = _ewma(std)
+        avg_gap  = grp["behindswim"].mean()
+        lead_pct = (grp["behindswim"] <= LEAD_GAP).mean() * 100
+        country  = grp["country"].iloc[-1] if "country" in grp else None
+        # Rank key = EWMA at the race's distance, else the other distance
+        rank_ewma = (ewma_sprint if rank_by == "sprint" else ewma_std)
+        if rank_ewma is None:
+            rank_ewma = (ewma_std if rank_by == "sprint" else ewma_sprint)
         results.append({
             "athlete_id": aid,
             "athlete_name": grp["athlete_full_name"].iloc[-1],
             "country": country,
             "races": len(grp),
-            "ewma_swim": ewma_swim,
+            "n_sprint": int(len(spr)),
+            "n_std": int(len(std)),
+            "ewma_sprint": ewma_sprint,
+            "ewma_std": ewma_std,
+            "rank_ewma": rank_ewma,
             "avg_gap": avg_gap,
             "lead_pct": lead_pct,
         })
     if not results:
         return pd.DataFrame()
+    # Primary sort: front-pack rate (course/field-robust — being within 15 s of
+    # the leader means the same on a fast or slow course). EWMA at the race
+    # distance breaks ties.
     return (pd.DataFrame(results)
-            .sort_values("ewma_swim")
+            .sort_values(["lead_pct", "rank_ewma"],
+                         ascending=[False, True], na_position="last")
             .head(top_n)
             .reset_index(drop=True))
 
 
 def add_top_swim_threats_slide(prs: Presentation, engine, venue: str,
-                               upcoming_event_id: int | None):
-    """2×2 swim threats table: Elite Men/Women + U23 Men/Women ranked by EWMA swim."""
+                               upcoming_event_id: int | None,
+                               race_distance: str | None = None):
+    """Swim threats tables ranked by front-pack rate. Shows Elite Men/Women,
+    plus U23 Men/Women only when the event has a U23 category. EWMA swim is
+    shown separately for sprint and standard distance; ranking uses the race's
+    own distance."""
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     add_slide_chrome(slide, "Top Swim Threats", venue)
+
+    # Determine the race distance (drives which EWMA column ranks the table)
+    if not race_distance and upcoming_event_id:
+        try:
+            race_distance = pd.read_sql(text(
+                "SELECT prog_distance_category FROM events "
+                "WHERE event_id = :eid AND prog_distance_category IS NOT NULL LIMIT 1"
+            ), engine, params={"eid": upcoming_event_id})["prog_distance_category"].iloc[0]
+        except Exception:
+            race_distance = None
+    rank_by = (race_distance or "sprint").lower()
+    rank_by = "sprint" if "sprint" in rank_by else ("standard" if "standard" in rank_by else "sprint")
 
     # ── Methodology description bar ───────────────────────────────────────────
     desc = slide.shapes.add_shape(1, Inches(0.3), Inches(1.18),
@@ -4639,26 +4924,57 @@ def add_top_swim_threats_slide(prs: Presentation, engine, venue: str,
     desc.shadow.inherit = False
     _add_textbox(
         slide,
-        "Ranked by EWMA swim split (span-5, most recent)   •   "
-        "Lead Pack % = within 15 s of swim leader   •   WTCS / Championship Finals",
+        f"Ranked by Lead Pack % (within 15 s of swim leader — robust to course speed)   •   "
+        f"EWMA swim split (span-5) shown per distance; {rank_by.title()} = this race   •   "
+        f"WTCS / World Cup / Continental, last 4 yrs",
         Inches(0.4), Inches(1.22), Inches(12.5), Inches(0.27),
-        font_size=10.5, bold=True, color=NAVY, align=PP_ALIGN.CENTER)
+        font_size=10, bold=True, color=NAVY, align=PP_ALIGN.CENTER)
 
-    panels = [
-        ("ELITE MEN",   r"Elite Men(?!.*Women)", Inches(0.3), Inches(1.65)),
-        ("ELITE WOMEN", r"Elite Women",           Inches(6.7), Inches(1.65)),
-        ("U23 MEN",     r"U23 Men(?!.*Women)",    Inches(0.3), Inches(4.45)),
-        ("U23 WOMEN",   r"U23 Women",             Inches(6.7), Inches(4.45)),
-    ]
+    # Only show U23 panels if the upcoming event actually has a U23 category.
+    # For Elite-only events (e.g. most World Cups), the U23 distinction is
+    # meaningless — show just Elite Men/Women and fill the space with more names.
+    has_u23 = False
+    if upcoming_event_id:
+        try:
+            has_u23 = bool(pd.read_sql(text(
+                "SELECT 1 FROM events WHERE event_id = :eid "
+                "AND prog_name ILIKE 'U23%' LIMIT 1"
+            ), engine, params={"eid": upcoming_event_id}).shape[0])
+        except Exception:
+            has_u23 = False
+
+    if has_u23:
+        panels = [
+            ("ELITE MEN",   r"Elite Men(?!.*Women)", Inches(0.3), Inches(1.65)),
+            ("ELITE WOMEN", r"Elite Women",           Inches(6.7), Inches(1.65)),
+            ("U23 MEN",     r"U23 Men(?!.*Women)",    Inches(0.3), Inches(4.45)),
+            ("U23 WOMEN",   r"U23 Women",             Inches(6.7), Inches(4.45)),
+        ]
+        panel_top_n = 7
+    else:
+        panels = [
+            ("ELITE MEN",   r"Elite Men(?!.*Women)", Inches(0.3), Inches(1.65)),
+            ("ELITE WOMEN", r"Elite Women",           Inches(6.7), Inches(1.65)),
+        ]
+        panel_top_n = 14   # only two panels — use the vertical space for more names
     panel_w = Inches(6.35)
+    # Highlight whichever distance is the race distance in the header
+    spr_hdr = "EWMA Spr ▸" if rank_by == "sprint" else "EWMA Spr"
+    std_hdr = "EWMA Std ▸" if rank_by == "standard" else "EWMA Std"
     col_spec = [
-        ("#",           0.374),
-        ("Athlete",     2.081),
-        ("Lead Pack %", 1.121),
-        ("Avg Gap (s)", 1.121),
-        ("EWMA Swim",   1.067),
-        ("Races",       0.587),
+        ("#",        0.374),
+        ("Athlete",  1.950),
+        ("Lead %",   0.900),
+        (spr_hdr,    1.040),
+        (std_hdr,    1.040),
+        ("Spr/Std",  1.046),
     ]
+
+    def _fmt_swim(v):
+        if v is None or (isinstance(v, float) and pd.isna(v)):
+            return "—"
+        mins, secs = divmod(int(v), 60)
+        return f"{mins}:{secs:02d}"
 
     for label, prog_regex, left, top in panels:
         hdr = slide.shapes.add_shape(1, left, top, panel_w, Inches(0.3))
@@ -4670,7 +4986,7 @@ def add_top_swim_threats_slide(prs: Presentation, engine, venue: str,
                      font_size=11, bold=True, color=WHITE, align=PP_ALIGN.CENTER)
 
         raw = query_swim_threats(engine, prog_regex, upcoming_event_id)
-        df  = _compute_swim_metrics(raw, top_n=7)
+        df  = _compute_swim_metrics(raw, top_n=panel_top_n, rank_by=rank_by)
 
         tbl_top = top + Inches(0.35)
         n_rows  = 1 + max(len(df), 1)
@@ -4682,7 +4998,7 @@ def add_top_swim_threats_slide(prs: Presentation, engine, venue: str,
             tbl.columns[ci].width = Inches(w)
         for ci, (h, _) in enumerate(col_spec):
             _set_cell(tbl.cell(0, ci), h, bold=True, color=WHITE, bg_color=NAVY,
-                      font_size=9, align=PP_ALIGN.LEFT if ci == 1 else PP_ALIGN.CENTER)
+                      font_size=8.5, align=PP_ALIGN.LEFT if ci == 1 else PP_ALIGN.CENTER)
 
         if df.empty:
             _set_cell(tbl.cell(1, 1), "No data available", font_size=8.5,
@@ -4691,8 +5007,9 @@ def add_top_swim_threats_slide(prs: Presentation, engine, venue: str,
             for ri, r in enumerate(df.itertuples(index=False), start=1):
                 bg     = LIGHT_GRAY if ri % 2 == 0 else WHITE
                 is_usa = (r.country or "") == "United States"
-                mins, secs = divmod(int(r.ewma_swim), 60)
-                swim_fmt   = f"{mins}:{secs:02d}"
+                # Bold whichever EWMA column is the race distance
+                spr_bold = (rank_by == "sprint")
+                std_bold = (rank_by == "standard")
                 _set_cell(tbl.cell(ri, 0), str(ri), font_size=8.5, bold=True,
                           color=NAVY, bg_color=bg)
                 _set_cell(tbl.cell(ri, 1), r.athlete_name, font_size=8.5,
@@ -4700,12 +5017,12 @@ def add_top_swim_threats_slide(prs: Presentation, engine, venue: str,
                           bg_color=bg, align=PP_ALIGN.LEFT)
                 _set_cell(tbl.cell(ri, 2), f"{r.lead_pct:.0f}%", font_size=8.5,
                           bold=True, color=DARK_GRAY, bg_color=bg)
-                _set_cell(tbl.cell(ri, 3), f"{r.avg_gap:+.1f}", font_size=8.5,
-                          color=DARK_GRAY, bg_color=bg)
-                _set_cell(tbl.cell(ri, 4), swim_fmt, font_size=8.5,
-                          color=DARK_GRAY, bg_color=bg)
-                _set_cell(tbl.cell(ri, 5), str(int(r.races)), font_size=8.5,
-                          color=MID_GRAY, bg_color=bg)
+                _set_cell(tbl.cell(ri, 3), _fmt_swim(r.ewma_sprint), font_size=8.5,
+                          bold=spr_bold, color=DARK_GRAY, bg_color=bg)
+                _set_cell(tbl.cell(ri, 4), _fmt_swim(r.ewma_std), font_size=8.5,
+                          bold=std_bold, color=DARK_GRAY, bg_color=bg)
+                _set_cell(tbl.cell(ri, 5), f"{int(r.n_sprint)}/{int(r.n_std)}",
+                          font_size=8.5, color=MID_GRAY, bg_color=bg)
 
 
 def query_usa_world_rankings(engine, gender: str,
@@ -4752,12 +5069,13 @@ def query_usa_world_rankings(engine, gender: str,
 
 def add_usa_world_rankings_slide(prs: Presentation, engine, venue: str,
                                  upcoming_event_id: int | None,
-                                 event_name: str | None = None):
+                                 event_name: str | None = None,
+                                 cat_name: str | None = None):
     """Max-points header bar + USA world-ranking tables (cat 13/14)."""
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     add_slide_chrome(slide, "USA World Rankings Snapshot", venue)
 
-    win_pts, tier_label = _tier_pts_scale(event_name)
+    win_pts, tier_label = _tier_pts_scale(event_name, cat_name)
 
     # Latest ranking snapshot date for the context bar
     try:
@@ -4838,9 +5156,10 @@ def add_usa_world_rankings_slide(prs: Presentation, engine, venue: str,
                      panel_w, Inches(0.26),
                      font_size=11, bold=True, color=WHITE, align=PP_ALIGN.CENTER)
 
-        df = query_usa_world_rankings(engine, gender, upcoming_event_id)
-        if df.empty and upcoming_event_id:
-            df = query_usa_world_rankings(engine, gender, None)
+        # Always show the full USA team picture (all top-ranked USA athletes),
+        # not just those on this race's startlist — this slide is a team-wide
+        # world-ranking snapshot, independent of the specific event field.
+        df = query_usa_world_rankings(engine, gender, None)
         df = df.head(MAX_ROWS)
 
         tbl_top = Inches(3.21)
@@ -5291,8 +5610,14 @@ def main():
     men_data   = collect_race_data(engine, men_df)   if not men_df.empty   else []
     women_data = collect_race_data(engine, women_df) if not women_df.empty else []
 
-    # Geocode venue and enrich all rows with Open-Meteo weather + AQ
-    print(f"Geocoding '{args.venue}' and fetching Open-Meteo data...")
+    # Set the weather sampling window from this venue's race start times so the
+    # window covers the actual race (afternoon races included), then geocode +
+    # enrich all rows with Open-Meteo weather + AQ.
+    _sched = EVENT_SCHEDULES.get(args.venue.lower().strip())
+    _starts = _sched.get("race_starts") if _sched else None
+    win = set_weather_window(_starts)
+    print(f"Geocoding '{args.venue}' and fetching Open-Meteo data... "
+          f"(weather window {win[0]:02d}:00–{win[1]:02d}:00 local)")
     coords = geocode_venue(args.venue)
     enrich_rows_with_openmeteo(men_data,   coords)
     enrich_rows_with_openmeteo(women_data, coords)
@@ -5354,12 +5679,26 @@ def main():
     # where we have prior race history.
     upcoming = None
     if args.upcoming_event_id:
-        upcoming = {"event_id": int(args.upcoming_event_id), "event_date": None,
-                    "event_name": f"Upcoming event {args.upcoming_event_id}"}
+        # Look up the real event row so event_name + cat_name are populated
+        # (needed for correct tier / max-points detection downstream).
+        eid = int(args.upcoming_event_id)
+        _row = pd.read_sql(text(
+            "SELECT event_id, MIN(event_date) AS event_date, "
+            "MIN(event_name) AS event_name, MIN(cat_name) AS cat_name "
+            "FROM events WHERE event_id = :eid GROUP BY event_id"
+        ), engine, params={"eid": eid})
+        if not _row.empty:
+            upcoming = _row.iloc[0].to_dict()
+            print(f"  Upcoming event (CLI override): {upcoming['event_name']} "
+                  f"({upcoming['event_date']}) — cat={upcoming.get('cat_name')}")
+        else:
+            upcoming = {"event_id": eid, "event_date": None,
+                        "event_name": f"Upcoming event {eid}", "cat_name": None}
     else:
         upcoming = find_upcoming_event(engine, args.venue)
         if upcoming:
-            print(f"  Upcoming event detected: {upcoming['event_name']} ({upcoming['event_date']}) — event_id={upcoming['event_id']}")
+            print(f"  Upcoming event detected: {upcoming['event_name']} ({upcoming['event_date']}) "
+                  f"— event_id={upcoming['event_id']}, cat={upcoming.get('cat_name')}")
         else:
             print("  No upcoming event found at this venue; 'Who to Watch' will use rankings-only mode")
 
@@ -5437,7 +5776,8 @@ def main():
                                    upcoming_event_id=upcoming["event_id"] if upcoming else None)
         add_usa_world_rankings_slide(prs, engine, args.venue,
                                      upcoming_event_id=upcoming["event_id"] if upcoming else None,
-                                     event_name=upcoming.get("event_name") if upcoming else None)
+                                     event_name=upcoming.get("event_name") if upcoming else None,
+                                     cat_name=upcoming.get("cat_name") if upcoming else None)
         add_oqr_pace_slide(prs, engine, args.venue)
         add_usa_oqr_snapshot_slide(prs, engine, args.venue)
 
