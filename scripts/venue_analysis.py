@@ -841,6 +841,8 @@ VENUE_COORDS_FALLBACK: dict[str, tuple[float, float]] = {
     "hamburg":   (53.554,   9.994),   # Binnenalster / Rathausmarkt, city center
     "edmonton":  (53.527, -113.547),  # William Hawrelak Park, 9330 Groat Rd NW (race venue)
     "london":    (51.508,   0.029),   # ExCeL London, Royal Victoria Dock
+    "rio de janeiro": (-22.971, -43.185),  # Copacabana Beach, Avenida Atlântica
+    "rio":       (-22.971, -43.185),  # Copacabana Beach (alias)
 }
 
 
@@ -2577,6 +2579,26 @@ def add_course_map_slide(
 # be lightly templated.
 
 BIKE_COURSE_PROFILES: dict[str, dict] = {
+    "rio de janeiro": {
+        "source":        "2026 World Triathlon Cup Rio Athlete's Guide v2.0 (Copacabana)",
+        "loop_km":       3.47,
+        "loops":         6,
+        "total_km":      20.8,
+        "gain_per_lap_m":  None,
+        "loss_per_lap_m":  None,
+        "max_grade_pos":   None,
+        "max_grade_neg":   None,
+        "avg_grade_pct":   None,
+        "wind":           "Beachfront — Atlantic sea breeze along Av Atlântica",
+        "surface":        "Closed seafront circuit — Avenida Atlântica, Copacabana",
+        "key_features": [
+            "Fast and flat: 6 counterclockwise laps along the Copacabana seafront (Avenida Atlântica) = 20.8 km",
+            "Classic beachfront out-and-back — the same waters/roads that hosted the 2016 Olympic triathlon",
+            "Dead-flat, high-speed course built for spectators; expect large lead packs and a bunch finish onto the run",
+            "Sea-breeze exposure along the beachfront straights can shape pack dynamics into the turns",
+            "NOTE: guide is internally inconsistent — header says 20.8 km / 6 laps, body text says 20 km / 4 × 5 km. Confirm final lap count at briefing.",
+        ],
+    },
     "london": {
         "source":        "2026 WTCS London Elite Athlete's Guide (ExCeL, Royal Docks)",
         "loop_km":       2.64,
@@ -2701,6 +2723,28 @@ BIKE_COURSE_PROFILES: dict[str, dict] = {
 }
 
 SWIM_COURSE_PROFILES: dict[str, dict] = {
+    "rio de janeiro": {
+        "source":            "2026 World Triathlon Cup Rio Athlete's Guide v2.0 (Copacabana)",
+        "total_km":          0.75,
+        "laps":              1,
+        "loop_km":           0.75,
+        "layout":            "Copacabana Beach — single counterclockwise ocean loop, buoy-marked",
+        "format":            "Open ocean — Atlantic surf, beach start",
+        "start_type":        "Beach start; water entry, exit at same point into transition",
+        "water_temp_c":      None,
+        "expected_water_temp_range_c": (22.0, 24.0),
+        "wetsuit_note":      "Guide states August water 22–24 °C — non-wetsuit (WT forbids wetsuits > 22 °C). Temp confirmed at race briefing.",
+        "key_features": [
+            "Single 750 m counterclockwise ocean loop off Copacabana Beach — the 2016 Olympic swim venue",
+            "Beach start: sprint down the sand and dolphin-dive through Atlantic shore break — surf entry is a real skill factor",
+            "Ocean swell and chop possible; sighting on bigger surface waves than a sheltered dock/lake course",
+            "Warm water (22–24 °C) = non-wetsuit; no cold-water concern, but manage a hot, sunny morning start",
+            "Exit at the same point as entry, running straight into transition on the sand",
+        ],
+        "missing": [
+            "Confirmed race-day water temperature + surf/swell forecast (announced at briefing)",
+        ],
+    },
     "london": {
         "source":            "2026 WTCS London Elite Athlete's Guide (Royal Docks, ExCeL)",
         "total_km":          0.75,
@@ -2832,6 +2876,29 @@ SWIM_COURSE_PROFILES: dict[str, dict] = {
 }
 
 RUN_COURSE_PROFILES: dict[str, dict] = {
+    "rio de janeiro": {
+        "source":            "2026 World Triathlon Cup Rio Athlete's Guide v2.0 (Copacabana)",
+        "total_km":          5.0,
+        "laps":              2,
+        "loop_km":           2.5,
+        "surface":           "Paved seafront promenade — Avenida Atlântica, Copacabana",
+        "gain_per_lap_m":    None,
+        "loss_per_lap_m":    None,
+        "max_grade_pos":     None,
+        "max_grade_neg":     None,
+        "avg_grade_pct":     None,
+        "heat_risk":         "MODERATE",
+        "key_features": [
+            "Flat and fast: 2 counterclockwise laps of 2.5 km along the Copacabana seafront (5 km total)",
+            "Iconic promenade course — the black-and-white Portuguese-wave pavement of Avenida Atlântica",
+            "Aid stations positioned throughout each lap; flat profile favours aggressive, even-paced running",
+            "August is Rio winter but sun on the exposed beachfront can push perceived heat up — 09:00 men's start runs into rising sun",
+            "Race decided here: with a flat swim and flat bike, the run is where the World Cup is won",
+        ],
+        "missing": [
+            "Elevation profile (course is flat — no published grade data)",
+        ],
+    },
     "london": {
         "source":            "2026 WTCS London Elite Athlete's Guide (ExCeL, Royal Docks)",
         "total_km":          4.92,
@@ -2973,6 +3040,40 @@ RUN_COURSE_PROFILES: dict[str, dict] = {
 
 # ── Travel & arrival data (per venue, origin = Denver, CO USAT HQ) ───────────
 TRAVEL_PROFILES: dict[str, dict] = {
+    "rio de janeiro": {
+        "origin":          "Denver, CO → Rio de Janeiro race week",
+        "core_read": (
+            "Denver → Rio (GIG) is an overnight, one-stop haul — typically via ATL, IAH, MIA, or "
+            "JFK/EWR on United/American/LATAM, ~13–15 h door-to-door. Only +4 h time-zone shift "
+            "(MDT → BRT), so jet-lag is moderate — the bigger factor is the long overnight leg. The "
+            "LOC runs a FREE airport shuttle GIG → Othon Palace Copacabana (bikes included) on "
+            "July 29–31 — registration is mandatory or you self-arrange (~BRL 80–150 by Uber/99). "
+            "Land by ~July 30 to settle before the Aug 1 briefing and Aug 2 race."
+        ),
+        "stats": [
+            ("Primary route",    "DEN → GIG",        "1-stop, overnight"),
+            ("Flight time",      "~13–15 h",         "via ATL / IAH / MIA"),
+            ("Time zones",       "+4 h",             "Rio ahead of Denver"),
+            ("Airport Transfer", "GIG → Othon Palace","Free LOC shuttle (register)"),
+            ("Transfer Distance","~20 km / 30–60 min","Traffic-dependent"),
+        ],
+        "hotel_title": "Host Hotel / Accommodation Read",
+        "hotel_bullets": [
+            "Official host hotel: Othon Palace Copacabana, Av Atlântica 3264 — directly facing Copacabana Beach.",
+            "Walking distance to the Triathlon Arena (central median of Av Atlântica, ~height 3806) — no race-morning commute.",
+            "Free LOC airport shuttle GIG ↔ Othon (bikes included) on Jul 29–31 / Aug 2–3 — mandatory registration via the LOC form.",
+            "Copacabana is dense and walkable; the beachfront promenade is the venue, training ground, and social hub in one.",
+            "Brazil entry: check current US-passport visa/ETA status well before travel — requirements have shifted recently.",
+        ],
+        "food_title": "Food / Grocery Options Near Venue",
+        "food_bullets": [
+            "Grocery: Zona Sul and Pão de Açúcar supermarkets along/near Av Nossa Senhora de Copacabana for staples, water, fruit, snacks.",
+            "Bottled/filtered water only — do not drink tap water in Rio; stock sealed bottles for race week to avoid GI risk.",
+            "Athlete-friendly: açaí bowls, grilled meats/fish, rice-and-beans, and juice bars are everywhere — easy carb + protein, but be selective with raw/street food pre-race.",
+            "The athletes' lounge provides sealed water + fruit before/after the race; bring your own race-morning fueling from the hotel.",
+            "Sun + exposed beachfront: pre-stock electrolytes and high-SPF sunscreen for daily training on the sand.",
+        ],
+    },
     "london": {
         "origin":          "Denver, CO → London race week",
         "core_read": (
@@ -3218,6 +3319,25 @@ def add_travel_load_slide(prs: Presentation, venue: str) -> bool:
 # Used to populate the venue intro slide. When a venue has no historical race
 # results, this is the primary way an athlete gets a feel for the course.
 VENUE_PREVIEW: dict[str, dict] = {
+    "rio de janeiro": {
+        "narrative": (
+            "The World Triathlon Cup returns to Copacabana Beach — the 2016 Olympic triathlon "
+            "venue — for a sprint-distance race on August 2. A beach-start 750 m ocean swim in "
+            "Atlantic surf feeds a dead-flat, fast 20.8 km bike along Avenida Atlântica and a "
+            "2-lap, 5 km run down the iconic Copacabana promenade. Warm 22–24 °C water means a "
+            "non-wetsuit swim; the flat swim-and-bike put the whole race on the run. Morning "
+            "starts (Women 07:00, Men 09:00) in Rio's mild August winter."
+        ),
+        "features": [
+            "Beach-start 750 m ocean swim off Copacabana — Atlantic surf entry, non-wetsuit (22–24 °C).",
+            "Flat & fast 20.8 km bike (6 laps) along the Avenida Atlântica seafront — big packs, high speed.",
+            "5 km run (2 laps) on the iconic Copacabana promenade — flat and fast; this is where it's decided.",
+            "2016 Olympic venue; morning starts (W 07:00 / M 09:00) in mild Rio winter conditions.",
+        ],
+        "format_label":   "Sprint Triathlon (World Cup)",
+        "race_info_url":  "https://events.triathlon.org/2026-world-triathlon-cup-rio-de-janeiro/race-info",
+        "race_info_text": "Race Info | 2026 World Triathlon Cup Rio de Janeiro",
+    },
     "london": {
         "narrative": (
             "WTCS London moves to the ExCeL in the Royal Docks — a sprint-distance, "
@@ -3339,6 +3459,32 @@ VENUE_PREVIEW: dict[str, dict] = {
 # Each row: (time_label, activity_text, is_highlighted). Highlighted rows render
 # in red (used for start times and mandatory meetings).
 EVENT_SCHEDULES: dict[str, dict] = {
+    "rio de janeiro": {
+        "title":      "2026 World Triathlon Cup Rio de Janeiro — Race Week",
+        "date_range": "August 1 – 2, 2026",
+        "venue_note": "Triathlon Arena, Copacabana Beach, Av Atlântica (BRT, UTC-3)",
+        "race_starts": [("Elite Women", "07:00"), ("Elite Men", "09:00")],
+        "days": [
+            ("Sat • Aug 1", "Familiarization & Briefing", [
+                ("08:00 – 08:45", "Bike course familiarization — Triathlon Arena", False),
+                ("09:00 – 09:45", "Swim course familiarization — Triathlon Arena", False),
+                ("16:00 – 17:00", "★ Mandatory Elite Athletes' briefing — Othon Palace", True),
+                ("Post-briefing", "Race pack + credentials distribution", False),
+            ]),
+            ("Sun • Aug 2", "WORLD CUP RACE DAY", [
+                ("05:30 – 06:30", "Elite Women — Athletes' lounge open", False),
+                ("05:30 – 06:45", "Elite Women — Transition open", False),
+                ("06:20 – 06:45", "Elite Women — Swim course open for warm-up", False),
+                ("06:50 – 06:58", "Elite Women — Presentation", False),
+                ("07:00",         "★ ELITE WOMEN RACE START", True),
+                ("06:45 – 08:45", "Elite Men — Athletes' lounge open", False),
+                ("08:00 – 08:45", "Elite Men — Transition + swim warm-up", False),
+                ("08:50 – 08:58", "Elite Men — Presentation", False),
+                ("09:00",         "★ ELITE MEN RACE START", True),
+                ("10:30",         "Elite Men & Women medal ceremony", False),
+            ]),
+        ],
+    },
     "london": {
         "title":      "2026 WTCS London — Race Week",
         "date_range": "July 24 – 25, 2026",
