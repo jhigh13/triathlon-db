@@ -840,6 +840,7 @@ VENUE_COORDS_FALLBACK: dict[str, tuple[float, float]] = {
     "montreal":  (45.503, -73.534),   # Parc Jean-Drapeau, Notre-Dame Island
     "hamburg":   (53.554,   9.994),   # Binnenalster / Rathausmarkt, city center
     "edmonton":  (53.527, -113.547),  # William Hawrelak Park, 9330 Groat Rd NW (race venue)
+    "asuncion":  (-25.252, -57.642),  # La Isla del Delta, Nueva Asunción (Presidente Hayes, across the river)
     "london":    (51.508,   0.029),   # ExCeL London, Royal Victoria Dock
     "rio de janeiro": (-22.971, -43.185),  # Copacabana Beach, Avenida Atlântica
     "rio":       (-22.971, -43.185),  # Copacabana Beach (alias)
@@ -1031,7 +1032,9 @@ def fetch_openmeteo_forecast(lat: float, lon: float, race_date: str) -> dict:
                 ]),
                 "wind_speed_unit": "kmh",
                 "timezone": "auto",
-                "forecast_days": 16,
+                # NB: Open-Meteo rejects `forecast_days` alongside start_date/end_date
+                # with a 400, which silently forced every deck onto the climatology
+                # fallback. The explicit date range already bounds the request.
             },
             timeout=15,
         )
@@ -2720,6 +2723,27 @@ BIKE_COURSE_PROFILES: dict[str, dict] = {
             "Newly renovated venue ahead of the 2027 World Triathlon Multisport Championships — this is the first elite race on the rebuilt course",
         ],
     },
+    "asuncion": {
+        "source":        "2026 World Triathlon Cup Asunción Athlete's Guide + official cycling course flyer — 9 Aug 2026",
+        "loop_km":       6.66,
+        "loops":         6,
+        "total_km":      39.96,
+        "gain_per_lap_m":  None,
+        "loss_per_lap_m":  None,
+        "max_grade_pos":   None,
+        "max_grade_neg":   None,
+        "avg_grade_pct":   None,
+        "wind":           "Open riverside / floodplain terrain — little shelter, wind is the main variable on a flat course",
+        "surface":        "Closed avenue on La Isla del Delta — smooth tarmac, traffic-free",
+        "key_features": [
+            "Standard-distance bike: 6 × 6.66 km laps = 39.96 km on a closed main avenue through the Delta development",
+            "Flat throughout with no published elevation — this is a pure power and positioning course, not a selection course",
+            "Long out-and-back shape with the Zona Operativa (transition) mid-course; few technical features beyond the end turnarounds",
+            "Flat + 6 laps + a 40 km distance strongly favours large packs forming and staying together to T2",
+            "Single wheel station on course (guide does not specify neutral wheel inventory) — confirm placement at Saturday's briefing",
+            "Open floodplain with minimal tree cover: crosswind exposure on the long straights is the realistic pack-splitting mechanism",
+        ],
+    },
 }
 
 SWIM_COURSE_PROFILES: dict[str, dict] = {
@@ -2872,6 +2896,30 @@ SWIM_COURSE_PROFILES: dict[str, dict] = {
             "Elite Men warm-up 13:00-13:45, Elite Women warm-up 15:00-15:45 on race day",
         ],
         "missing": [],
+    },
+    "asuncion": {
+        "source":            "2026 World Triathlon Cup Asunción Athlete's Guide + official swimming course flyer — 9 Aug 2026",
+        "total_km":          1.5,
+        "laps":              2,
+        "loop_km":           0.75,
+        "layout":            "Delta lagoon — 2 × 750 m loops, start off the floating Candock platforms",
+        "format":            "Sheltered inland lagoon — fresh water, calm",
+        "start_type":        "Floating pontoon (Candock) start",
+        "water_temp_c":      None,
+        "expected_water_temp_range_c": (18.0, 22.0),
+        "wetsuit_note":      "GENUINELY UNCERTAIN — guide forecasts 18–22 °C, which straddles the elite threshold (wetsuit forbidden at 20.0 °C and above, optional 16.0–19.9 °C). Pack both and expect the call at the official race-morning measurement",
+        "key_features": [
+            "Standard-distance swim: 2 × 750 m loops in the Delta lagoon, not the Paraguay River — sheltered, no current",
+            "In-water start from floating Candock platforms rather than a beach or pontoon run-in",
+            "Two laps means an Australian-style exit or turn per lap — sighting and re-acceleration off each turn matters more than a single-loop sprint swim",
+            "Wetsuit call is a live tactical variable: 18–22 °C forecast sits right on the 20 °C elite cut-off",
+            "Women's 07:30 start swims the coldest water of the day; men at 10:30 get three more hours of warming, so the two races will not necessarily get the same wetsuit ruling",
+            "Swim familiarization is Saturday 10:45–11:30 only — the venue is closed to athletes on all other days",
+        ],
+        "missing": [
+            "Buoy count and turn configuration (not published in the guide)",
+            "Measured water quality data (not published; lagoon is a managed development water body)",
+        ],
     },
 }
 
@@ -3035,6 +3083,31 @@ RUN_COURSE_PROFILES: dict[str, dict] = {
             "July averages a 23 °C high / 12 °C low with a late sunset (21:32) — moderate heat risk for the 14:00/16:00 Elite starts, well short of Huatulco-level heat stress",
         ],
         "missing": [],
+    },
+    "asuncion": {
+        "source":            "2026 World Triathlon Cup Asunción Athlete's Guide + official running course flyer — 9 Aug 2026",
+        "total_km":          10.0,
+        "laps":              4,
+        "loop_km":           2.35,
+        "surface":           "Paved closed avenue alongside the lagoon and river frontage",
+        "gain_per_lap_m":    None,
+        "loss_per_lap_m":    None,
+        "max_grade_pos":     None,
+        "max_grade_neg":     None,
+        "avg_grade_pct":     None,
+        "heat_risk":         "LOW — August is Paraguayan winter (see Race-Day Weather slide)",
+        "key_features": [
+            "Standard-distance run: 4 × 2.35 km laps plus a final 600 m spur = 10 km, described as flat",
+            "Long straight out-and-back shape along the avenue — very few turns, so pace is honest and gaps are visible from a long way back",
+            "Penalty box sits near transition and is passed every lap — bike drafting tickets are unusually costly over 4 laps",
+            "Flat, non-technical and fast: on this profile the race is most likely decided by run legs off a large intact bike pack",
+            "August is winter here: both races run in the cool morning and finish by ~12:20, well before the daily maximum. Heat is not the limiter this race normally is in a Cup",
+            "Climatology puts the men's 10:30 start a few degrees warmer than the women's 07:30, but the gap varies year to year — the Race-Day Weather slide carries the live forecast and governs",
+        ],
+        "missing": [
+            "Aid station count and placement (not specified in the guide)",
+            "Elevation profile (course stated as flat, no published grade data)",
+        ],
     },
 }
 
@@ -3234,6 +3307,40 @@ TRAVEL_PROFILES: dict[str, dict] = {
             "Not itemized in the athlete guide — the Westin sits downtown with typical hotel-district dining and grocery access within a few blocks.",
             "Lister Hall option is on the University of Alberta campus — Whyte Ave (109 St / 82 Ave) strip is a short ride away for groceries and casual dining.",
             "Kinsmen Sports Centre (swim training venue) and Hawrelak Park both sit along the river valley bike path connecting the Westin, Lister Hall, and the U of A.",
+        ],
+    },
+    "asuncion": {
+        "origin":          "Denver, CO → Asunción race week",
+        "core_read": (
+            "Denver → Asunción is a long-haul with no nonstop option; realistic routings connect through Panama City "
+            "(PTY, Copa), Lima (LIM), São Paulo (GRU) or Miami (MIA), typically 16–22 h door to door with an overnight leg. "
+            "VERIFY THE TIME ZONE: the athlete guide lists Paraguay as GMT-4, but Paraguay moved to permanent UTC-3 in "
+            "October 2024, which would make it +3 h from Denver (MDT), not +2 h. Confirm before booking race-morning logistics. "
+            "The venue is 15 km from the official hotel across the Héroes del Chaco bridge and is CLOSED except on "
+            "familiarization day and race day, so there is no course access midweek. Official LOC transfers run to a fixed "
+            "timetable — women's race-day call time at the hotel is 04:30."
+        ),
+        "stats": [
+            ("Primary route",    "DEN → ASU",        "1–2 stops (PTY/LIM/GRU/MIA)"),
+            ("Time zones",       "+2h or +3h",       "Guide says UTC-4; verify UTC-3"),
+            ("Airport Transfer", "ASU → Esplendor",  "~6 km / 15 min by car"),
+            ("Hotel → Venue",    "~15 km / 25-35 min", "Traffic dependent, via bridge"),
+            ("Race-day call",    "04:30 (W) / 06:35 (M)", "At Hotel Esplendor"),
+        ],
+        "hotel_title": "Host Hotel / Official Accommodation",
+        "hotel_bullets": [
+            "Official hotel: Esplendor by Wyndham Asunción, in the corporate centre of Asunción. Booking codes and event rates listed as TBD in the guide.",
+            "Hotel is ~15 km / 25–35 min from the Delta venue — the longest hotel-to-venue transfer of the current preview set; budget for traffic.",
+            "Reference hospital: Sanatorio Santa Bárbara (~4 km / 10–15 min from the hotel), +595 21 299 388. Venue medical is free; private hospital care is athlete-paid, so carry insurance.",
+            "Non-official training: COP Olympic Aquatic Centre (swim, Tue-Fri 07:00–11:00) and COP athletics track (Tue-Fri 14:00–16:00). Costanera Norte is the only recommended road ride/run.",
+        ],
+        "food_title": "Food / Money / Practical Notes",
+        "food_bullets": [
+            "Shopping del Sol (~1 km) and Paseo La Galería (~1.5 km) sit next to the hotel: supermarkets, food courts, pharmacies, ATMs and exchange offices.",
+            "Reference prices: food-court meal Gs. 35–60k (USD 5–8), mid-range restaurant Gs. 70–120k (USD 9–16), bottled water Gs. 5–8k.",
+            "Bottled water is recommended for visitors. Cash is guaraníes only for taxis and small purchases; cards work at hotels, malls and ride apps.",
+            "Ride-hailing (Bolt cheapest, plus Uber and local MUV) is well covered: ~USD 2–5 in-city, USD 8–12 airport run. Electricity 220 V 50 Hz, plug type C (European two-pin).",
+            "LOC advises AGAINST riding on open roads in the city — bike safety is explicitly the athlete's own responsibility outside the venue.",
         ],
     },
 }
@@ -3451,6 +3558,30 @@ VENUE_PREVIEW: dict[str, dict] = {
         "format_label":   "Sprint Triathlon (World Cup)",
         "race_info_url":  "https://events.triathlon.org/2026-world-triathlon-cup-edmonton",
         "race_info_text": "Race Info | 2026 World Triathlon Cup Edmonton",
+    },
+    "asuncion": {
+        "narrative": (
+            "The 2026 World Triathlon Cup Asunción is the first World Triathlon elite race ever staged at this venue, "
+            "and Paraguay's first World Cup. It runs on La Isla del Delta in Nueva Asunción, across the Héroes del Chaco "
+            "bridge from the capital. Two things make it unusual on the 2026 calendar. First, it is a STANDARD-distance "
+            "World Cup (1500 m / 40 km / 10 km) at a time when most Cups are sprints, so it rewards a different athlete "
+            "profile. Second, the course is flat in all three disciplines, on a closed avenue with long straights and few "
+            "turns, which points to a large intact bike pack and a run-off finish. There is no historical race data at "
+            "this venue, so every read here comes from the athlete guide and course flyers rather than past results."
+        ),
+        "features": [
+            "STANDARD distance (1500 m / 40 km / 10 km) — not a sprint. Different pacing and fuelling plan from most 2026 Cups.",
+            "Flat across all three legs: 2 × 750 m lagoon swim, 6 × 6.66 km closed-avenue bike, 4 × 2.35 km + 600 m run.",
+            "Wetsuit call is live: 18–22 °C forecast straddles the 20 °C elite cut-off. Pack both.",
+            "August is Paraguayan winter — cool morning starts (Women 07:30, Men 10:30), both finishing before the daily max. Cold-weather warm-up kit matters more than cooling kit.",
+        ],
+        "format_label":   "Standard Distance (World Cup)",
+        "race_info_url":  "https://events.triathlon.org/2026-world-triathlon-cup-asuncion/race-info",
+        "race_info_text": "Race Info | 2026 World Triathlon Cup Asunción",
+        # Used for max-points / tier labelling when the event is not yet in the DB.
+        # WT event_id 195159 (2026-08-09) — ingest to unlock startlist-based slides.
+        "event_name":     "2026 World Triathlon Cup Asuncion",
+        "cat_name":       "World Cup",
     },
 }
 
@@ -3699,6 +3830,49 @@ EVENT_SCHEDULES: dict[str, dict] = {
                 ("14:20 – 14:28", "Mixed Relay team introductions", False),
                 ("14:30",         "★ ELITE MIXED RELAY START", True),
                 ("16:00",         "Elite Mixed Relay medals ceremony", False),
+            ]),
+        ],
+    },
+    "asuncion": {
+        "title":      "2026 World Triathlon Cup Asunción — Race Week",
+        "date_range": "August 4 – 9, 2026",
+        "venue_note": "La Isla del Delta, Nueva Asunción (guide states UTC-4; verify — Paraguay moved to permanent UTC-3 in 2024)",
+        "race_date":  "2026-08-09",
+        "race_starts": [("Elite Women", "07:30"), ("Elite Men", "10:30")],
+        "days": [
+            ("Tue-Fri • Aug 4-7", "Non-Official Training", [
+                ("07:00 – 11:00", "Swim — COP Olympic Aquatic Centre", False),
+                ("14:00 – 16:00", "Run — COP Athletics Track", False),
+                ("(any time)",    "Bike/run — Costanera Norte is the only recommended road option", False),
+                ("—",             "⚠ Race venue CLOSED all week: no course access until Saturday", False),
+            ]),
+            ("Sat • Aug 8", "Familiarization & Briefing", [
+                ("07:00 – 07:15", "Call time at Hotel Esplendor", False),
+                ("08:35 – 08:40", "Departure from hotel  →  arrive El Delta 09:20-09:30", False),
+                ("10:00 – 10:30", "Bike course familiarization (closed circuit)", False),
+                ("10:45 – 11:30", "Swim course familiarization (marked area)", False),
+                ("13:40 – 13:50", "Departure from venue  →  arrive hotel 14:45-14:55", False),
+                ("16:00 – 17:00", "★ Mandatory Athlete Briefing — COP", True),
+            ]),
+            ("Sun • Aug 9", "ELITE WOMEN — STANDARD", [
+                ("04:30",         "Call time at Hotel Esplendor (Women)", False),
+                ("05:30",         "Departure from hotel  →  arrive El Delta 06:00", False),
+                ("06:00 – 06:45", "Athletes' Lounge opens — check-in", False),
+                ("06:10 – 07:00", "Transition area check-in", False),
+                ("06:45 – 07:15", "Swim warm-up", False),
+                ("07:20",         "Athletes' introduction", False),
+                ("07:30",         "★ ELITE WOMEN START — 1500 / 40 / 10", True),
+                ("~09:30",        "Projected finish", False),
+            ]),
+            ("Sun • Aug 9", "ELITE MEN — STANDARD", [
+                ("06:35",         "Call time at Hotel Esplendor (Men)", False),
+                ("07:50 – 07:55", "Departure from hotel  →  arrive El Delta 08:00-08:20", False),
+                ("09:00 – 09:45", "Athletes' Lounge opens — check-in", False),
+                ("09:10 – 10:00", "Transition area check-in", False),
+                ("09:45 – 10:15", "Swim warm-up", False),
+                ("10:20",         "Athletes' introduction", False),
+                ("10:30",         "★ ELITE MEN START — 1500 / 40 / 10", True),
+                ("12:30",         "Award ceremony — Elite Women & Elite Men", False),
             ]),
         ],
     },
@@ -4033,8 +4207,22 @@ def _add_discipline_profile_slide(prs: Presentation, venue: str, discipline: str
         ref_temp = water_temp
         if ref_temp is None and expected_range:
             ref_temp = sum(expected_range) / 2
+        def _wetsuit_band(t: float) -> int:
+            """Rule band index so a published range that crosses a threshold is
+            reported as uncertain instead of collapsing to a midpoint verdict."""
+            if t >= 22:  return 3   # forbidden
+            if t >= 20:  return 2   # likely non-wetsuit
+            if t >= 16:  return 1   # optional
+            return 0                # mandatory
+
+        straddles = (water_temp is None and expected_range
+                     and _wetsuit_band(expected_range[0]) != _wetsuit_band(expected_range[1]))
+
         if ref_temp is None:
             wetsuit = "TBD — depends on day-of water temp"
+        elif straddles:
+            wetsuit = (f"Straddles cut-off "
+                       f"({expected_range[0]:.0f}–{expected_range[1]:.0f} °C)")
         elif ref_temp >= 22:
             wetsuit = "Forbidden (> 22 °C)"
         elif ref_temp >= 20:
@@ -4434,7 +4622,11 @@ def add_race_day_forecast_slide(prs: Presentation, venue: str,
         if f_temp is not None and m_temp is not None:
             delta = m_temp - f_temp
             if delta >= 2:
-                cues.append(f"Men's race runs {delta:.1f} °C hotter than women's — heat-acclim work + heavier cooling kit for the 08:30 start")
+                # Pull the men's start time from its own card label ("Elite Men — 10:30")
+                # rather than hard-coding a single venue's start.
+                _m_start = cards[1][0].split("—")[-1].strip() if "—" in cards[1][0] else ""
+                _when = f"the {_m_start} start" if _m_start else "the later start"
+                cues.append(f"Men's race runs {delta:.1f} °C hotter than women's — heat-acclim work + heavier cooling kit for {_when}")
             elif delta >= 1:
                 cues.append(f"Men's race ~{delta:.1f} °C warmer — add one extra cooling touchpoint vs. women's plan")
     # UV
@@ -5838,8 +6030,16 @@ def main():
             print(f"  Upcoming event (CLI override): {upcoming['event_name']} "
                   f"({upcoming['event_date']}) — cat={upcoming.get('cat_name')}")
         else:
+            # Startlist exists in program_entries but the event row was never
+            # ingested. Fall back to VENUE_PREVIEW metadata so tier / max-points
+            # detection still resolves instead of reading a synthetic placeholder.
+            _pv = VENUE_PREVIEW.get(args.venue.lower().strip(), {})
             upcoming = {"event_id": eid, "event_date": None,
-                        "event_name": f"Upcoming event {eid}", "cat_name": None}
+                        "event_name": _pv.get("event_name") or f"Upcoming event {eid}",
+                        "cat_name": _pv.get("cat_name")}
+            print(f"  event_id={eid} not in events table — using startlist from "
+                  f"program_entries with VENUE_PREVIEW tier metadata "
+                  f"(cat={upcoming['cat_name']})")
     else:
         upcoming = find_upcoming_event(engine, args.venue)
         if upcoming:
@@ -5867,9 +6067,16 @@ def main():
     add_course_differentiators_slide(prs, args.venue, all_data, events_df, venue_content)
     add_course_map_slide(prs, args.venue, all_data, venue_content)
 
-    # Sea-surface temp for race day (forecast if in window, else prior-years avg)
+    # Sea-surface temp for race day (forecast if in window, else prior-years avg).
+    # Prefer the DB event date; fall back to EVENT_SCHEDULES["race_date"] so preview
+    # venues whose event is not yet ingested still get race-day weather.
     race_date_str = (str(pd.to_datetime(upcoming["event_date"]).date())
                      if upcoming and upcoming.get("event_date") else None)
+    if not race_date_str:
+        _sched_rd = EVENT_SCHEDULES.get(args.venue.lower().strip(), {}).get("race_date")
+        if _sched_rd:
+            race_date_str = str(_sched_rd)
+            print(f"  Using EVENT_SCHEDULES race_date fallback: {race_date_str}")
     sst_c, sst_src = (None, "unavailable")
     if coords and race_date_str:
         sst_c, sst_src = fetch_sst_for_race_day(coords[0], coords[1], race_date_str)
@@ -5911,7 +6118,17 @@ def main():
                                        gender_label, para_classes,
                                        split="total", split_label="Winning Time")
 
-    if prior_men or prior_women or upcoming:
+    # Preview venues (no prior races, upcoming event not yet in the DB) still get
+    # the ranking-driven slides — they query athlete_rankings, not the event. Tier
+    # labels fall back to VENUE_PREVIEW's event_name/cat_name so the max-points
+    # scale is right even with no DB event to read it from.
+    _preview_meta = VENUE_PREVIEW.get(args.venue.lower().strip(), {})
+    _tier_event_name = (upcoming.get("event_name") if upcoming
+                        else _preview_meta.get("event_name"))
+    _tier_cat_name   = (upcoming.get("cat_name") if upcoming
+                        else _preview_meta.get("cat_name"))
+
+    if prior_men or prior_women or upcoming or _preview_meta:
         add_who_to_watch_slide(
             prs, engine, args.venue,
             upcoming_event_id=upcoming["event_id"] if upcoming else None,
@@ -5922,8 +6139,8 @@ def main():
                                    upcoming_event_id=upcoming["event_id"] if upcoming else None)
         add_usa_world_rankings_slide(prs, engine, args.venue,
                                      upcoming_event_id=upcoming["event_id"] if upcoming else None,
-                                     event_name=upcoming.get("event_name") if upcoming else None,
-                                     cat_name=upcoming.get("cat_name") if upcoming else None)
+                                     event_name=_tier_event_name,
+                                     cat_name=_tier_cat_name)
         add_oqr_pace_slide(prs, engine, args.venue)
         add_usa_oqr_snapshot_slide(prs, engine, args.venue)
 
