@@ -841,6 +841,7 @@ VENUE_COORDS_FALLBACK: dict[str, tuple[float, float]] = {
     "hamburg":   (53.554,   9.994),   # Binnenalster / Rathausmarkt, city center
     "edmonton":  (53.527, -113.547),  # William Hawrelak Park, 9330 Groat Rd NW (race venue)
     "asuncion":  (-25.252, -57.642),  # La Isla del Delta, Nueva Asunción (Presidente Hayes, across the river)
+    "weihai":    (37.5043, 122.1290), # Wave to Wonderland swim venue (from athlete-guide water-quality sample coords)
     "london":    (51.508,   0.029),   # ExCeL London, Royal Victoria Dock
     "rio de janeiro": (-22.971, -43.185),  # Copacabana Beach, Avenida Atlântica
     "rio":       (-22.971, -43.185),  # Copacabana Beach (alias)
@@ -2744,6 +2745,27 @@ BIKE_COURSE_PROFILES: dict[str, dict] = {
             "Open floodplain with minimal tree cover: crosswind exposure on the long straights is the realistic pack-splitting mechanism",
         ],
     },
+    "weihai": {
+        "source":        "2026 WTCS Weihai Athletes' Guide (updated 22 July 2026) + WT race info",
+        "loop_km":       5.0,
+        "loops":         8,
+        "total_km":      40.0,
+        "gain_per_lap_m":  None,
+        "loss_per_lap_m":  None,
+        "max_grade_pos":   None,
+        "max_grade_neg":   None,
+        "avg_grade_pct":   None,
+        "wind":           "Coastal — guide gives August max average 5 m/s (~18 km/h), prevailing SE",
+        "surface":        "Closed city roads — Haibin North Rd, Yuhua Rd turnaround, Dongshan Rd",
+        "key_features": [
+            "8 × 5 km laps = 40 km, the highest lap count of any 2026 preview venue — a turnaround every lap means 16+ hard decelerations and re-accelerations",
+            "Route: transition at the Wave to Wonderland running track, north on Haibin North Rd to the Yuhua Rd turnaround, left onto Dongshan Rd, back down Haibin North Rd",
+            "Lap-heavy, turnaround-heavy design punishes riders who sit at the back of the pack — repeated surges out of each turn are where the accordion effect bites",
+            "Two wheel stations: team wheels at the transition exit, neutral wheels at the bike turnaround. Neutral stock covers rim, 140 mm and 160 mm disc, 11- and 12-speed",
+            "Spare wheels must be registered at Registration on race day and labelled with athlete name, race number and country",
+            "Coastal seafront exposure on Haibin North Rd — the guide's prevailing SE wind will be a cross/head component on one leg of every lap",
+        ],
+    },
 }
 
 SWIM_COURSE_PROFILES: dict[str, dict] = {
@@ -2919,6 +2941,30 @@ SWIM_COURSE_PROFILES: dict[str, dict] = {
         "missing": [
             "Buoy count and turn configuration (not published in the guide)",
             "Measured water quality data (not published; lagoon is a managed development water body)",
+        ],
+    },
+    "weihai": {
+        "source":            "2026 WTCS Weihai Athletes' Guide (updated 22 July 2026)",
+        "total_km":          1.5,
+        "laps":              2,
+        "loop_km":           0.75,
+        "layout":            "Yellow Sea — 2 counter-clockwise laps off the south side of Wave to Wonderland",
+        "format":            "Open sea bay — salt water, seafront start",
+        "start_type":        "Waterfront start off the south shore of Wave to Wonderland",
+        "water_temp_c":      None,
+        "expected_water_temp_range_c": (24.0, 26.0),
+        "wetsuit_note":      "NON-WETSUIT, effectively certain. Water measured 24.2–25.9 °C in every recorded edition (2017, 2023, 2024, 2025) and wetsuits were forbidden all four times. Do not pack a race wetsuit expecting to use it",
+        "key_features": [
+            "Standard-distance swim: 2 × 750 m counter-clockwise laps in the Yellow Sea off Wave to Wonderland",
+            "Salt water and open bay — sighting, swell and chop matter far more here than at the sheltered lagoon venues elsewhere on the calendar",
+            "Water has run 24–26 °C in every measured edition, so this is a reliably warm, reliably non-wetsuit swim — overheating in the swim is a bigger risk than cold",
+            "Water quality sampled 27 May 2026 at three points: pH 8.12–8.48, E. coli and enterococcus both undetected in all three samples",
+            "Two laps means a turn/exit sequence mid-swim — position off the first lap decides which bike pack you land in",
+            "Swim familiarization is Friday 28 Aug 10:00–11:00 only; swimming the race course at any other time is prohibited",
+        ],
+        "missing": [
+            "Buoy count and exact turn configuration (not published in the guide)",
+            "Tide and current data for race morning (open-bay venue; not published)",
         ],
     },
 }
@@ -3107,6 +3153,32 @@ RUN_COURSE_PROFILES: dict[str, dict] = {
         "missing": [
             "Aid station count and placement (not specified in the guide)",
             "Elevation profile (course stated as flat, no published grade data)",
+        ],
+    },
+    "weihai": {
+        "source":            "2026 WTCS Weihai Athletes' Guide (updated 22 July 2026)",
+        "total_km":          10.0,
+        "laps":              4,
+        "loop_km":           2.5,
+        "surface":           "Closed seafront road — Haibin North Rd out-and-back",
+        "gain_per_lap_m":    None,
+        "loss_per_lap_m":    None,
+        "max_grade_pos":     None,
+        "max_grade_neg":     None,
+        "avg_grade_pct":     None,
+        "heat_risk":         "MODERATE (men 09:00) / HIGHER for women (12:00 sun load)",
+        "key_features": [
+            "4 × 2.5 km laps = 10 km: north up Haibin North Rd to a turnaround, u-turn, return to transition, then into the finish chute at the main venue",
+            "Pure out-and-back on a seafront road — no technical features, so this is an honest 10 km where run legs are fully exposed",
+            "Three aid stations with sealed bottled water AND iced sponges — the sponges matter, this is the hottest run on the current preview set",
+            "Run penalty box sits near the dismount line and is passed every lap; bike drafting tickets are expensive over 4 laps",
+            "HEAT IS NOT SYMMETRIC: WT's recorded race-day air temp has been 3.9–4.7 °C higher for the women in each of the last three editions (2023, 2024, 2025)",
+            "Ambient climatology only warms ~1 °C from 09:00 to 12:00 here (coastal sea breeze), so most of that recorded gap is midday SUN and on-course radiant load, not air temperature. Shade is nil on this seafront out-and-back",
+            "2026 moves to 29 August, ~4 weeks earlier than the 2024/2025 editions. The closest analogue is 2023 (26 Aug), the hottest on record here: 27.2 °C men / 31.9 °C women",
+        ],
+        "missing": [
+            "Elevation profile (not published; seafront road, assumed flat to gently rolling)",
+            "Exact aid-station distances (guide confirms three stations but not their placement)",
         ],
     },
 }
@@ -3341,6 +3413,41 @@ TRAVEL_PROFILES: dict[str, dict] = {
             "Bottled water is recommended for visitors. Cash is guaraníes only for taxis and small purchases; cards work at hotels, malls and ride apps.",
             "Ride-hailing (Bolt cheapest, plus Uber and local MUV) is well covered: ~USD 2–5 in-city, USD 8–12 airport run. Electricity 220 V 50 Hz, plug type C (European two-pin).",
             "LOC advises AGAINST riding on open roads in the city — bike safety is explicitly the athlete's own responsibility outside the venue.",
+        ],
+    },
+    "weihai": {
+        "origin":          "Denver, CO → Weihai race week",
+        "core_read": (
+            "The longest trip on the 2026 calendar. Denver → Weihai (WEH) needs two or three legs, typically DEN to a "
+            "US west-coast gateway, then a trans-Pacific into Beijing/Shanghai/Seoul, then a domestic hop or the "
+            "high-speed rail into Weihai. Budget 24–30 h door to door and plan 4–5 days on the ground: CST is UTC+8, "
+            "14 hours ahead of Denver (MDT), which is close to maximum circadian disruption. A CHINESE VISA IS "
+            "REQUIRED for most nationalities — request the invitation letter early via Ms. Ye Sinan "
+            "(yesinan@ctsa.org.cn). LOC transfers are free from the airport, rail stations and port between 25–30 Aug, "
+            "but ONLY if arrival details are submitted by 15 August; miss that deadline and there is no pickup."
+        ),
+        "stats": [
+            ("Primary route",    "DEN → WEH",        "2–3 legs via PEK/PVG/ICN"),
+            ("Time zones",       "+14h",             "CST UTC+8 vs Denver MDT"),
+            ("Airport Transfer", "WEH → Hotel",      "46.2 km / ~50 min"),
+            ("Rail alternative", "Weihai North HSR", "8.4 km / ~18 min to hotel"),
+            ("Hotel → Venue",    "0.8 km",           "Walking distance"),
+        ],
+        "hotel_title": "Host Hotel / Accommodation",
+        "hotel_bullets": [
+            "Official hotel: Weihaiwei Hotel, No. 82 Haigang Road, Huancui District — 0.8 km from the main venue, an easy walk. 498 CNY/night single or twin, breakfast included.",
+            "Briefing and press conference are at the Brigh Radiance Hotel, ~500 m from the official hotel (briefing Fri 28 Aug 16:00–16:30).",
+            "Amenities: free Wi-Fi, fitness centre, free laundry on the 2nd floor, two bottles of water and fruit per room daily, free room-service delivery.",
+            "Athlete/coach set meals 198–498 CNY per person in Liugong Island Hall (2/F). Pasta Party Fri 28 Aug 18:00–20:00, vegetarian and halal available.",
+            "Weihai Municipal Hospital is ~1,600 m from the venue. Venue medical is free; hospital treatment is athlete-paid, so carry insurance.",
+        ],
+        "food_title": "China-Specific Practical Notes",
+        "food_bullets": [
+            "POWER BANKS: mainland domestic flights require the 3C/CCC logo — non-certified banks are routinely confiscated, including at transit security on a domestic connection. Under 100 Wh, carry-on only, never checked.",
+            "Payment is QR-dominant (WeChat Pay / Alipay); link an international card before travelling and carry ¥500–1,000 cash for edge cases.",
+            "Electricity 220 V / 50 Hz. Plug types A (US flat), I (AU) and some C (EU) — most hotels have universal sockets, but bring an adapter.",
+            "Pool training available 27–28 Aug at Weihai Swimming Pool (25 m, 4 lanes reserved, free) with a free LOC shuttle from the hotel at 07:30/08:30/13:30/14:30.",
+            "Bike and run training is on open public roads at the athlete's own risk; only the race venue gets traffic control, and only on familiarization and race day.",
         ],
     },
 }
@@ -3582,6 +3689,33 @@ VENUE_PREVIEW: dict[str, dict] = {
         # WT event_id 195159 (2026-08-09) — ingest to unlock startlist-based slides.
         "event_name":     "2026 World Triathlon Cup Asuncion",
         "cat_name":       "World Cup",
+    },
+    "weihai": {
+        "narrative": (
+            "WTCS Weihai returns to the Wave to Wonderland venue on China's Shandong peninsula for the 2026 "
+            "Championship Series. Weihai is one of the most established venues on the calendar, hosting elite racing "
+            "since 2011 and stepping up from World Cup to WTCS in 2024. The format is standard distance: a 2-lap "
+            "1.5 km sea swim, a lap-heavy 8 × 5 km bike, and a flat 4 × 2.5 km seafront run. Two things separate this "
+            "edition from recent history. First, the date moves to 29 August, roughly four weeks earlier than the "
+            "2024 and 2025 editions, which points at 2023-style heat rather than the milder late-September conditions "
+            "of the last two years. Second, and more important tactically, the men start at 09:00 and the women at "
+            "12:00, into peak midday sun. WT's recorded race-day temperature has come in about 4 °C higher for the "
+            "women in every measured edition, and since ambient air only warms ~1 °C across those three hours here, "
+            "that gap is essentially solar load on an unshaded seafront course."
+        ),
+        "features": [
+            "STANDARD distance (1.5 km / 40 km / 10 km) at WTCS tier — 1000 points to the winner.",
+            "Non-wetsuit is effectively certain: water has measured 24-26 °C and been ruled wetsuit-forbidden in all four recorded editions.",
+            "8 × 5 km bike with a turnaround every lap — the most lap-dense, surge-heavy bike course on the preview set.",
+            "Heat is asymmetric: men 09:00, women 12:00 into peak sun. Recorded race temps run ~4 °C higher for the women.",
+        ],
+        "format_label":   "Standard Distance (WTCS)",
+        "race_info_url":  "https://events.triathlon.org/2026-wtcs-weihai/race-info",
+        "race_info_text": "Race Info | 2026 WTCS Weihai",
+        # Tier metadata for max-points labelling when the event is not yet ingested.
+        # WT event_id 195151 (2026-08-29); startlist already present in program_entries.
+        "event_name":     "2026 World Triathlon Championship Series Weihai",
+        "cat_name":       "World Championship Series",
     },
 }
 
@@ -3873,6 +4007,48 @@ EVENT_SCHEDULES: dict[str, dict] = {
                 ("10:20",         "Athletes' introduction", False),
                 ("10:30",         "★ ELITE MEN START — 1500 / 40 / 10", True),
                 ("12:30",         "Award ceremony — Elite Women & Elite Men", False),
+            ]),
+        ],
+    },
+    "weihai": {
+        "title":      "2026 WTCS Weihai — Race Week",
+        "date_range": "August 27 – 30, 2026",
+        "venue_note": "Wave to Wonderland, Huancui District, Weihai, Shandong (CST, UTC+8)",
+        "race_date":  "2026-08-29",
+        "race_starts": [("Elite Men", "09:00"), ("Elite Women", "12:00")],
+        "days": [
+            ("Thu • Aug 27", "Arrival & Pool Training", [
+                ("09:00 – 18:00", "Information desk + bike mechanic — Weihaiwei Hotel", False),
+                ("08:00 – 10:00", "Pool training — Weihai Swimming Pool (25 m, 4 lanes)", False),
+                ("14:00 – 16:00", "Pool training — afternoon session", False),
+                ("07:30 / 13:30", "Free LOC shuttle hotel → pool (also 08:30 / 14:30)", False),
+            ]),
+            ("Fri • Aug 28", "Familiarization & Briefing", [
+                ("09:30 – 10:00", "Elite bike course familiarization — 3 laps, officials lead, NO overtaking", False),
+                ("10:00 – 11:00", "Elite swim course familiarization — all buoys set, boats + lifeguards", False),
+                ("10:15 – 10:45", "Coaches' feedback on FOP to Technical Delegate", False),
+                ("14:30 – 15:00", "Pre-race press conference — Brigh Radiance Hotel 12/F", False),
+                ("16:00 – 16:30", "★ Elite Athletes' Briefing — Brigh Radiance Hotel 14/F", True),
+                ("16:30 – 17:00", "Team medical meeting + race package distribution", False),
+                ("18:00 – 20:00", "Pasta Party — Weihaiwei Hotel 2/F (veg + halal available)", False),
+            ]),
+            ("Sat • Aug 29", "ELITE MEN — 09:00", [
+                ("07:30 – 08:30", "Elite Men athletes' lounge check-in", False),
+                ("07:45 – 08:45", "Elite Men transition zone check-in", False),
+                ("08:15 – 08:45", "Elite Men swim warm-up", False),
+                ("08:30 – 08:45", "Opening ceremony — main venue", False),
+                ("08:45 / 08:50", "Elite Men line-up (lounge) / introduction (swim exit)", False),
+                ("09:00",         "★ ELITE MEN START — 1.5 / 40 / 10", True),
+                ("10:55",         "Elite Men awards ceremony", False),
+            ]),
+            ("Sat • Aug 29", "ELITE WOMEN — 12:00", [
+                ("10:30 – 11:30", "Elite Women athletes' lounge check-in", False),
+                ("11:00 – 11:45", "Elite Women transition zone check-in", False),
+                ("11:15 – 11:45", "Elite Women swim warm-up", False),
+                ("11:15 – 11:45", "Elite coaches run course measurement", False),
+                ("11:45 / 11:50", "Elite Women line-up / introduction", False),
+                ("12:00",         "★ ELITE WOMEN START — hottest part of the day", True),
+                ("14:10",         "Elite Women awards ceremony", False),
             ]),
         ],
     },
