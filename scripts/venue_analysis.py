@@ -832,6 +832,7 @@ def _in_weather_window(hh: str) -> bool:
 # Hardcoded fallback for venues that have been geocoded historically. Avoids
 # relying on Nominatim when local SSL certs / network are unavailable.
 VENUE_COORDS_FALLBACK: dict[str, tuple[float, float]] = {
+    "karlovy vary": (50.226, 12.855),  # Lake Rolava, Karlovy Vary
     "huatulco":  (15.831, -96.320),
     "alghero":   (40.564,   8.319),
     "yokohama":  (35.444, 139.638),
@@ -2583,6 +2584,28 @@ def add_course_map_slide(
 # be lightly templated.
 
 BIKE_COURSE_PROFILES: dict[str, dict] = {
+    "karlovy vary": {
+        "source":        "2026 WTCS Karlovy Vary Athletes Guide V5 (Lake Rolava to city centre)",
+        "loop_km":       4.9,
+        "loops":         7,
+        "total_km":      40.8,
+        "gain_per_lap_m":  None,
+        "loss_per_lap_m":  None,
+        "max_grade_pos":   None,
+        "max_grade_neg":   None,
+        "avg_grade_pct":   None,
+        "wind":           "Sheltered spa-valley setting — wind rarely decisive",
+        "surface":        "80% asphalt / 20% pavement (cobbles) — fully closed roads",
+        "key_features": [
+            "6.5 km approach from Lake Rolava, then 7 technically challenging laps of 4.9 km = 40.8 km total",
+            "THE defining feature: roughly 20% of every lap is ascent — the main climb is repeated 7 times and shreds the field",
+            "Corrugated terrain, 80% asphalt / 20% pavement — cobbled sections add vibration load; check tyre pressure and bottle security",
+            "Lapped athletes are REMOVED from the race — no rule exception here; a bad swim can end the day early",
+            "One of the hardest bike courses on the circuit: expect the lead group to shrink substantially rather than a bunch finish",
+            "Team wheel station near TA2; neutral wheel station on Nábřeží Osvobození street",
+            "Saturday escorted familiarisation covers the approach plus 2 laps, with a regroup at the top of the main climb",
+        ],
+    },
     "rio de janeiro": {
         "source":        "2026 World Triathlon Cup Rio Athlete's Guide v2.0 (Copacabana)",
         "loop_km":       3.47,
@@ -2769,6 +2792,29 @@ BIKE_COURSE_PROFILES: dict[str, dict] = {
 }
 
 SWIM_COURSE_PROFILES: dict[str, dict] = {
+    "karlovy vary": {
+        "source":            "2026 WTCS Karlovy Vary Athletes Guide V5 (Lake Rolava)",
+        "total_km":          1.5,
+        "laps":              2,
+        "loop_km":           0.75,
+        "layout":            "Lake Rolava — 2 anti-clockwise laps, Australian exit between laps",
+        "format":            "Freshwater lake — sheltered, island-lined course",
+        "start_type":        "Pontoon start (0.6 m high, 75 cm slots); first turn buoy at 205 m",
+        "water_temp_c":      None,
+        "expected_water_temp_range_c": (18.0, 20.0),
+        "wetsuit_note":      "History says pack both: wetsuit ALLOWED in 2025 (18.0 °C), 2023 (19.0 °C) and 2022 (19.1 °C), but FORBIDDEN in 2024 when the lake hit 23–25 °C. Ruling confirmed at the Sat 12 Sep briefing.",
+        "key_features": [
+            "2 × 750 m anti-clockwise laps in Lake Rolava — pontoon start, hard 205 m opening leg to the first turn buoy",
+            "Australian exit: run the wooden pier at the end of lap 1 and dive back in — rehearse the exit/re-entry at Saturday familiarisation",
+            "Navigation-heavy: swim behind the big island, under the bridge, left between the big and small islands, then right to the pier",
+            "Sheltered lake water — no current or surf, but the island turns make sighting and pack position matter",
+            "Wetsuit ruling has flipped year to year (18–19 °C most editions, 23–25 °C in 2024) — bring both setups",
+            "Swim exits into TA1 at Lake Rolava; last-minute gear is transported by the LOC to the finish area in the city",
+        ],
+        "missing": [
+            "Confirmed race-day water temperature + wetsuit ruling (announced at the briefing)",
+        ],
+    },
     "rio de janeiro": {
         "source":            "2026 World Triathlon Cup Rio Athlete's Guide v2.0 (Copacabana)",
         "total_km":          0.75,
@@ -2970,6 +3016,30 @@ SWIM_COURSE_PROFILES: dict[str, dict] = {
 }
 
 RUN_COURSE_PROFILES: dict[str, dict] = {
+    "karlovy vary": {
+        "source":            "2026 WTCS Karlovy Vary Athletes Guide V5 (city centre)",
+        "total_km":          10.0,
+        "laps":              4,
+        "loop_km":           2.5,
+        "surface":           "Mixed asphalt and pavement — spa-town centre streets",
+        "gain_per_lap_m":    None,
+        "loss_per_lap_m":    None,
+        "max_grade_pos":     None,
+        "max_grade_neg":     None,
+        "avg_grade_pct":     None,
+        "heat_risk":         "LOW",
+        "key_features": [
+            "4 laps of 2.5 km (10 km) through the Karlovy Vary spa-town centre — out of TA2 at Theatre Square",
+            "Mixed asphalt and pavement surface — footing changes underfoot; racing flats over ultra-light spikes",
+            "Two aid stations per lap: first ~160 m out of TA2, second at the far turnaround on Zahradní street",
+            "Penalty box on Stará Louka street close to TA2 — passed every lap, so a drafting call is served fast",
+            "Mid-September Czech conditions: mild and often cool (historic race-day air 14–27 °C) — low heat stress",
+            "After a brutally selective bike, the run is usually contested by a much-reduced front group",
+        ],
+        "missing": [
+            "Elevation profile (city-centre laps — no published grade data)",
+        ],
+    },
     "rio de janeiro": {
         "source":            "2026 World Triathlon Cup Rio Athlete's Guide v2.0 (Copacabana)",
         "total_km":          5.0,
@@ -3185,6 +3255,42 @@ RUN_COURSE_PROFILES: dict[str, dict] = {
 
 # ── Travel & arrival data (per venue, origin = Denver, CO USAT HQ) ───────────
 TRAVEL_PROFILES: dict[str, dict] = {
+    "karlovy vary": {
+        "origin":          "Denver, CO to Karlovy Vary race week",
+        "core_read": (
+            "Fly Denver to Prague (PRG) — a one-stop overnight via a European hub (LHR, FRA, "
+            "AMS, CDG) or an East Coast gateway; roughly 13–15 h door-to-door and a +8 h shift "
+            "(MDT to CEST), the biggest jet-lag load of the late-season block. From Prague it is a "
+            "~2 h ground transfer to Karlovy Vary (~125 km). The LOC provides a FREE bus transfer "
+            "for elite athletes and coaches (bike included) — but you must email flight details to "
+            "transfer@citytriathlon.cz before 31 Aug 2026 or it becomes 20 EUR per person each way. "
+            "Arrive by Thursday to absorb the time shift before Saturday familiarisation."
+        ),
+        "stats": [
+            ("Primary route",    "DEN → PRG",        "1-stop, overnight"),
+            ("Flight time",      "~13–15 h",         "via LHR / FRA / AMS"),
+            ("Time zones",       "+8 h",             "Czechia ahead of Denver"),
+            ("Airport Transfer", "PRG → Karlovy Vary", "Free LOC bus (register!)"),
+            ("Transfer Distance","~125 km / ~2 h",   "Coach transfer"),
+        ],
+        "hotel_title": "Accommodation / Venue Logistics Read",
+        "hotel_bullets": [
+            "Briefing is at the Spa Hotel Thermal (Sat 12 Sep, 16:00–16:30) — staying central keeps race week simple.",
+            "FREE LOC bus PRG to Karlovy Vary: email arrival time + flight number to transfer@citytriathlon.cz before 31 Aug 2026.",
+            "Private LOC transfer if you miss the deadline: 140 EUR for 1–3 people, 180 EUR for 4–7. Extra escort staff 20 EUR per person per journey.",
+            "Race-weekend shuttle runs between Divadelní náměstí (T2) and Lake Rolava (T1) — about 20 min, with a funicular link at the Imperial stop.",
+            "Two-transition race: plan bag logistics carefully — TA2 checks in first (city), then TA1 at the lake.",
+            "Free daily 2 h pool access at Mattoni Aréna and run track at AC Start stadium — bring photo ID.",
+        ],
+        "food_title": "Food / Grocery Options",
+        "food_bullets": [
+            "Karlovy Vary is a compact spa town — supermarkets (Billa, Albert, Lidl, Tesco) are an easy walk or short bus from the centre.",
+            "Tap water is safe throughout Czechia; the town's famous mineral springs are drinkable but heavily mineralised — not a race-week hydration plan.",
+            "Czech restaurant staples run heavy (dumplings, pork, sauces) — identify a couple of lighter pasta-and-rice options early in the week.",
+            "Athletes Lounge provides water, fruit and energy bars before and after the race at both the start and finish areas.",
+            "Split start times (W 10:00 / M 15:00) mean very different fuelling timelines — men face a full morning of waiting; plan lunch deliberately.",
+        ],
+    },
     "rio de janeiro": {
         "origin":          "Denver, CO → Rio de Janeiro race week",
         "core_read": (
@@ -3533,6 +3639,26 @@ def add_travel_load_slide(prs: Presentation, venue: str) -> bool:
 # Used to populate the venue intro slide. When a venue has no historical race
 # results, this is the primary way an athlete gets a feel for the course.
 VENUE_PREVIEW: dict[str, dict] = {
+    "karlovy vary": {
+        "narrative": (
+            "WTCS Karlovy Vary returns to the Czech spa town for its second year at Championship "
+            "Series level (World Cup 2017–2024, WTCS from 2025). This is a standard-distance, "
+            "two-transition race: a 1.5 km two-lap swim in Lake Rolava with an Australian exit, a "
+            "6.5 km approach into 7 brutal 4.9 km bike laps (40.8 km, ~20% of every lap climbing, "
+            "part cobbled), then a 4-lap 10 km run through the city centre from Theatre Square. "
+            "The bike is the story here — lapped athletes are pulled, and the front group is "
+            "usually shredded before the run even starts."
+        ),
+        "features": [
+            "1.5 km swim (2 x 750 m) in Lake Rolava — pontoon start, Australian exit, island navigation. Wetsuit ruling has flipped year to year.",
+            "40.8 km bike: 6.5 km approach + 7 x 4.9 km laps, ~20% ascent every lap, 80% asphalt / 20% cobbles. Lapped athletes REMOVED.",
+            "10 km run (4 x 2.5 km) through the spa-town centre — mixed asphalt/pavement, aid twice per lap.",
+            "Two transitions (T1 Lake Rolava to T2 Theatre Square) and split start times: Women 10:00, Men 15:00.",
+        ],
+        "format_label":   "Standard Triathlon (WTCS)",
+        "race_info_url":  "https://events.triathlon.org/2026-wtcs-karlovy-vary/race-info",
+        "race_info_text": "Race Info | 2026 WTCS Karlovy Vary",
+    },
     "rio de janeiro": {
         "narrative": (
             "The World Triathlon Cup returns to Copacabana Beach — the 2016 Olympic triathlon "
@@ -3724,6 +3850,38 @@ VENUE_PREVIEW: dict[str, dict] = {
 # Each row: (time_label, activity_text, is_highlighted). Highlighted rows render
 # in red (used for start times and mandatory meetings).
 EVENT_SCHEDULES: dict[str, dict] = {
+    "karlovy vary": {
+        "title":      "2026 WTCS Karlovy Vary — Race Week",
+        "date_range": "September 12 – 13, 2026",
+        "venue_note": "Lake Rolava (T1) + Theatre Square (T2), Karlovy Vary (CEST, UTC+2)",
+        "race_starts": [("Elite Women", "10:00"), ("Elite Men", "15:00")],
+        "days": [
+            ("Sat • Sep 12", "Familiarisation & Briefing", [
+                ("07:30 – 09:30", "Athletes Lounge open — Lake Rolava", False),
+                ("07:45 – 08:45", "Swim course familiarisation — Lake Rolava", False),
+                ("09:00",         "Bike escorted familiarisation — approach + 2 laps from Rolava", False),
+                ("16:00 – 16:30", "★ Mandatory Elite Athletes briefing — Spa Hotel Thermal", True),
+            ]),
+            ("Sun • Sep 13 — Women", "WTCS RACE DAY (AM)", [
+                ("08:00 – 08:30", "Elite Women — TA2 check-in (Theatre Square)", False),
+                ("08:30 – 09:30", "Elite Women — Athletes Lounge check-in (re-entry to 09:50)", False),
+                ("08:45 – 09:45", "Elite Women — TA1 check-in (Lake Rolava)", False),
+                ("09:00 – 09:45", "Elite Women — Swim warm-up", False),
+                ("09:50 – 09:59", "Elite Women — Line-up and presentation", False),
+                ("10:00",         "★ ELITE WOMEN RACE START", True),
+                ("12:10 / 12:25", "Women awards + Chocolate ceremony — Theatre Square", False),
+            ]),
+            ("Sun • Sep 13 — Men", "WTCS RACE DAY (PM)", [
+                ("13:00 – 13:30", "Elite Men — TA2 check-in (Theatre Square)", False),
+                ("13:30 – 14:30", "Elite Men — Athletes Lounge check-in", False),
+                ("13:45 – 14:45", "Elite Men — TA1 check-in (Lake Rolava)", False),
+                ("14:00 – 14:45", "Elite Men — Swim warm-up", False),
+                ("14:50 – 14:59", "Elite Men — Line-up and presentation", False),
+                ("15:00",         "★ ELITE MEN RACE START", True),
+                ("17:10 / 17:25", "Men awards + Chocolate ceremony — Theatre Square", False),
+            ]),
+        ],
+    },
     "rio de janeiro": {
         "title":      "2026 World Triathlon Cup Rio de Janeiro — Race Week",
         "date_range": "August 1 – 2, 2026",
